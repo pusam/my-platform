@@ -767,7 +767,7 @@ onUnmounted(() => {
 
 .data-time-label {
   font-size: 0.75rem;
-  color: #888;
+  color: var(--text-muted, #9494bd);
 }
 
 .data-time-value {
@@ -795,12 +795,12 @@ onUnmounted(() => {
 
 .market-status-badge.status-closed {
   background: rgba(156,163,175,0.2);
-  color: #9ca3af;
+  color: var(--text-muted, #9494bd);
 }
 
 .update-time {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted, #9494bd);
 }
 
 .refresh-btn {
@@ -828,7 +828,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   cursor: pointer;
 }
 
@@ -868,7 +868,7 @@ onUnmounted(() => {
 
 .impact-badge.positive { background: rgba(239,68,68,0.2); color: #ef4444; }
 .impact-badge.negative { background: rgba(59,130,246,0.2); color: #3b82f6; }
-.impact-badge.neutral { background: rgba(255,255,255,0.1); color: #9ca3af; }
+.impact-badge.neutral { background: rgba(255,255,255,0.1); color: var(--text-muted, #9494bd); }
 
 .score-track {
   height: 8px;
@@ -889,7 +889,7 @@ onUnmounted(() => {
   top: -4px;
   width: 3px;
   height: 16px;
-  background: #fff;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   border-radius: 2px;
   transform: translateX(-50%);
   box-shadow: 0 0 8px rgba(255,255,255,0.5);
@@ -900,7 +900,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   font-size: 0.7rem;
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 .score-labels .neg { color: #3b82f6; }
@@ -976,7 +976,7 @@ onUnmounted(() => {
 
 .factor-title {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   margin-bottom: 10px;
 }
 
@@ -1001,7 +1001,7 @@ onUnmounted(() => {
 
 .factor-weight {
   font-size: 0.65rem;
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 .factor-rate {
@@ -1017,7 +1017,7 @@ onUnmounted(() => {
 
 .factor-pos { color: #ef4444; }
 .factor-neg { color: #3b82f6; }
-.factor-neutral { color: #9ca3af; }
+.factor-neutral { color: var(--text-muted, #9494bd); }
 
 /* VIX 공포지수 패널 */
 .vix-panel {
@@ -1071,7 +1071,7 @@ onUnmounted(() => {
 
 .vix-exchange {
   font-size: 0.7rem;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   padding: 2px 8px;
   background: var(--border-light);
   border-radius: 4px;
@@ -1133,7 +1133,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   font-size: 0.65rem;
-  color: #666;
+  color: var(--text-muted, #9494bd);
   margin-top: 4px;
 }
 
@@ -1181,7 +1181,7 @@ onUnmounted(() => {
 
 .sentiment-exchange {
   font-size: 0.7rem;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   padding: 2px 8px;
   background: var(--border-light);
   border-radius: 4px;
@@ -1233,7 +1233,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   font-size: 0.65rem;
-  color: #666;
+  color: var(--text-muted, #9494bd);
   margin-top: 4px;
 }
 
@@ -1257,7 +1257,7 @@ onUnmounted(() => {
 
 .fng-level-badge.fng-extreme-fear { background: rgba(239,68,68,0.2); color: #f87171; }
 .fng-level-badge.fng-fear { background: rgba(251,146,60,0.2); color: #fb923c; }
-.fng-level-badge.fng-neutral { background: rgba(255,255,255,0.1); color: #9ca3af; }
+.fng-level-badge.fng-neutral { background: rgba(255,255,255,0.1); color: var(--text-muted, #9494bd); }
 .fng-level-badge.fng-greed { background: rgba(34,197,94,0.2); color: #4ade80; }
 .fng-level-badge.fng-extreme-greed { background: rgba(34,197,94,0.3); color: #22c55e; }
 
@@ -1274,7 +1274,7 @@ onUnmounted(() => {
 
 .fng-change.up { color: #4ade80; }
 .fng-change.down { color: #f87171; }
-.fng-change.flat { color: #9ca3af; }
+.fng-change.flat { color: var(--text-muted, #9494bd); }
 
 .fng-meter-track {
   height: 8px;
@@ -1299,12 +1299,12 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   font-size: 0.65rem;
-  color: #666;
+  color: var(--text-muted, #9494bd);
   margin-top: 4px;
 }
 
 .fng-label-fear { color: #f87171; }
-.fng-label-neutral { color: #9ca3af; }
+.fng-label-neutral { color: var(--text-muted, #9494bd); }
 .fng-label-greed { color: #4ade80; }
 
 /* 메인 카드 (코스피200 선물) */
@@ -1397,7 +1397,7 @@ onUnmounted(() => {
 
 .main-status.up { background: rgba(239,68,68,0.2); color: #ef4444; }
 .main-status.down { background: rgba(59,130,246,0.2); color: #3b82f6; }
-.main-status.flat { background: rgba(255,255,255,0.1); color: #9ca3af; }
+.main-status.flat { background: rgba(255,255,255,0.1); color: var(--text-muted, #9494bd); }
 
 .main-price {
   display: flex;
@@ -1415,7 +1415,7 @@ onUnmounted(() => {
 .change { display: flex; gap: 6px; font-size: 1.1rem; font-weight: 600; }
 .change.up { color: #ef4444; }
 .change.down { color: #3b82f6; }
-.change.flat { color: #9ca3af; }
+.change.flat { color: var(--text-muted, #9494bd); }
 
 .main-details {
   display: grid;
@@ -1429,7 +1429,7 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-.main-details .label { font-size: 0.8rem; color: #888; }
+.main-details .label { font-size: 0.8rem; color: var(--text-muted, #9494bd); }
 .main-details .value { font-size: 1rem; color: #ddd; font-weight: 500; }
 
 /* 카테고리 섹션 */
@@ -1475,7 +1475,7 @@ onUnmounted(() => {
 
 .exchange-tag {
   font-size: 0.7rem;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   padding: 2px 8px;
   background: var(--border-light);
   border-radius: 4px;
@@ -1499,13 +1499,13 @@ onUnmounted(() => {
 
 .card-change.up { color: #ef4444; }
 .card-change.down { color: #3b82f6; }
-.card-change.flat { color: #9ca3af; }
+.card-change.flat { color: var(--text-muted, #9494bd); }
 
 .card-range {
   display: flex;
   justify-content: space-between;
   font-size: 0.75rem;
-  color: #666;
+  color: var(--text-muted, #9494bd);
   padding-top: 8px;
   border-top: 1px solid var(--border-light);
 }
@@ -1524,7 +1524,7 @@ onUnmounted(() => {
 .futures-table th {
   padding: 12px 14px;
   text-align: left;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   font-weight: 600;
   border-bottom: 1px solid rgba(255,255,255,0.1);
   font-size: 0.8rem;
@@ -1541,10 +1541,10 @@ onUnmounted(() => {
 .futures-table .right { text-align: right; }
 
 .futures-table tr:hover { background: rgba(255,255,255,0.03); }
-.futures-table tr.error td { color: #666; }
+.futures-table tr.error td { color: var(--text-muted, #9494bd); }
 
 .table-name { font-weight: 600; color: #fff; }
-.table-symbol { font-size: 0.75rem; color: #666; margin-left: 6px; }
+.table-symbol { font-size: 0.75rem; color: var(--text-muted, #9494bd); margin-left: 6px; }
 
 .futures-table td.up { color: #ef4444; font-weight: 600; }
 .futures-table td.down { color: #3b82f6; font-weight: 600; }
@@ -1556,7 +1556,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
   padding: 60px;
-  color: #888;
+  color: var(--text-muted, #9494bd);
 }
 
 .spinner {

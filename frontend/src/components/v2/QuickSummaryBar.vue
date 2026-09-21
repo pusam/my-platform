@@ -184,11 +184,11 @@ const getQsRiskLabel = () => {
   gap: 2px;
   padding: 6px 4px;
 }
-.qs-label { font-size: 10px; color: rgba(255,255,255,0.6); font-weight: 600; }
+.qs-label { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; }
 .qs-value { font-size: 16px; font-weight: 800; color: rgba(255,255,255,0.9); }
-.qs-sub { font-size: 10px; color: rgba(255,255,255,0.6); }
+.qs-sub { font-size: 11px; color: rgba(255,255,255,0.6); }
 .qs-streak {
-  font-size: 9.5px; font-weight: 700; margin-top: 1px;
+  font-size: 11px; font-weight: 700; margin-top: 1px;
   padding: 0 5px; border-radius: 4px;
   background: rgba(239,68,68,0.14); color: #f87171;
 }
@@ -198,10 +198,10 @@ const getQsRiskLabel = () => {
   background: rgba(148,163,184,0.10); border: 1px solid rgba(148,163,184,0.18);
 }
 .qs-rvol-line b { color: #e2e8f0; font-variant-numeric: tabular-nums; }
-.qs-rvol-note { font-size: 10px; opacity: 0.6; margin-left: 6px; }
+.qs-rvol-note { font-size: 11px; opacity: 0.6; margin-left: 6px; }
 .qs-badge {
-  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
-  background: rgba(107,114,128,0.2); color: #9ca3af;
+  font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+  background: rgba(107,114,128,0.2); color: var(--text-muted, #9494bd);
 }
 /* 수급/이격도 등락 표시 — 행동 라벨(#ef4444 전용)이 아니라 등락 토큰을 쓴다(common.css 규약) */
 .qs-positive { color: var(--stock-up, #f87171); }
@@ -215,7 +215,7 @@ const getQsRiskLabel = () => {
 .qs-warning { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .qs-rec-buy { background: rgba(239,68,68,0.15); color: #ef4444; }
 .qs-rec-trading_buy { background: rgba(239,68,68,0.1); color: #f87171; }
-.qs-rec-hold { background: rgba(107,114,128,0.15); color: #9ca3af; }
+.qs-rec-hold { background: rgba(107,114,128,0.15); color: var(--text-muted, #9494bd); }
 .qs-rec-sell { background: rgba(59,130,246,0.15); color: #3b82f6; }
 .qs-rec-wait_and_buy { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .qs-skeleton { height: 50px; }
@@ -233,8 +233,8 @@ const getQsRiskLabel = () => {
 @media (max-width: 480px) {
   .quick-summary-bar { grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 10px; }
   .qs-value { font-size: 13px; }
-  .qs-label { font-size: 9.5px; }
-  .qs-sub { font-size: 9.5px; }
-  .qs-badge { font-size: 9.5px; padding: 1px 5px; }
+  .qs-label { font-size: 11px; }
+  .qs-sub { font-size: 11px; }
+  .qs-badge { font-size: 11px; padding: 1px 5px; }
 }
 </style>

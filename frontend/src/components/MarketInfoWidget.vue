@@ -182,7 +182,7 @@ onUnmounted(() => {
 
 .update-time {
   font-size: 0.75rem;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   background: var(--border-light);
   padding: 4px 10px;
   border-radius: 12px;
@@ -263,7 +263,7 @@ onUnmounted(() => {
 
 .status-label {
   font-size: 0.75rem;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   margin-bottom: 4px;
 }
 
@@ -302,7 +302,7 @@ onUnmounted(() => {
 
 .badge-neutral {
   background: rgba(156, 163, 175, 0.2);
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
 }
 
 .badge-warning {
@@ -353,7 +353,7 @@ onUnmounted(() => {
 
 .index-label {
   font-size: 0.7rem;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   margin-bottom: 4px;
   font-weight: 500;
 }

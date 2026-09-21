@@ -1510,7 +1510,7 @@ onUnmounted(() => {
 }
 
 .stock-code {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.9rem;
 }
 
@@ -1535,7 +1535,7 @@ onUnmounted(() => {
 .change-info.positive::before { content: '▲ '; font-size: 0.85em; }
 .change-info.negative { color: var(--stock-down, #60a5fa); }
 .change-info.negative::before { content: '▼ '; font-size: 0.85em; }
-.change-info.neutral { color: #9ca3af; }
+.change-info.neutral { color: var(--text-muted, #7878a0); }
 
 .ai-score-box {
   display: flex;
@@ -1551,7 +1551,7 @@ onUnmounted(() => {
 .ai-score-box.medium { border-color: #eab308; }
 .ai-score-box.low { border-color: #ef4444; }
 
-.score-label { font-size: 0.8rem; color: #888; }
+.score-label { font-size: 0.8rem; color: var(--text-muted, #7878a0); }
 .score-value { font-size: 2.5rem; font-weight: 800; font-family: 'Monaco', monospace; }
 .ai-score-box.high .score-value { color: #22c55e; }
 .ai-score-box.medium .score-value { color: #eab308; }
@@ -1594,7 +1594,7 @@ onUnmounted(() => {
   font-size: 1rem;
 }
 
-.search-bar input::placeholder { color: #666; }
+.search-bar input::placeholder { color: var(--text-muted, #7878a0); }
 
 .search-bar button {
   padding: 14px 28px;
@@ -1649,14 +1649,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.85rem;
   cursor: pointer;
 }
 
 .auto-refresh-toggle input { width: 16px; height: 16px; cursor: pointer; }
 
-.update-time { color: #666; font-size: 0.8rem; font-family: 'Monaco', monospace; }
+.update-time { color: var(--text-muted, #7878a0); font-size: 0.8rem; font-family: 'Monaco', monospace; }
 
 /* Loading */
 .loading-overlay {
@@ -1665,7 +1665,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
 }
 
 .loading-spinner {
@@ -1825,7 +1825,7 @@ onUnmounted(() => {
 }
 .tail-note.up { border-left: 3px solid #f87171; }
 .tail-note.down { border-left: 3px solid #60a5fa; }
-.tail-note .tail-sub { opacity: 0.55; font-size: 10.5px; }
+.tail-note .tail-sub { opacity: 0.55; font-size: 11px; }
 
 /* 차트 지표 토글 버튼 */
 .chart-toggles {
@@ -1886,7 +1886,7 @@ onUnmounted(() => {
 }
 
 .fin-card.wide { grid-column: span 2; }
-.fin-label { color: #888; font-size: 0.85rem; }
+.fin-label { color: var(--text-muted, #7878a0); font-size: 0.85rem; }
 .fin-value { font-weight: 600; font-family: 'Monaco', monospace; }
 .fin-value.positive { color: var(--stock-up, #f87171); }
 .fin-value.negative { color: var(--stock-down, #60a5fa); }
@@ -2026,7 +2026,7 @@ onUnmounted(() => {
 
 .data-source-badge.pre-market {
   background: rgba(156, 163, 175, 0.2);
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
   border: 1px solid rgba(156, 163, 175, 0.4);
 }
 
@@ -2166,7 +2166,7 @@ onUnmounted(() => {
 .gauge-value .score.safe { color: #22c55e; }
 .gauge-value .score.warning { color: #eab308; }
 .gauge-value .score.danger { color: #ef4444; }
-.gauge-value .label { font-size: 0.9rem; color: #666; }
+.gauge-value .label { font-size: 0.9rem; color: var(--text-muted, #7878a0); }
 
 .gauge-labels {
   display: flex;
@@ -2205,7 +2205,7 @@ onUnmounted(() => {
 }
 
 .news-section-left h2 { font-size: 1rem; }
-.news-count { font-size: 0.85rem; color: #888; }
+.news-count { font-size: 0.85rem; color: var(--text-muted, #7878a0); }
 
 .news-list {
   max-height: 250px;
@@ -2237,26 +2237,26 @@ onUnmounted(() => {
 }
 
 .news-desc {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.75rem;
   margin: 4px 0 0 0;
   line-height: 1.3;
 }
 
 .news-item a:hover { text-decoration: underline; }
-.news-date { color: #666; font-size: 0.75rem; flex-shrink: 0; margin-left: 10px; white-space: nowrap; }
+.news-date { color: var(--text-muted, #7878a0); font-size: 0.75rem; flex-shrink: 0; margin-left: 10px; white-space: nowrap; }
 
 .no-news {
   padding: 20px;
   text-align: center;
-  color: #666;
+  color: var(--text-muted, #7878a0);
 }
 
 /* Empty State */
 .empty-state {
   text-align: center;
   padding: 80px 20px;
-  color: #666;
+  color: var(--text-muted, #7878a0);
 }
 
 .empty-icon { font-size: 4rem; margin-bottom: 16px; }
@@ -2292,7 +2292,7 @@ onUnmounted(() => {
   text-align: center;
   padding: 20px;
   margin-top: 20px;
-  color: #666;
+  color: var(--text-muted, #7878a0);
   font-size: 0.8rem;
 }
 
@@ -2465,7 +2465,7 @@ onUnmounted(() => {
 }
 .cps-card.sig-bullish { border-left-color: #ef4444; }   /* 한국 관행: 상승=빨강 */
 .cps-card.sig-bearish { border-left-color: #3b82f6; }   /* 하락=파랑 */
-.cps-card.sig-neutral { border-left-color: #9ca3af; }
+.cps-card.sig-neutral { border-left-color: var(--text-muted, #7878a0); }
 .cps-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .cps-card-icon { font-size: 16px; }
 .cps-card-label { color: rgba(255,255,255,0.95); font-weight: 600; font-size: 14px; flex: 1; min-width: 0; }
@@ -2500,7 +2500,7 @@ onUnmounted(() => {
   background: transparent;
   border: none;
   border-radius: 10px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;

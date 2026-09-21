@@ -966,7 +966,7 @@ onMounted(() => {
 }
 
 .main-status.condition-normal {
-  border-color: #6b7280;
+  border-color: var(--text-muted, #7878a0);
   background: linear-gradient(135deg, #1a1a2e 0%, #1f2937 100%);
 }
 
@@ -2030,7 +2030,7 @@ onMounted(() => {
   }
   .futures-card { padding: 8px; }
   .futures-price { font-size: 13px; }
-  .futures-name { font-size: 10px; }
+  .futures-name { font-size: 11px; }
 }
 
 @media (max-width: 480px) {

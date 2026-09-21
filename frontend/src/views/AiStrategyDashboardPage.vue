@@ -933,7 +933,7 @@ onMounted(async () => {
 
 .total-label {
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   margin-bottom: 4px;
 }
 
@@ -967,7 +967,7 @@ onMounted(async () => {
 
 .total-opinion-box.hold {
   background: rgba(156, 163, 175, 0.2);
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
   border: 1px solid rgba(156, 163, 175, 0.3);
 }
 
@@ -994,7 +994,7 @@ onMounted(async () => {
   background: var(--border-light);
   border: 2px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   cursor: pointer;
   transition: all 0.3s;
   flex: 1;
@@ -1055,7 +1055,7 @@ onMounted(async () => {
 
 .strategy-text p {
   margin: 0;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.95rem;
 }
 
@@ -1176,7 +1176,7 @@ onMounted(async () => {
 }
 
 .stock-code {
-  color: #666;
+  color: var(--text-muted, #7878a0);
   font-size: 0.9rem;
   font-family: monospace;
 }
@@ -1275,7 +1275,7 @@ onMounted(async () => {
 }
 
 .suggestion-label {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.9rem;
 }
 
@@ -1321,7 +1321,7 @@ onMounted(async () => {
 .return-label {
   display: block;
   font-size: 0.7rem;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1343,7 +1343,7 @@ onMounted(async () => {
 }
 
 .return-item.neutral .return-value {
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
 }
 
 /* 핵심 지표 */
@@ -1365,7 +1365,7 @@ onMounted(async () => {
 
 .metric-label {
   display: block;
-  color: #666;
+  color: var(--text-muted, #7878a0);
   font-size: 0.75rem;
   margin-bottom: 4px;
 }
@@ -1439,7 +1439,7 @@ onMounted(async () => {
 }
 
 .summary-label {
-  color: #666;
+  color: var(--text-muted, #7878a0);
   font-size: 0.8rem;
 }
 
@@ -1472,7 +1472,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
 }
 
 .loading-spinner {
@@ -1496,7 +1496,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   text-align: center;
 }
 
@@ -1512,7 +1512,7 @@ onMounted(async () => {
 
 .empty-hint {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted, #7878a0);
 }
 
 /* AI 스코어 섹션 */
@@ -1572,7 +1572,7 @@ onMounted(async () => {
 
 .ai-score-badge.ai-very-low {
   background: rgba(156, 163, 175, 0.2);
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
   border: 1px solid rgba(156, 163, 175, 0.3);
 }
 
@@ -1588,13 +1588,13 @@ onMounted(async () => {
 }
 .diagnosis-badge .diag-label {
   opacity: 0.7;
-  font-size: 10px;
+  font-size: 11px;
 }
 .diagnosis-badge .diag-score {
   font-weight: 800;
 }
 .diagnosis-badge .diag-verdict {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.8;
 }
 .diag-good {

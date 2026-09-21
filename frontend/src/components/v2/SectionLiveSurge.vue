@@ -84,20 +84,24 @@
               </span>
             </div>
           </template>
-          <div class="detail-row" v-if="hasFormattedChange(stock.formattedChangeAmount) && investor !== 'COMMON'">
+          <!-- 카드는 그리드로 나란히 놓인다 — 결측이라고 행을 없애면 옆 카드와 라벨 높이가 어긋나
+               가로로 훑어 비교할 수 없다. 자리는 남기고 '-'(§4c: 결측을 값으로 위장하지 않되 숨기지도 않음). -->
+          <div class="detail-row" v-if="investor !== 'COMMON'">
             <span class="label">변화량</span>
-            <span class="value" :class="getAmountClass(stock.amountChange)">
-              {{ stock.formattedChangeAmount }}
+            <span class="value" :class="hasFormattedChange(stock.formattedChangeAmount) ? getAmountClass(stock.amountChange) : 'missing'">
+              {{ hasFormattedChange(stock.formattedChangeAmount) ? stock.formattedChangeAmount : '-' }}
             </span>
           </div>
-          <div class="detail-row" v-if="stock.currentPrice">
+          <div class="detail-row">
             <span class="label">현재가</span>
-            <span class="value">{{ formatNumber(stock.currentPrice) }}원</span>
+            <span class="value" :class="{ missing: !stock.currentPrice }">
+              {{ stock.currentPrice ? formatNumber(stock.currentPrice) + '원' : '-' }}
+            </span>
           </div>
-          <div class="detail-row" v-if="stock.changeRate">
+          <div class="detail-row">
             <span class="label">등락률</span>
-            <span class="value rate" :class="getRateClass(stock.changeRate)">
-              {{ formatRate(stock.changeRate) }}
+            <span class="value rate" :class="stock.changeRate ? getRateClass(stock.changeRate) : 'missing'">
+              {{ stock.changeRate ? formatRate(stock.changeRate) : '-' }}
             </span>
           </div>
         </div>
@@ -304,7 +308,7 @@ export default {
   background: #4ade80;
   animation: pulse 2s infinite;
 }
-.auto-refresh-badge .inactive-text { font-size: 10.5px; }
+.auto-refresh-badge .inactive-text { font-size: 11px; }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -314,7 +318,7 @@ export default {
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.15);
   color: rgba(255,255,255,0.7);
-  width: 22px; height: 22px;
+  width: 28px; height: 28px;   /* WCAG 2.5.8 최소 타겟 24px — 22px 였음(2026-09-21 점검) */
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
@@ -326,6 +330,9 @@ export default {
   color: #fff;
 }
 .refresh-btn:disabled { opacity: 0.5; cursor: wait; }
+
+/* 결측 — 자리는 지키되 실제 값과 구분되게 흐리게(§4c: 0 이나 빈칸으로 위장하지 않는다) */
+.stock-details .value.missing { color: var(--text-light, #55557a); }
 
 .sub-controls {
   display: flex; align-items: center; justify-content: space-between;
@@ -410,7 +417,7 @@ export default {
   position: absolute; top: -8px; left: 12px;
   padding: 2px 8px;
   border-radius: 8px;
-  font-size: 10.5px; font-weight: 700;
+  font-size: 11px; font-weight: 700;
   background: var(--surface-solid, #1a1a2e);
 }
 .surge-badge-label.hot { color: #f87171; border: 1px solid rgba(239,68,68,0.5); }
@@ -420,7 +427,7 @@ export default {
   position: absolute; top: -8px; right: 12px;
   padding: 2px 8px;
   border-radius: 8px;
-  font-size: 10.5px; font-weight: 700;
+  font-size: 11px; font-weight: 700;
   background: var(--surface-solid, #1a1a2e);
 }
 .trend-badge.trend-accumulating { color: #4ade80; border: 1px solid rgba(34,197,94,0.5); }
@@ -436,7 +443,7 @@ export default {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .card-stock-code {
-  font-family: monospace; font-size: 10.5px;
+  font-family: monospace; font-size: 11px;
   color: rgba(255,255,255,0.4);
 }
 .rank-info {
@@ -448,7 +455,7 @@ export default {
   color: rgba(255,255,255,0.7);
 }
 .rank-change-badge {
-  font-size: 10px; font-weight: 700;
+  font-size: 11px; font-weight: 700;
   padding: 1px 5px; border-radius: 5px;
   background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.5);

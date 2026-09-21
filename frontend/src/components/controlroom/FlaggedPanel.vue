@@ -128,13 +128,13 @@ function askText(flag) {
 .flag b { display: block; font-size: 12.5px; margin-bottom: 3px; line-height: 1.4; }
 .flag .k {
   font-family: var(--cr-mono);
-    font-size: 10px;
+    font-size: 11px;
   color: var(--cr-vio);
   margin-left: 6px;
 }
 .flag .derived {
   font-family: var(--cr-mono);
-    font-size: 9px;
+    font-size: 11px;
   letter-spacing: 0.1em;
   color: var(--cr-cyn);
   border: 1px solid var(--cr-cyn);
@@ -160,7 +160,7 @@ function askText(flag) {
 .flag .age {
   float: right;
   font-family: var(--cr-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   color: var(--cr-dim);
   font-weight: 400;

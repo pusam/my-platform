@@ -246,7 +246,7 @@ export default {
 }
 .reason-label { color: #ef4444; font-weight: 700; }
 .reason-text { flex: 1; min-width: 120px; }
-.reason-by { font-size: 10.5px; color: rgba(255,255,255,0.5); font-family: monospace; }
+.reason-by { font-size: 11px; color: rgba(255,255,255,0.5); font-family: monospace; }
 
 .limit-row { margin-top: 12px; }
 .limit-meta {

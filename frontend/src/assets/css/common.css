@@ -23,8 +23,11 @@
   /* Text Colors */
   --text-primary: #f0f0f5;
   --text-secondary: #b0b0c8;
-  --text-muted: #7878a0;
-  --text-light: #55557a;
+  /* 2026-09-21 대비 점검: 가장 밝은 카드 표면(#1e1e3c) 위에서 muted 3.82 · light 2.27 로
+     WCAG AA(4.5:1) 미달이었다. 두 단계 차이는 유지하면서 둘 다 통과하도록 올린다
+     (muted 5.54 · light 4.56). 더 어둡게 되돌리면 본문 글씨가 다시 읽히지 않는다. */
+  --text-muted: #9494bd;
+  --text-light: #8585ad;
   --text-white: #ffffff;
 
   /* Card & Surface */
@@ -483,7 +486,7 @@ input::placeholder {
 /* 미검증/베타 amber 배지 — ts-beta/ov-beta/tp-atr-badge 3벌 중복의 단일 소스.
    컴포넌트 scoped CSS 는 배치·크기 차이(margin/font-size 등)만 오버라이드. */
 .badge-unverified {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: #fbbf24;
   background: rgba(245, 158, 11, 0.14);
@@ -899,4 +902,65 @@ tbody tr:hover {
   .show-mobile { display: initial !important; }
   .show-mobile-flex { display: flex !important; }
   .show-mobile-block { display: block !important; }
+}
+
+/* ========================================
+   접근성 바닥값 (2026-09-21 디자인 점검)
+   ======================================== */
+
+/* 터치 기기에서만 아이콘 버튼을 키운다 — 데스크톱 헤더 밀도는 그대로.
+   실측(375px): nav-home 32x32 · back-button 36x36 · search-btn 32x42 ·
+   notification-bell 36x36 · refresh 22x22 로 전부 권장 44px 미만이었다.
+   포인터가 거친(손가락) 환경에서만 늘리므로 마우스 레이아웃은 건드리지 않는다. */
+@media (pointer: coarse) {
+  .nav-home,
+  .back-button,
+  .search-btn,
+  .notification-bell,
+  .refresh-btn,
+  .btn-refresh {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* 체크박스·라디오가 기본 13px 이라 다크 테마에서 잘 안 보인다(라벨 클릭은 되지만 상태 판독이 어렵다). */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary-start, #818cf8);
+  flex-shrink: 0;
+}
+
+/* 가로 스크롤 표: 스크롤바를 항상 보이게 한다.
+   모바일에서 9열 거래내역이 322px 컨테이너 안에 있는데(실측 내용폭 647px) 스크롤된다는 사실이
+   화면에 드러나지 않았다. ⚠ 흔히 쓰는 "가장자리 그라데이션"은 여기선 안 먹는다 — 표(.trades-table 등)가
+   불투명 배경을 깔고 컨테이너를 덮어서 background-attachment:local 트릭이 가려진다.
+   그래서 배경 대신 스크롤바 자체를 상시 노출한다(덮이지 않는 레이어). */
+.table-container,
+.trades-table-wrap,
+.scroll-x {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary-start, #818cf8) transparent;
+  padding-bottom: 2px;
+}
+.table-container::-webkit-scrollbar,
+.trades-table-wrap::-webkit-scrollbar,
+.scroll-x::-webkit-scrollbar {
+  height: 8px;
+  -webkit-appearance: none;
+}
+.table-container::-webkit-scrollbar-thumb,
+.trades-table-wrap::-webkit-scrollbar-thumb,
+.scroll-x::-webkit-scrollbar-thumb {
+  background: var(--primary-start, #818cf8);
+  border-radius: 4px;
+}
+.table-container::-webkit-scrollbar-track,
+.trades-table-wrap::-webkit-scrollbar-track,
+.scroll-x::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
 }

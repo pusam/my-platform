@@ -110,7 +110,7 @@ function askText(a) {
 .ph b { color: var(--cr-tx); }
 
 .empty { font-size: 11.5px; color: var(--cr-mut); line-height: 1.6; margin: 0; }
-.empty .scope { display: block; margin-top: 4px; font-size: 10px; color: var(--cr-dim); }
+.empty .scope { display: block; margin-top: 4px; font-size: 11px; color: var(--cr-dim); }
 
 .anom-list { display: grid; gap: 9px; }
 
@@ -136,7 +136,7 @@ function askText(a) {
 .k {
   margin-left: 6px;
   font-family: var(--cr-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--cr-dim);
   border: 1px solid var(--cr-line);
   padding: 1px 5px;
@@ -145,7 +145,7 @@ function askText(a) {
 .evidence {
   margin: 3px 0 0;
   font-family: var(--cr-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--cr-mut);
   overflow-wrap: anywhere;
 }
@@ -169,7 +169,7 @@ function askText(a) {
   margin: 10px 0 0;
   padding-top: 8px;
   border-top: 1px solid var(--cr-line);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--cr-dim);
   line-height: 1.55;
 }

@@ -443,7 +443,7 @@ export default {
    ═══════════════════════════════════════════════════════════════════ */
 .smart-table-wrap {
   width: 100%;
-  color: #1F2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .smart-header {
@@ -473,13 +473,13 @@ export default {
 .header-title {
   font-size: 22px;
   font-weight: 800;
-  color: #111827;
+  color: var(--text-primary, #f0f0f5);
   margin: 0;
   letter-spacing: -0.3px;
 }
 .header-sub {
   font-size: 12px;
-  color: #6B7280;
+  color: var(--text-muted, #9494bd);
   margin: 2px 0 0;
 }
 
@@ -501,12 +501,12 @@ export default {
   border-radius: 12px;
   border: 1px solid #D1D5DB;
   background: #F9FAFB;
-  color: #1F2937;
+  color: var(--text-primary, #f0f0f5);
   font-size: 13px;
   outline: none;
   transition: border-color 0.2s;
 }
-.search-input::placeholder { color: #9CA3AF; }
+.search-input::placeholder { color: var(--text-muted, #9494bd); }
 .search-input:focus {
   border-color: #7C3AED;
   box-shadow: 0 0 0 2px rgba(124,58,237,0.15);
@@ -611,7 +611,7 @@ export default {
 .pick-name {
   font-weight: 800;
   font-size: 15px;
-  color: #111827;
+  color: var(--text-primary, #f0f0f5);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -619,7 +619,7 @@ export default {
 }
 .pick-meta {
   font-size: 11px;
-  color: #6B7280;
+  color: var(--text-muted, #9494bd);
   margin: 1px 0 0;
 }
 
@@ -643,7 +643,7 @@ export default {
 
 .pick-insight {
   font-size: 11px;
-  color: #6B7280;
+  color: var(--text-muted, #9494bd);
   margin: 10px 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -663,15 +663,15 @@ export default {
   text-align: center;
 }
 .pick-metric-label {
-  font-size: 9px;
-  color: #6B7280;
+  font-size: 11px;
+  color: var(--text-muted, #9494bd);
   margin-bottom: 2px;
   font-weight: 600;
 }
 .pick-metric-value {
   font-size: 13px;
   font-weight: 700;
-  color: #1F2937;
+  color: var(--text-primary, #f0f0f5);
   font-variant-numeric: tabular-nums;
 }
 
@@ -697,7 +697,7 @@ export default {
   transition: transform 0.15s;
 }
 .smart-badge:hover { transform: scale(1.05); }
-.smart-badge.badge-sm { font-size: 10px; padding: 1px 7px; }
+.smart-badge.badge-sm { font-size: 11px; padding: 1px 7px; }
 
 .badge-blue   { background: rgba(37,99,235,0.1);  color: #1D4ED8; border-color: rgba(37,99,235,0.3); }
 .badge-green  { background: rgba(5,150,105,0.1);  color: #047857; border-color: rgba(5,150,105,0.3); }
@@ -708,8 +708,8 @@ export default {
 .badge-pink   { background: rgba(219,39,119,0.1); color: #BE185D; border-color: rgba(219,39,119,0.3); }
 
 .badge-more {
-  font-size: 9px;
-  color: #9CA3AF;
+  font-size: 11px;
+  color: var(--text-muted, #9494bd);
   align-self: center;
   margin-left: 2px;
 }
@@ -744,8 +744,8 @@ export default {
   letter-spacing: 0.5px;
 }
 .score-ring-num {
-  font-size: 9px;
-  color: #6B7280;
+  font-size: 11px;
+  color: var(--text-muted, #9494bd);
   margin-top: 1px;
   font-variant-numeric: tabular-nums;
 }
@@ -772,7 +772,7 @@ export default {
   background: #F9FAFB;
   font-size: 11px;
   font-weight: 700;
-  color: #6B7280;
+  color: var(--text-muted, #9494bd);
   text-transform: uppercase;
   letter-spacing: 0.3px;
   user-select: none;
@@ -781,7 +781,7 @@ export default {
   cursor: pointer;
   transition: color 0.15s;
 }
-.smart-table-header .sortable:hover { color: #111827; }
+.smart-table-header .sortable:hover { color: var(--text-primary, #f0f0f5); }
 
 .col-rank   { text-align: center; }
 .col-grade  { text-align: center; }
@@ -810,7 +810,7 @@ export default {
 .rank-num {
   font-size: 14px;
   font-weight: 700;
-  color: #4B5563;
+  color: var(--text-secondary, #b0b0c8);
   font-variant-numeric: tabular-nums;
 }
 .rank-num.rank-top { font-weight: 900; }
@@ -824,29 +824,29 @@ export default {
 .stock-name {
   font-weight: 700;
   font-size: 13px;
-  color: #111827;
+  color: var(--text-primary, #f0f0f5);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .stock-code {
-  font-size: 10px;
-  color: #9CA3AF;
+  font-size: 11px;
+  color: var(--text-muted, #9494bd);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 .stock-market {
-  font-size: 9px;
+  font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
   background: #F3F4F6;
-  color: #6B7280;
+  color: var(--text-muted, #9494bd);
   flex-shrink: 0;
   font-weight: 500;
 }
 .stock-insight {
-  font-size: 10.5px;
-  color: #6B7280;
+  font-size: 11px;
+  color: var(--text-muted, #9494bd);
   margin: 2px 0 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -857,13 +857,13 @@ export default {
 .num-excellent { color: #059669; font-weight: 700; }
 .num-good      { color: #059669; font-weight: 500; }
 .num-bad       { color: #DC2626; font-weight: 600; }
-.num-normal    { color: #1F2937; font-weight: 500; }
-.num-dim       { color: #9CA3AF; font-weight: 500; }
-.dim           { color: #6B7280; font-weight: 500; }
+.num-normal    { color: var(--text-primary, #f0f0f5); font-weight: 500; }
+.num-dim       { color: var(--text-muted, #9494bd); font-weight: 500; }
+.dim           { color: var(--text-muted, #9494bd); font-weight: 500; }
 
 /* 소트 화살표 */
 .sort-arrow {
-  font-size: 8px;
+  font-size: 11px;
   color: #D1D5DB;
   margin-left: 2px;
 }
@@ -882,9 +882,9 @@ export default {
   border-bottom: 1px solid #E5E7EB;
 }
 .detail-title {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  color: #6B7280;
+  color: var(--text-muted, #9494bd);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0 0 8px;
@@ -897,12 +897,12 @@ export default {
 }
 .detail-row span:first-child {
   font-size: 11px;
-  color: #6B7280;
+  color: var(--text-muted, #9494bd);
 }
 .detail-row span:last-child {
   font-size: 11px;
   font-weight: 600;
-  color: #1F2937;
+  color: var(--text-primary, #f0f0f5);
   font-variant-numeric: tabular-nums;
 }
 
@@ -923,14 +923,14 @@ export default {
 .empty-state {
   padding: 60px 0;
   text-align: center;
-  color: #9CA3AF;
+  color: var(--text-muted, #9494bd);
   font-size: 14px;
   font-weight: 500;
 }
 .smart-footer {
   text-align: center;
   font-size: 11px;
-  color: #9CA3AF;
+  color: var(--text-muted, #9494bd);
   padding: 16px 0;
 }
 

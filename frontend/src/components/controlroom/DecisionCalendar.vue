@@ -177,7 +177,7 @@ function cellTitle(cell) {
 .overdue .chips { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
 .overdue .chips button {
   font-family: var(--cr-mono);
-    font-size: 10px;
+    font-size: 11px;
   border: 1px solid var(--cr-red);
   color: var(--cr-red);
   background: transparent;
@@ -186,7 +186,7 @@ function cellTitle(cell) {
 }
 .overdue .chips button:hover { background: rgba(255, 77, 109, 0.18); }
 .overdue .more {
-  font-family: var(--cr-mono); font-size: 10px; color: var(--cr-red); }
+  font-family: var(--cr-mono); font-size: 11px; color: var(--cr-red); }
 
 .cond-row {
   display: flex;
@@ -207,7 +207,7 @@ function cellTitle(cell) {
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
 .dow {
   font-family: var(--cr-mono);
-    font-size: 10px;
+    font-size: 11px;
   letter-spacing: 0.14em;
   color: var(--cr-mut);
   text-align: center;
@@ -245,7 +245,7 @@ function cellTitle(cell) {
   left: 6px;
   bottom: 4px;
   right: 6px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.3;
   color: inherit;
   opacity: 0.9;
@@ -260,7 +260,7 @@ function cellTitle(cell) {
   gap: 14px;
   flex-wrap: wrap;
   margin-top: 10px;
-    font-size: 10px;
+    font-size: 11px;
   color: var(--cr-mut);
 }
 .legend i {

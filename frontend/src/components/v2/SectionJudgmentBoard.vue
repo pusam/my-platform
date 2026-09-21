@@ -366,12 +366,12 @@ onMounted(load);
 .jb-table th, .jb-table td { padding: 7px 9px; text-align: center; white-space: nowrap; }
 .jb-group th { font-size: 11px; font-weight: 700; padding: 4px 9px; }
 .g-price { color: #fcd34d; background: rgba(245, 158, 11, 0.07); }
-.g-price small { font-size: 9px; opacity: 0.8; cursor: help; }
+.g-price small { font-size: 11px; opacity: 0.8; cursor: help; }
 .g-score { color: #7dd3fc; background: rgba(56, 189, 248, 0.08); }
 .g-ref { color: #cbd5e1; background: rgba(148, 163, 184, 0.08); }
 .g-caution { color: #fca5a5; background: rgba(248, 113, 113, 0.08); }
 .th-price { color: #fcd34d; }
-.th-price small { font-size: 9px; opacity: 0.6; font-weight: 400; }
+.th-price small { font-size: 11px; opacity: 0.6; font-weight: 400; }
 .jb-table thead tr:nth-child(2) th { border-bottom: 1px solid rgba(255, 255, 255, 0.12); opacity: 0.85; }
 .th-sort { cursor: pointer; user-select: none; }
 .th-sort:hover { color: #fff; }
@@ -379,26 +379,26 @@ onMounted(load);
 .th-tech { color: #7dd3fc; }
 .th-caution { color: #fca5a5; }
 .th-unv small {
-  display: inline-block; margin-left: 3px; font-size: 9px; color: #fbbf24;
+  display: inline-block; margin-left: 3px; font-size: 11px; color: #fbbf24;
   background: rgba(245, 158, 11, 0.14); padding: 0 4px; border-radius: 3px;
 }
 /* 차트타이밍 — 백테스트 역상관 확인(31%). '미검증'(amber, 섹터강도)과 구분되는 역상관 톤(적색). */
 .poor-badge {
-  display: inline-block; margin-left: 3px; font-size: 9px; color: #fca5a5;
+  display: inline-block; margin-left: 3px; font-size: 11px; color: #fca5a5;
   background: rgba(248, 113, 113, 0.16); padding: 0 4px; border-radius: 3px;
 }
 .jb-row { cursor: pointer; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .jb-row:hover { background: rgba(255, 255, 255, 0.05); }
 .td-name { text-align: left; }
 .rn { font-weight: 600; }
-.rc { font-size: 10px; opacity: 0.45; margin-left: 5px; }
+.rc { font-size: 11px; opacity: 0.45; margin-left: 5px; }
 .src-tag {
-  font-size: 9px; margin-left: 5px; padding: 1px 5px; border-radius: 3px;
+  font-size: 11px; margin-left: 5px; padding: 1px 5px; border-radius: 3px;
   background: rgba(56, 189, 248, 0.14); color: #7dd3fc;
 }
 /* 재료 배지(§4b 표시 전용) — 호재(주황)/악재(적색) */
 .cat-badge {
-  font-size: 9px; margin-left: 5px; padding: 1px 5px; border-radius: 3px; font-weight: 600; cursor: help;
+  font-size: 11px; margin-left: 5px; padding: 1px 5px; border-radius: 3px; font-weight: 600; cursor: help;
 }
 /* 호재 = 주황(🔥) — 시세 등락 초록(#4ade80)과 구분되게 일부러 초록 안 씀. */
 .cat-badge.cat-pos { background: rgba(251, 146, 60, 0.22); color: #fdba74; font-weight: 700; }
@@ -407,16 +407,16 @@ onMounted(load);
 /* 중립 = 회색(아이콘無) — 방향 없음을 명확히(이전엔 🔥로 오인 표시). */
 .cat-badge.cat-neu { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
 /* 경과 표기 — "어제" 등, 오늘 재료가 아님을 명확히(§4c). 배지 색보다 흐리게. */
-.cat-badge .cat-age { margin-left: 3px; font-size: 8.5px; font-weight: 400; opacity: 0.75; }
+.cat-badge .cat-age { margin-left: 3px; font-size: 11px; font-weight: 400; opacity: 0.75; }
 /* RVOL 배지(② 참고 톤) — 미검증 청회색(td-unv 계열), 재료 배지(주황/적색)와 구분. */
 .rvol-badge {
-  font-size: 9px; margin-left: 5px; padding: 1px 5px; border-radius: 3px; cursor: help;
+  font-size: 11px; margin-left: 5px; padding: 1px 5px; border-radius: 3px; cursor: help;
   background: rgba(148, 163, 184, 0.16); color: #cbd5e1; font-variant-numeric: tabular-nums;
 }
 /* 시세 셀 — 현재가 + 등락률(캐시 스냅샷) */
 .td-price { text-align: right; line-height: 1.25; }
 .td-price .pp { font-variant-numeric: tabular-nums; }
-.td-price .pr { display: block; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.td-price .pr { display: block; font-size: 11px; font-variant-numeric: tabular-nums; }
 .td-tv { color: #cbd5e1; font-variant-numeric: tabular-nums; }
 /* 종목 컬럼 가로스크롤 중 고정(모바일) */
 .jb-table th.th-name, .jb-table td.td-name {
@@ -433,7 +433,7 @@ onMounted(load);
 .td-track { color: #94a3b8; cursor: help; }
 .td-track.track-insufficient { color: #64748b; opacity: 0.7; }
 .unv-badge {
-  display: inline-block; margin-left: 3px; font-size: 9px; color: #94a3b8;
+  display: inline-block; margin-left: 3px; font-size: 11px; color: #94a3b8;
   background: rgba(148, 163, 184, 0.14); padding: 0 4px; border-radius: 3px;
 }
 .td-poor { color: #b08a8a; cursor: help; }   /* 차트타이밍 셀 — td-unv(청회색)와 구분되는 muted 적색-회색 */

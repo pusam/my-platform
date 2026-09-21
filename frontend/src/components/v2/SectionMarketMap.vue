@@ -532,8 +532,8 @@ export default {
   cursor: default;
 }
 .heatmap-block:hover { transform: scale(1.05); }
-.block-name { font-size: 10px; color: rgba(255,255,255,0.8); font-weight: 600; }
-.block-rate { font-size: 10px; font-weight: 700; }
+.block-name { font-size: 11px; color: rgba(255,255,255,0.8); font-weight: 600; }
+.block-rate { font-size: 11px; font-weight: 700; }
 .block-rate.up { color: #fca5a5; }
 .block-rate.down { color: #93c5fd; }
 
@@ -801,7 +801,7 @@ export default {
 .flow-icon { font-size: 11px; font-weight: 700; }
 .flow-icon.flow-inflow { color: #34d399; }
 .flow-icon.flow-outflow { color: #f87171; }
-.flow-icon.flow-neutral { color: rgba(255, 255, 255, 0.35); font-size: 8px; }
+.flow-icon.flow-neutral { color: rgba(255, 255, 255, 0.35); font-size: 11px; }
 .rotation-name {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.85);
@@ -840,7 +840,7 @@ export default {
 .rotation-rate.flow-outflow { color: #f87171; }
 .rotation-rate.flow-neutral { color: rgba(255, 255, 255, 0.4); }
 .rotation-amount {
-  font-size: 10px;
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.35);
 }
 

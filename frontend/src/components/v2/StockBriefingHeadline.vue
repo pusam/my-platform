@@ -176,6 +176,6 @@ export default {
   .rec-label { font-size: 16px; }
   .rec-reason { font-size: 12px; }
   .rec-cautions { margin-left: 0; width: 100%; }
-  .caution-chip { font-size: 10px; }
+  .caution-chip { font-size: 11px; }
 }
 </style>

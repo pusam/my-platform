@@ -343,7 +343,7 @@ const headroomText = computed(() => {
 
 .eyebrow {
   font-family: var(--cr-mono);
-    font-size: 10px;
+    font-size: 11px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--cr-mut);
@@ -374,7 +374,7 @@ const headroomText = computed(() => {
   font-family: var(--cr-mono);
   display: block;
   margin-top: 5px;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.02em;
   color: var(--cr-dim);
 }
@@ -434,6 +434,6 @@ const headroomText = computed(() => {
 @media (max-width: 420px) {
   .kpi { padding: 11px; min-height: 98px; }
   .v { font-size: 21px; }
-  .basis { font-size: 9px; }
+  .basis { font-size: 11px; }
 }
 </style>

@@ -1685,7 +1685,7 @@ onUnmounted(() => {
   padding: 1rem 2rem;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 1.1rem;
   font-weight: 600;
   cursor: pointer;
@@ -1816,7 +1816,7 @@ onUnmounted(() => {
 }
 
 .stat-row .label {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.9rem;
 }
 
@@ -2029,17 +2029,17 @@ onUnmounted(() => {
 }
 
 .stock-code {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-family: monospace;
 }
 
 .time {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.9rem;
 }
 
 .reason {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.85rem;
 }
 
@@ -2091,7 +2091,7 @@ onUnmounted(() => {
 }
 
 .pagination span {
-  color: #888;
+  color: var(--text-muted, #7878a0);
 }
 
 /* 모달 */
@@ -2175,7 +2175,7 @@ onUnmounted(() => {
   padding: 0.75rem;
   border: 1px solid rgba(255,255,255,0.15);
   background: transparent;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
@@ -2338,7 +2338,7 @@ onUnmounted(() => {
 .no-data {
   text-align: center;
   padding: 3rem;
-  color: #666;
+  color: var(--text-muted, #7878a0);
   background: var(--surface-panel, #1a1a3a);
   border-radius: 10px;
 }
@@ -2469,7 +2469,7 @@ onUnmounted(() => {
 
 .pf-label {
   display: block;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.8rem;
   margin-top: 0.25rem;
 }
@@ -2480,7 +2480,7 @@ onUnmounted(() => {
   gap: 0.25rem;
   margin-top: 0.75rem;
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-muted, #7878a0);
 }
 
 .pf-guide .highlight {
@@ -2552,7 +2552,7 @@ onUnmounted(() => {
 .btn-generate-report:disabled { opacity: 0.5; cursor: wait; }
 
 .weekly-latest-card {
-  background: rgba(255,255,255,0.95);
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 20px;
@@ -2566,12 +2566,12 @@ onUnmounted(() => {
 }
 .weekly-label {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-weight: 700;
   text-transform: uppercase;
   margin-right: 8px;
 }
-.weekly-period { font-size: 14px; font-weight: 600; color: #333; }
+.weekly-period { font-size: 14px; font-weight: 600; color: var(--text-primary, #f0f0f5); }
 .weekly-mode-badge {
   font-size: 11px;
   padding: 4px 10px;
@@ -2599,7 +2599,7 @@ onUnmounted(() => {
 .weekly-stat .stat-label {
   display: block;
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-weight: 600;
   margin-bottom: 4px;
 }
@@ -2607,7 +2607,7 @@ onUnmounted(() => {
   display: block;
   font-size: 16px;
   font-weight: 800;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 .weekly-stat .stat-value.small { font-size: 12px; line-height: 1.4; }
 .weekly-stat .stat-value .win { color: #22c55e; }
@@ -2630,7 +2630,7 @@ onUnmounted(() => {
   color: #444;
   line-height: 1.7;
 }
-.weekly-ai-body strong { color: #333; }
+.weekly-ai-body strong { color: var(--text-primary, #f0f0f5); }
 
 .weekly-no-ai {
   padding: 16px;
@@ -2663,7 +2663,7 @@ onUnmounted(() => {
 }
 .weekly-history-table th {
   background: #f8f9fa;
-  color: #666;
+  color: var(--text-muted, #7878a0);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;

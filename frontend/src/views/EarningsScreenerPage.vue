@@ -2964,7 +2964,7 @@ onUnmounted(() => {
 
 .progress-counts {
   font-size: 1rem;
-  color: #888;
+  color: var(--text-muted, #7878a0);
 }
 
 .progress-info {
@@ -2979,7 +2979,7 @@ onUnmounted(() => {
 }
 
 .info-label {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.9rem;
 }
 
@@ -3019,12 +3019,12 @@ onUnmounted(() => {
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
   background: #0f0f23;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.9rem;
 }
 
 .log-count {
-  color: #666;
+  color: var(--text-muted, #7878a0);
 }
 
 .log-list {
@@ -3049,7 +3049,7 @@ onUnmounted(() => {
 }
 
 .log-time {
-  color: #666;
+  color: var(--text-muted, #7878a0);
   min-width: 70px;
 }
 

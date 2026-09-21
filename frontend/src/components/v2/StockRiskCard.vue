@@ -306,14 +306,14 @@ export default {
   color: #ef4444;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 700;
 }
 .disclosure-name { flex: 1; color: rgba(255,255,255,0.85); }
 .disclosure-date {
   font-family: monospace;
   color: rgba(255,255,255,0.45);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 .news-item .news-link, .news-item .news-title {
   flex: 1; color: rgba(255,255,255,0.85);
@@ -324,7 +324,7 @@ export default {
 .news-item .news-link:hover { color: #a5b4fc; text-decoration: underline; }
 .news-date {
   font-family: monospace; color: rgba(255,255,255,0.45);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 
 .ai-section { margin-top: 14px; }
@@ -341,7 +341,7 @@ export default {
 
 .risk-meta {
   margin-top: 10px;
-  font-size: 10.5px;
+  font-size: 11px;
   color: rgba(255,255,255,0.4);
 }
 

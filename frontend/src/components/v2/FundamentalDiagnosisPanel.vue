@@ -478,7 +478,7 @@ const diagGetSupplyDemandLabel = (value) => {
 
 .verdict-section.verdict-strong-buy { border-color: #22c55e; background: rgba(34, 197, 94, 0.1); }
 .verdict-section.verdict-buy { border-color: #4ade80; background: rgba(74, 222, 128, 0.08); }
-.verdict-section.verdict-neutral { border-color: #6b7280; background: rgba(107, 114, 128, 0.08); }
+.verdict-section.verdict-neutral { border-color: var(--text-muted, #7878a0); background: rgba(107, 114, 128, 0.08); }
 .verdict-section.verdict-caution { border-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
 .verdict-section.verdict-avoid { border-color: #ef4444; background: rgba(239, 68, 68, 0.1); }
 
@@ -506,7 +506,7 @@ const diagGetSupplyDemandLabel = (value) => {
 
 .verdict-section.verdict-strong-buy .verdict-label { color: #22c55e; }
 .verdict-section.verdict-buy .verdict-label { color: #4ade80; }
-.verdict-section.verdict-neutral .verdict-label { color: #9ca3af; }
+.verdict-section.verdict-neutral .verdict-label { color: var(--text-muted, #7878a0); }
 .verdict-section.verdict-caution .verdict-label { color: #f59e0b; }
 .verdict-section.verdict-avoid .verdict-label { color: #ef4444; }
 
@@ -587,7 +587,7 @@ const diagGetSupplyDemandLabel = (value) => {
   background: transparent;
   border: none;
   border-radius: 8px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -648,7 +648,7 @@ const diagGetSupplyDemandLabel = (value) => {
 }
 
 .metric-label {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.85rem;
 }
 
@@ -662,7 +662,7 @@ const diagGetSupplyDemandLabel = (value) => {
 
 .metric-hint {
   font-size: 0.7rem;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-weight: 400;
   margin-left: 4px;
 }
@@ -690,7 +690,7 @@ const diagGetSupplyDemandLabel = (value) => {
 .signal-basis,
 .assessment-basis {
   font-size: 0.72rem;
-  color: #777;
+  color: var(--text-muted, #7878a0);
   margin-left: 6px;
   white-space: nowrap;
 }
@@ -720,7 +720,7 @@ const diagGetSupplyDemandLabel = (value) => {
 
 .net-amount.supply-positive { color: #ef4444; }
 .net-amount.supply-negative { color: #3b82f6; }
-.net-amount.no-data { color: #666; font-weight: 400; }
+.net-amount.no-data { color: var(--text-muted, #7878a0); font-weight: 400; }
 
 .buy-days { color: #ef4444; font-size: 0.8rem; }
 .sell-days { color: #3b82f6; font-size: 0.8rem; }
@@ -764,7 +764,7 @@ const diagGetSupplyDemandLabel = (value) => {
   border: 1px solid rgba(156, 163, 175, 0.3);
   border-radius: 8px;
   font-size: 0.8rem;
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
   margin-bottom: 8px;
 }
 
@@ -802,7 +802,7 @@ const diagGetSupplyDemandLabel = (value) => {
 .indicator-item.wide { flex-direction: column; align-items: flex-start; gap: 4px; }
 
 .indicator-label {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.8rem;
 }
 
@@ -828,7 +828,7 @@ const diagGetSupplyDemandLabel = (value) => {
 /* RSI */
 .rsi-caution { color: #f59e0b; }
 .rsi-oversold { color: #3b82f6; }
-.rsi-neutral { color: #9ca3af; }
+.rsi-neutral { color: var(--text-muted, #7878a0); }
 
 .rsi-badge {
   display: inline-block;
@@ -840,7 +840,7 @@ const diagGetSupplyDemandLabel = (value) => {
 
 .badge-caution { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
 .badge-opportunity { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-.badge-neutral { background: rgba(156, 163, 175, 0.2); color: #9ca3af; }
+.badge-neutral { background: rgba(156, 163, 175, 0.2); color: var(--text-muted, #7878a0); }
 
 .rsi-warning {
   padding: 6px 10px;
@@ -853,7 +853,7 @@ const diagGetSupplyDemandLabel = (value) => {
 /* MFI */
 .mfi-overbought { color: #f59e0b; }
 .mfi-oversold { color: #3b82f6; }
-.mfi-neutral { color: #9ca3af; }
+.mfi-neutral { color: var(--text-muted, #7878a0); }
 
 .mfi-description {
   padding: 6px 10px;
@@ -873,7 +873,7 @@ const diagGetSupplyDemandLabel = (value) => {
 }
 
 .signal-label {
-  color: #888;
+  color: var(--text-muted, #7878a0);
   font-size: 0.85rem;
   font-weight: 600;
   flex-shrink: 0;

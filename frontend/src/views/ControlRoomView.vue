@@ -462,7 +462,7 @@ main {
 
 .foot-note {
   margin-top: 16px;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--cr-dim);
   line-height: 1.6;
 }

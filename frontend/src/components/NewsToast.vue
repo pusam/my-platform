@@ -150,7 +150,7 @@ onUnmounted(() => {
   color: white;
   padding: 2px 8px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.5px;
 }

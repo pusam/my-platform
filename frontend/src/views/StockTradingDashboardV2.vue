@@ -1926,7 +1926,7 @@ export default {
 .so-pick-price { color: rgba(255,255,255,0.65); }
 .so-pick-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .so-tag {
-  font-size: 10px;
+  font-size: 11px;
   padding: 1px 6px; border-radius: 6px;
   background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.6);
@@ -1970,14 +1970,14 @@ export default {
 }
 /* 단기/중장기 부가 점수 — 상세 페이지와 매칭 */
 .rec-score-detail {
-  font-size: 10px; color: rgba(255,255,255,0.5);
+  font-size: 11px; color: rgba(255,255,255,0.5);
   font-weight: 500; margin-left: 4px; white-space: nowrap;
 }
 .rec-info { flex: 1; min-width: 0; }
 .rec-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
 .rec-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
 .rec-tag {
-  font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  font-size: 11px; padding: 1px 6px; border-radius: 4px;
   background: rgba(102,126,234,0.12); color: #8b9cf7; font-weight: 600;
 }
 .rec-score-area { min-width: 160px; text-align: right; }
@@ -1987,20 +1987,20 @@ export default {
 .rec-delta.negative { color: #3b82f6; background: rgba(59,130,246,0.1); }
 /* 등급 기준선 범례 */
 .rec-legend { display: flex; justify-content: center; gap: 12px; padding: 8px 0 4px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 8px; }
-.rec-legend-item { font-size: 10px; color: rgba(255,255,255,0.55); display: flex; align-items: center; gap: 4px; }
+.rec-legend-item { font-size: 11px; color: rgba(255,255,255,0.55); display: flex; align-items: center; gap: 4px; }
 .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
 .legend-dot.grade-strong { background: #ef4444; }
 .legend-dot.grade-buy { background: #f59e0b; }
 .legend-dot.grade-hold { background: rgba(255,255,255,0.3); }
 .legend-dot.grade-exclude { background: rgba(59,130,246,0.3); }
 .rec-score-num { font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.9); }
-.rec-score-basis { font-size: 10px; color: rgba(255,255,255,0.55); margin-left: 2px; }
-.rec-grade { font-size: 10px; font-weight: 700; margin-left: 4px; }
+.rec-score-basis { font-size: 11px; color: rgba(255,255,255,0.55); margin-left: 2px; }
+.rec-grade { font-size: 11px; font-weight: 700; margin-left: 4px; }
 .rec-grade.grade-strong { color: #ef4444; }
 .rec-grade.grade-buy { color: #f59e0b; }
 .rec-grade.grade-hold { color: rgba(255,255,255,0.5); }
 .rec-grade.grade-exclude { color: #3b82f6; }
-.rec-grade.grade-low-confidence { color: #f59e0b; font-size: 9px; }
+.rec-grade.grade-low-confidence { color: #f59e0b; font-size: 11px; }
 .rec-bar-track { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-bottom: 4px; }
 .rec-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
 .rec-bar-fill.grade-strong { background: linear-gradient(90deg, #ef4444, #f87171); }
@@ -2010,13 +2010,13 @@ export default {
 /* 세부 항목별 바 */
 .rec-detail-bars { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .rec-detail-row { display: flex; align-items: center; gap: 4px; }
-.rec-detail-label { font-size: 9px; color: rgba(255,255,255,0.55); width: 32px; text-align: right; flex-shrink: 0; }
+.rec-detail-label { font-size: 11px; color: rgba(255,255,255,0.55); width: 32px; text-align: right; flex-shrink: 0; }
 .rec-detail-track { flex: 1; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; min-width: 40px; }
 .rec-detail-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
-.rec-detail-score { font-size: 9px; font-weight: 700; width: 20px; text-align: right; flex-shrink: 0; }
+.rec-detail-score { font-size: 11px; font-weight: 700; width: 20px; text-align: right; flex-shrink: 0; }
 .rec-detail-track.na { opacity: 0.3; }
 .rec-detail-na-line { height: 1px; margin-top: 1px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0, rgba(255,255,255,0.2) 3px, transparent 3px, transparent 6px); }
-.na-text { color: rgba(255,255,255,0.45); font-size: 9px; }
+.na-text { color: rgba(255,255,255,0.45); font-size: 11px; }
 .rec-price-area { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .rec-current-price { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 500; }
 .rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }
@@ -2032,12 +2032,12 @@ export default {
 .supply-consecutive { margin-top: 4px; }
 .supply-stock-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; cursor: pointer; transition: background 0.15s; }
 .supply-stock-row:hover { background: rgba(255,255,255,0.04); }
-.supply-investor-badge { font-size: 10px; font-weight: 800; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.supply-investor-badge { font-size: 11px; font-weight: 800; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .supply-investor-badge.foreign { background: rgba(239,68,68,0.15); color: #ef4444; }
 .supply-investor-badge.inst { background: rgba(59,130,246,0.15); color: #3b82f6; }
 .supply-stock-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
 .supply-days { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; }
-.supply-signal { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+.supply-signal { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
 .supply-signal.real { background: rgba(34,197,94,0.15); color: #22c55e; }
 .supply-signal.fake { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .supply-item-head { display: flex; justify-content: space-between; align-items: center; width: 100%; }
@@ -2124,9 +2124,9 @@ export default {
   border-top: 1px dashed rgba(255,255,255,0.08);
   align-items: center;
 }
-.ss-kw-label { font-size: 10px; color: rgba(255,255,255,0.4); margin-right: 4px; }
+.ss-kw-label { font-size: 11px; color: rgba(255,255,255,0.4); margin-right: 4px; }
 .ss-keyword {
-  font-size: 10px;
+  font-size: 11px;
   padding: 2px 7px;
   background: rgba(99,102,241,0.15);
   color: #a5b4fc;
@@ -2164,7 +2164,7 @@ export default {
 .cs-row:hover { background: rgba(255,255,255,0.05); }
 .cs-row.sig-bullish { border-left-color: #ef4444; }   /* 한국 관행 */
 .cs-row.sig-bearish { border-left-color: #3b82f6; }
-.cs-row.sig-neutral { border-left-color: #9ca3af; }
+.cs-row.sig-neutral { border-left-color: var(--text-muted, #9494bd); }
 .cs-name-block { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .cs-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); }
 .cs-code { font-size: 11px; color: rgba(255,255,255,0.4); font-variant-numeric: tabular-nums; }
@@ -2202,7 +2202,7 @@ export default {
 .pick-name { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9); margin-bottom: 4px; }
 .pick-score { font-size: 18px; font-weight: 800; color: #ef4444; margin-bottom: 4px; }
 .pick-tags { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
-.pick-tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(102,126,234,0.12); color: #8b9cf7; }
+.pick-tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(102,126,234,0.12); color: #8b9cf7; }
 
 /* 등락색 — 디자인 토큰 단일 출처(common.css --stock-up/--stock-down). 화면별 hex 하드코딩 금지 */
 .positive { color: var(--stock-up, #f87171) !important; }
@@ -2212,7 +2212,7 @@ export default {
 
 @media (max-width: 768px) {
   .market-status-bar { gap: 4px; padding: 8px 10px; }
-  .msb-label { font-size: 10px; } .msb-value { font-size: 12px; }
+  .msb-label { font-size: 11px; } .msb-value { font-size: 12px; }
   .top-picks-grid { grid-template-columns: repeat(2, 1fr); }
   .pick-score { font-size: 16px; }
 
@@ -2224,7 +2224,7 @@ export default {
   .cs-pattern { display: none; }     /* 패턴명 숨김 — confidence 뱃지로 대체 */
   .cs-confidence { display: none; }  /* 신뢰도 숨김 — composite 점수로 충분 */
   .cs-name { font-size: 12px; }
-  .cs-code { font-size: 10px; }
+  .cs-code { font-size: 11px; }
 }
 
 /* ───── 모바일 대응: 480~600px ───── */
@@ -2236,15 +2236,15 @@ export default {
   .rec-score-area { min-width: 110px; }
   .rec-score-num { font-size: 17px; }
   .rec-score-basis { display: none; }       /* 5/5항목 라벨 모바일 숨김 */
-  .rec-detail-label { font-size: 8.5px; width: 26px; }
-  .rec-detail-score { font-size: 8.5px; width: 16px; }
+  .rec-detail-label { font-size: 11px; width: 26px; }
+  .rec-detail-score { font-size: 11px; width: 16px; }
   .rec-detail-track { min-width: 24px; }
   .rec-tags { display: none; }              /* 태그 숨김 — 점수에 집중 */
   .rec-current-price { font-size: 11px; }
   .rec-change { font-size: 11px; }
-  .rec-grade { font-size: 9px; }
+  .rec-grade { font-size: 11px; }
   .rec-legend { gap: 8px; }
-  .rec-legend-item { font-size: 9px; }
+  .rec-legend-item { font-size: 11px; }
 
   /* 수급 패널 */
   .supply-summary { gap: 8px; }

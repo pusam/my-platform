@@ -320,7 +320,7 @@ onUnmounted(() => {
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 12px;
   margin-bottom: 24px;
-  color: #4b5563;
+  color: var(--text-secondary, #b0b0c8);
   font-size: 14px;
 }
 
@@ -335,7 +335,7 @@ onUnmounted(() => {
   gap: 12px;
   margin-bottom: 24px;
   padding: 8px;
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 16px;
   justify-content: center;
 }
@@ -352,12 +352,12 @@ onUnmounted(() => {
   transition: all 0.3s ease;
   font-size: 15px;
   font-weight: 600;
-  color: #4b5563;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .period-tab:hover {
   background: rgba(59, 130, 246, 0.1);
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .period-tab.active {
@@ -406,7 +406,7 @@ onUnmounted(() => {
 
 /* 섹터 카드 */
 .sector-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   backdrop-filter: blur(20px);
   border-radius: 16px;
   padding: 20px 24px;
@@ -455,12 +455,12 @@ onUnmounted(() => {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .stock-count {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
 }
 
 .sector-badge {
@@ -490,7 +490,7 @@ onUnmounted(() => {
 .total-label {
   font-size: 13px;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
 }
 
 .total-value {
@@ -508,7 +508,7 @@ onUnmounted(() => {
 .chart-track {
   width: 140px;
   height: 12px;
-  background: linear-gradient(135deg, #e5e7eb 0%, #f3f4f6 100%);
+  background: linear-gradient(135deg, var(--bg-surface, #252540) 0%, var(--bg-elevated, #2a2a45) 100%);
   border-radius: 6px;
   overflow: hidden;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
@@ -532,14 +532,14 @@ onUnmounted(() => {
 .sector-detail {
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--border-light, rgba(255, 255, 255, 0.05));
 }
 
 .sector-detail h4 {
   margin: 0 0 16px 0;
   font-size: 14px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -555,14 +555,14 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 10px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .stock-row:hover {
-  background: #e5e7eb;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .stock-row .stock-info {
@@ -573,13 +573,13 @@ onUnmounted(() => {
 
 .stock-row .stock-name {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
   font-size: 14px;
 }
 
 .stock-row .stock-code {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
 }
 
 .stock-row .stock-data {
@@ -590,7 +590,7 @@ onUnmounted(() => {
 
 .stock-price {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .stock-change {
@@ -608,7 +608,7 @@ onUnmounted(() => {
 
 .stock-trading {
   font-weight: 500;
-  color: #4b5563;
+  color: var(--text-secondary, #b0b0c8);
   font-size: 13px;
 }
 
@@ -630,14 +630,14 @@ onUnmounted(() => {
 .summary-label {
   display: block;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
   margin-bottom: 8px;
 }
 
 .summary-value {
   font-size: 20px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 /* 버튼 */
@@ -687,7 +687,7 @@ onUnmounted(() => {
 .collecting-spinner {
   width: 50px;
   height: 50px;
-  border: 4px solid #e5e7eb;
+  border: 4px solid rgba(255, 255, 255, 0.12);
   border-top-color: #3B82F6;
   border-radius: 50%;
   animation: spin 1s linear infinite;
@@ -695,14 +695,14 @@ onUnmounted(() => {
 }
 
 .collecting-state p {
-  color: #4b5563;
+  color: var(--text-secondary, #b0b0c8);
   font-size: 16px;
   font-weight: 600;
   margin: 0;
 }
 
 .collecting-state .collecting-hint {
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
   font-size: 14px;
   font-weight: 400;
   margin-top: 8px;

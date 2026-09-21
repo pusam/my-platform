@@ -429,7 +429,7 @@ export default {
   border: 1px solid #9b4dff;
   border-radius: 4px;
   color: #b98cff;
-  font-size: 10px;
+  font-size: 11px;
 }
 .control-room-card .cr-arrow { color: var(--text-muted); font-size: 18px; }
 
@@ -1067,7 +1067,7 @@ export default {
   color: white;
   padding: 2px 8px;
   border-radius: 8px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   margin-left: 6px;
   vertical-align: middle;

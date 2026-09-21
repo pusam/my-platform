@@ -154,7 +154,7 @@ const elapsedText = computed(() => {
     font-size: 11px;
     gap: 6px;
   }
-  .refresh-btn { width: 22px; height: 22px; }
+  .refresh-btn { width: 24px; height: 24px; }  /* WCAG 2.5.8 최소 타겟 */
   .countdown { display: none; } /* 모바일에서는 "Ns 전"만 */
 }
 </style>

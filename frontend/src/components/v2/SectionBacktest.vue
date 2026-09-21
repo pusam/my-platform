@@ -374,7 +374,7 @@ export default {
   justify-content: center;
 }
 .detail-chip {
-  font-size: 10px;
+  font-size: 11px;
   padding: 3px 8px;
   border-radius: 6px;
   background: var(--border-light);
@@ -429,7 +429,7 @@ export default {
 .strategy-icon { font-size: 16px; }
 .strategy-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); }
 .strategy-stats { margin-left: auto; display: flex; gap: 6px; }
-.expand-arrow { font-size: 10px; color: rgba(255,255,255,0.3); margin-left: 4px; }
+.expand-arrow { font-size: 11px; color: rgba(255,255,255,0.3); margin-left: 4px; }
 
 .hit-badge, .return-badge {
   font-size: 11px;
@@ -439,10 +439,10 @@ export default {
 }
 .hit-badge.high { background: rgba(239,68,68,0.15); color: #ef4444; }
 .hit-badge.mid { background: rgba(245,158,11,0.15); color: #f59e0b; }
-.hit-badge.low { background: rgba(107,114,128,0.15); color: #9ca3af; }
+.hit-badge.low { background: rgba(107,114,128,0.15); color: var(--text-muted, #9494bd); }
 .return-badge.positive { background: rgba(239,68,68,0.15); color: #ef4444; }
 .return-badge.negative { background: rgba(59,130,246,0.15); color: #3b82f6; }
-.return-badge.neutral { background: rgba(107,114,128,0.15); color: #9ca3af; }
+.return-badge.neutral { background: rgba(107,114,128,0.15); color: var(--text-muted, #9494bd); }
 
 .strategy-meta {
   display: flex;
@@ -470,7 +470,7 @@ export default {
 .pick-row:hover { background: var(--border-light); }
 .pick-info { flex: 1; min-width: 0; }
 .pick-name { font-size: 13px; color: rgba(255,255,255,0.8); }
-.pick-code { font-size: 10px; color: rgba(255,255,255,0.3); margin-left: 4px; }
+.pick-code { font-size: 11px; color: rgba(255,255,255,0.3); margin-left: 4px; }
 .pick-prices { font-size: 11px; color: rgba(255,255,255,0.4); }
 .pick-rec { margin-right: 2px; }
 .pick-cur { color: rgba(255,255,255,0.6); }
@@ -478,7 +478,7 @@ export default {
 .pick-return { font-size: 12px; font-weight: 700; text-align: right; }
 .pick-return.positive { color: #ef4444; }
 .pick-return.negative { color: #3b82f6; }
-.pick-cost-label { font-size: 9px; color: rgba(255,255,255,0.3); }
+.pick-cost-label { font-size: 11px; color: rgba(255,255,255,0.3); }
 
 /* Best / Worst */
 .best-worst {
@@ -501,7 +501,7 @@ export default {
   .strategy-header { flex-wrap: wrap; }
   .strategy-stats { margin-left: 0; }
   .pick-row { flex-wrap: wrap; gap: 4px; }
-  .pick-prices { font-size: 10px; }
+  .pick-prices { font-size: 11px; }
   .best-worst { flex-direction: column; gap: 4px; }
   .compare-section { padding: 12px; }
   .compare-val { font-size: 13px; }

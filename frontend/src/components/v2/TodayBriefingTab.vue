@@ -527,6 +527,12 @@ onMounted(() => {
   color: inherit;
   text-decoration: none;
   opacity: 0.85;
+  /* 이모지 링크라 히트박스가 15x15 였다 — WCAG 2.5.8 최소 24px 확보(2026-09-21 점검) */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
 }
 .cc-cat-link:hover { opacity: 1; text-decoration: underline; }
 .cat-positive { color: #fbbf24; background: rgba(251, 191, 36, 0.14); }

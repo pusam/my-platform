@@ -101,7 +101,7 @@ const getCpsSignalLabel = (s) => ({ BULLISH: '상승 신호', BEARISH: '하락 �
 .cps-card-icon { font-size: 16px; }
 .cps-card-label { font-weight: 600; font-size: 13px; }
 .cps-badge {
-  font-size: 10px;
+  font-size: 11px;
   padding: 2px 6px;
   border-radius: 4px;
 }

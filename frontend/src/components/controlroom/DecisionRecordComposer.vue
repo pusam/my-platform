@@ -147,7 +147,7 @@ async function copy() {
   padding: 2px 0;
 }
 .toggle:hover { color: var(--cr-tx); }
-.toggle em { font-style: normal; font-family: inherit; font-size: 10px; color: var(--cr-dim); letter-spacing: 0; }
+.toggle em { font-style: normal; font-family: inherit; font-size: 11px; color: var(--cr-dim); letter-spacing: 0; }
 
 .body { margin-top: 10px; display: grid; gap: 8px; }
 
@@ -156,7 +156,7 @@ label { display: grid; gap: 3px; min-width: 0; }
 label.full { display: grid; }
 label span {
   font-family: var(--cr-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   letter-spacing: 0.1em;
   color: var(--cr-dim);
 }
@@ -205,7 +205,7 @@ input:focus { outline: 1px solid var(--cr-vio); }
 }
 .copy:hover { background: rgba(61, 255, 138, 0.15); }
 
-.hint { font-size: 10px; color: var(--cr-dim); line-height: 1.55; margin: 0; }
+.hint { font-size: 11px; color: var(--cr-dim); line-height: 1.55; margin: 0; }
 .hint code { font-family: var(--cr-mono); color: var(--cr-mut); }
 
 @media (max-width: 720px) {

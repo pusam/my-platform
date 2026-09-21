@@ -423,7 +423,7 @@ const openChecklist = () => { showChecklist.value = true; };
 .factor-header { display: flex; justify-content: space-between; align-items: center; }
 .factor-label { font-size: 12px; font-weight: 600; opacity: 0.9; }
 .factor-dim {
-  font-size: 10px;
+  font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.08);

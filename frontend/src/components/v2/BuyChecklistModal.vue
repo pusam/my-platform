@@ -183,7 +183,7 @@ const dimensionLabel = (dim) => {
 .item-header { display: flex; justify-content: space-between; align-items: center; }
 .item-label { font-weight: 600; font-size: 14px; }
 .item-dim {
-  font-size: 10px;
+  font-size: 11px;
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(255,255,255,0.08);

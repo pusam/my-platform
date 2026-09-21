@@ -998,7 +998,7 @@ td {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   background: #f8f9fa;
   border-bottom: 1px solid rgba(0,0,0,0.08);
 }
@@ -1014,20 +1014,20 @@ td {
   border-bottom: 1px solid rgba(0,0,0,0.04);
 }
 .short-table .stock-cell { display: flex; flex-direction: column; gap: 2px; }
-.short-table .stock-cell .name { font-weight: 600; color: #333; font-size: 13px; }
-.short-table .stock-cell .code { font-family: monospace; font-size: 10.5px; color: #999; }
+.short-table .stock-cell .name { font-weight: 600; color: var(--text-primary, #f0f0f5); font-size: 13px; }
+.short-table .stock-cell .code { font-family: monospace; font-size: 11px; color: var(--text-muted, #7878a0); }
 
 .ratio-cell { font-weight: 800; font-family: monospace; }
 .ratio-cell.ratio-very-high { color: #ef4444; }
 .ratio-cell.ratio-high { color: #f59e0b; }
-.ratio-cell.ratio-medium { color: #888; }
+.ratio-cell.ratio-medium { color: var(--text-muted, #7878a0); }
 
-.date-cell { font-family: monospace; color: #999; font-size: 12px; }
+.date-cell { font-family: monospace; color: var(--text-muted, #7878a0); font-size: 12px; }
 
 @media (max-width: 600px) {
   .short-table thead th, .short-row td { padding: 7px 6px; font-size: 11.5px; }
   .short-table .stock-cell .name { font-size: 12px; }
-  .short-table .stock-cell .code { font-size: 9.5px; }
+  .short-table .stock-cell .code { font-size: 11px; }
 }
 
 @media (max-width: 480px) {

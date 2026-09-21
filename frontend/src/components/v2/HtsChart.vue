@@ -281,7 +281,7 @@ watch(
   position: absolute;
   bottom: 2px; right: 6px;
   z-index: 3;
-  font-size: 9px;
+  font-size: 11px;
   color: rgba(255,255,255,0.28);
   text-decoration: none;
   pointer-events: auto;

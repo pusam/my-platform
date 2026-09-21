@@ -385,7 +385,7 @@ code { background: rgba(15,15,28,.8); padding: 1px 5px; border-radius: 4px; font
 }
 .bar-wrap { flex: 1 0 14px; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
 .bar { width: 100%; background: linear-gradient(180deg, #6366f1, #4338ca); border-radius: 2px 2px 0 0; min-height: 3px; }
-.bar-label { font-size: 8px; color: #6b7280; margin-top: 2px; }
+.bar-label { font-size: 11px; color: #6b7280; margin-top: 2px; }
 .axis-note { font-size: 11.5px; color: #6b7280; margin: 6px 0 0; line-height: 1.6; }
 
 .disclaimer {

@@ -32,7 +32,7 @@ defineProps({
 }
 
 .nd-reason {
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.45;
   margin-top: 3px;
   opacity: 0.85;

@@ -185,7 +185,7 @@ export default {
 
 .tr-signals { display: flex; gap: 3px; }
 .tr-sig-dot {
-  font-size: 9px; font-weight: 700;
+  font-size: 11px; font-weight: 700;
   padding: 3px 6px; border-radius: 4px;
   background: rgba(255,255,255,0.05);
   color: rgba(255,255,255,0.3);

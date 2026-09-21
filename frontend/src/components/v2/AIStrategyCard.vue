@@ -260,7 +260,7 @@ const formatPrice = (price) => {
 .strategy-box.trading-buy .strategy-rec { color: #4ade80; }
 .strategy-box.wait-buy .strategy-rec { color: #a78bfa; }
 .strategy-box.sell .strategy-rec { color: #ef4444; }
-.strategy-box.hold .strategy-rec { color: #6b7280; }
+.strategy-box.hold .strategy-rec { color: var(--text-muted, #9494bd); }
 
 /* 충돌 분석 박스 */
 .conflict-analysis {

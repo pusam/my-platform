@@ -345,7 +345,7 @@ const invHasAmountChange = (value) => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
 }
 
 .loading-spinner {
@@ -401,7 +401,7 @@ const invHasAmountChange = (value) => {
   background: rgba(30, 30, 60, 0.6);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 8px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   cursor: pointer;
   font-size: 0.9rem;
   font-weight: 600;
@@ -454,7 +454,7 @@ const invHasAmountChange = (value) => {
   background: rgba(30, 30, 60, 0.6);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 10px;
-  color: #888;
+  color: var(--text-muted, #7878a0);
   cursor: pointer;
   font-size: 0.95rem;
   font-weight: 600;
@@ -508,7 +508,7 @@ const invHasAmountChange = (value) => {
   align-items: center;
 }
 
-.inv-detail-row .label { color: #888; font-size: 0.85rem; }
+.inv-detail-row .label { color: var(--text-muted, #7878a0); font-size: 0.85rem; }
 .inv-detail-row .value { font-weight: 600; color: #ddd; font-family: monospace; }
 
 .inv-detail-row.highlight {
@@ -521,7 +521,7 @@ const invHasAmountChange = (value) => {
 .inv-no-data {
   text-align: center;
   padding: 40px;
-  color: #666;
+  color: var(--text-muted, #7878a0);
 }
 
 .inv-no-data .hint {
@@ -592,7 +592,7 @@ const invHasAmountChange = (value) => {
   font-size: 0.85rem;
 }
 
-.inv-amount-row .label { color: #888; }
+.inv-amount-row .label { color: var(--text-muted, #7878a0); }
 .inv-amount-row .value { font-weight: 600; font-family: monospace; color: #ddd; }
 .inv-amount-row.net { margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); }
 .inv-amount-row.net .label { font-weight: 700; }

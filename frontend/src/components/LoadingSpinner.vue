@@ -27,7 +27,7 @@ defineProps({
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   display: flex;
   align-items: center;
   justify-content: center;

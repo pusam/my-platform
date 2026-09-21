@@ -644,7 +644,7 @@ export default {
 }
 
 .indicator-section {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   border-radius: 16px;
   padding: 24px;
   margin-bottom: 24px;
@@ -657,7 +657,7 @@ export default {
   gap: 12px;
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .section-icon {
@@ -704,7 +704,7 @@ export default {
   background: #f8fafc;
   border-radius: 12px;
   padding: 20px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color, rgba(255, 255, 255, 0.08));
   transition: all 0.3s ease;
 }
 
@@ -733,14 +733,14 @@ export default {
 .market-header h3 {
   font-size: 1rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   margin: 0;
 }
 
 .symbol {
   font-size: 0.875rem;
-  color: #6b7280;
-  background: #e5e7eb;
+  color: var(--text-muted, #7878a0);
+  background: rgba(255, 255, 255, 0.12);
   padding: 4px 8px;
   border-radius: 4px;
 }
@@ -748,7 +748,7 @@ export default {
 .price {
   font-size: 1.75rem;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
   margin-bottom: 8px;
 }
 
@@ -797,7 +797,7 @@ export default {
 
 .interpretation {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: var(--text-secondary, #b0b0c8);
   line-height: 1.5;
   margin: 0;
 }
@@ -838,17 +838,17 @@ export default {
 
 .halt-message {
   font-size: 0.875rem;
-  color: #4b5563;
+  color: var(--text-secondary, #b0b0c8);
   margin: 0;
 }
 
 /* 섹터 */
 .sector-interpretation {
   font-size: 1rem;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   margin-bottom: 20px;
   padding: 12px;
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 8px;
 }
 
@@ -862,7 +862,7 @@ export default {
   font-size: 1rem;
   font-weight: 600;
   margin-bottom: 12px;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .sector-card {
@@ -887,7 +887,7 @@ export default {
 .sector-rank {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
   min-width: 40px;
 }
 
@@ -897,7 +897,7 @@ export default {
 
 .sector-name {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
   margin-bottom: 4px;
 }
 
@@ -948,7 +948,7 @@ export default {
 .leading-stock {
   width: 100%;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
   padding-top: 8px;
   border-top: 1px solid rgba(0, 0, 0, 0.1);
 }
@@ -959,7 +959,7 @@ export default {
 
 .leading-stock .stock-name {
   font-weight: 600;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   margin-right: 8px;
 }
 
@@ -982,7 +982,7 @@ export default {
   flex: 1;
   max-width: 300px;
   padding: 12px 16px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color, rgba(255, 255, 255, 0.08));
   border-radius: 8px;
   font-size: 1rem;
   transition: all 0.3s ease;
@@ -1018,7 +1018,7 @@ export default {
 .vwap-result {
   padding: 20px;
   border-radius: 12px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .vwap-result.signal-strong-buy {
@@ -1032,8 +1032,8 @@ export default {
 }
 
 .vwap-result.signal-neutral {
-  border-color: #9ca3af;
-  background: #f9fafb;
+  border-color: var(--text-muted, #7878a0);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .vwap-result.signal-sell {
@@ -1056,7 +1056,7 @@ export default {
 .vwap-header h3 {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
   margin: 0;
 }
 
@@ -1101,13 +1101,13 @@ export default {
 
 .vwap-stat .label {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
 }
 
 .vwap-stat .value {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .vwap-stat .value.positive {
@@ -1120,7 +1120,7 @@ export default {
 
 .vwap-interpretation {
   font-size: 0.9375rem;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   line-height: 1.6;
   margin: 0;
 }
@@ -1152,7 +1152,7 @@ export default {
 
 .chart-title {
   font-weight: 600;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .chart-legend {
@@ -1170,10 +1170,10 @@ export default {
 }
 
 .mini-chart {
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   border-radius: 8px;
   padding: 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .chart-svg {
@@ -1186,7 +1186,7 @@ export default {
   justify-content: space-between;
   padding-top: 8px;
   font-size: 0.75rem;
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
 }
 
 .vwap-stat .vwap-value {
@@ -1217,7 +1217,7 @@ export default {
 }
 
 .signal-message-card.signal-neutral {
-  background: #f9fafb;
+  background: rgba(255, 255, 255, 0.04);
   border-color: #d1d5db;
 }
 
@@ -1229,7 +1229,7 @@ export default {
   margin: 0;
   font-size: 1rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   line-height: 1.5;
 }
 
@@ -1249,7 +1249,7 @@ export default {
 
 .chart-label {
   font-weight: 600;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   margin-bottom: 12px;
   display: flex;
   align-items: center;
@@ -1309,12 +1309,12 @@ export default {
 
 .badge-content strong {
   font-size: 1.25rem;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .probability {
   font-size: 1rem;
-  color: #4b5563;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .probability strong {
@@ -1379,20 +1379,20 @@ export default {
 
 .recommendation {
   font-size: 1.125rem;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   max-width: 400px;
   line-height: 1.6;
 }
 
 .no-data, .no-data-section {
   text-align: center;
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
   padding: 20px;
 }
 
 /* RSI 다이버전스 */
 .divergence-info {
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.06);
   padding: 16px;
   border-radius: 8px;
   margin-bottom: 20px;
@@ -1401,7 +1401,7 @@ export default {
 .divergence-info p {
   margin: 4px 0;
   font-size: 0.875rem;
-  color: #4b5563;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .divergence-search {
@@ -1413,10 +1413,10 @@ export default {
 
 .lookback-select {
   padding: 12px 16px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color, rgba(255, 255, 255, 0.08));
   border-radius: 8px;
   font-size: 1rem;
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   cursor: pointer;
 }
 
@@ -1428,7 +1428,7 @@ export default {
 .divergence-result {
   padding: 20px;
   border-radius: 12px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .divergence-result.divergence-bearish {
@@ -1442,8 +1442,8 @@ export default {
 }
 
 .divergence-result.divergence-none {
-  border-color: #9ca3af;
-  background: #f9fafb;
+  border-color: var(--text-muted, #7878a0);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .divergence-header {
@@ -1456,7 +1456,7 @@ export default {
 .divergence-header h3 {
   font-size: 1.125rem;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
   margin: 0;
 }
 
@@ -1495,13 +1495,13 @@ export default {
 
 .divergence-stat .label {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
 }
 
 .divergence-stat .value {
   font-size: 1.125rem;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .divergence-stat .value.rsi-overbought {
@@ -1513,12 +1513,12 @@ export default {
 }
 
 .divergence-stat .value.rsi-normal {
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .divergence-interpretation {
   font-size: 0.9375rem;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   line-height: 1.6;
   margin: 0;
 }

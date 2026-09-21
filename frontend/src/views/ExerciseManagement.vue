@@ -249,7 +249,7 @@ onMounted(loadRecords);
 .type-badge.strength { background: rgba(99,102,241,0.2); color: #818cf8; }
 .type-badge.flexibility { background: rgba(34,197,94,0.2); color: #22c55e; }
 .type-badge.sports { background: rgba(251,191,36,0.2); color: #fbbf24; }
-.intensity-badge { font-size: 10px; padding: 2px 6px; border-radius: 8px; }
+.intensity-badge { font-size: 11px; padding: 2px 6px; border-radius: 8px; }
 .intensity-badge.low { background: rgba(34,197,94,0.15); color: #4ade80; }
 .intensity-badge.medium { background: rgba(251,191,36,0.15); color: #fbbf24; }
 .intensity-badge.high { background: rgba(239,68,68,0.15); color: #f87171; }

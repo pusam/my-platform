@@ -387,7 +387,7 @@ watch(
 /* 상태 점 — 색이 곧 상태다. 회색 대기 / 초록 실행 / 빨강 실패 / 흐린 비활성 */
 .live {
   font-family: var(--cr-mono);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.16em;
   color: var(--cr-mut);
 }
@@ -400,7 +400,7 @@ watch(
 
 .daily {
   font-family: var(--cr-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   padding: 2px 6px;
   border: 1px solid var(--cr-line);
@@ -423,7 +423,7 @@ watch(
 }
 .card b {
   font-family: var(--cr-mono); display: block; font-size: 11px; letter-spacing: 0.14em; margin-bottom: 3px; }
-.card small { font-size: 10px; color: var(--cr-mut); line-height: 1.35; display: block; }
+.card small { font-size: 11px; color: var(--cr-mut); line-height: 1.35; display: block; }
 .card.eren b { color: var(--cr-vio); }
 .card.scout b { color: var(--cr-cyn); }
 .card.firewall b { color: var(--cr-grn); }
@@ -432,7 +432,7 @@ watch(
   position: absolute;
   top: 5px;
   right: 6px;
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.1em;
   color: var(--cr-dim);
 }
@@ -462,7 +462,7 @@ watch(
 }
 .state b {
   font-family: var(--cr-mono); color: inherit; font-size: 11.5px; letter-spacing: 0.06em; }
-.state .sub { display: block; margin-top: 3px; color: var(--cr-mut); font-size: 10.5px; }
+.state .sub { display: block; margin-top: 3px; color: var(--cr-mut); font-size: 11px; }
 .state.run { border-color: rgba(61, 255, 138, 0.45); color: var(--cr-grn); }
 .state.err { border-color: rgba(255, 77, 109, 0.5); color: var(--cr-red); background: rgba(255, 77, 109, 0.07); }
 .state.warn { border-color: rgba(255, 180, 58, 0.5); color: var(--cr-amb); background: rgba(255, 180, 58, 0.07); }
@@ -519,7 +519,7 @@ watch(
 
 .msg .nm {
   font-family: var(--cr-mono);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.16em;
   margin-bottom: 4px;
   display: flex;
@@ -531,7 +531,7 @@ watch(
 .msg.scout .nm { color: var(--cr-cyn); }
 .msg.firewall .nm { color: var(--cr-grn); }
 .msg.user .nm { color: var(--cr-mag); }
-.msg .nm .to { color: var(--cr-mut); letter-spacing: 0.06em; font-size: 9px; }
+.msg .nm .to { color: var(--cr-mut); letter-spacing: 0.06em; font-size: 11px; }
 .msg .nm .to::before { content: '→ '; }
 .msg .nm .trunc {
   font-family: var(--cr-mono);
@@ -539,16 +539,16 @@ watch(
   border: 1px solid var(--cr-red);
   padding: 0 4px;
   letter-spacing: 0.06em;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .msg .tx { font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
 .msg .meta {
-  font-family: var(--cr-mono); margin-top: 5px; font-size: 9px; color: var(--cr-dim); letter-spacing: 0.04em; }
+  font-family: var(--cr-mono); margin-top: 5px; font-size: 11px; color: var(--cr-dim); letter-spacing: 0.04em; }
 
 .msg .tx :deep(.tag) {
   display: inline-block;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   padding: 1px 6px;
   border: 1px solid;
@@ -570,13 +570,13 @@ watch(
 .acts button:hover:not(:disabled) { background: rgba(155, 77, 255, 0.2); }
 .acts button:disabled { opacity: 0.4; cursor: not-allowed; }
 .acts-note {
-  font-family: var(--cr-mono); font-size: 9.5px; color: var(--cr-dim); }
+  font-family: var(--cr-mono); font-size: 11px; color: var(--cr-dim); }
 
 .omitted {
   border: 1px dashed var(--cr-amb);
   color: var(--cr-amb);
   padding: 7px 10px;
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -627,7 +627,7 @@ watch(
 .in button:disabled { background: var(--cr-dim); color: rgba(255, 255, 255, 0.6); cursor: not-allowed; }
 
 .mode {
-  font-family: var(--cr-mono); font-size: 9px; letter-spacing: 0.14em; color: var(--cr-dim); text-align: right; }
+  font-family: var(--cr-mono); font-size: 11px; letter-spacing: 0.14em; color: var(--cr-dim); text-align: right; }
 
 @media (max-width: 1100px) {
   .crew { border-left: 0; border-top: 1px solid var(--cr-line); height: auto; }

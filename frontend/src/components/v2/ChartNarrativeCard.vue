@@ -59,8 +59,10 @@ watch(() => props.stockCode, (code) => fetchNarrative(code), { immediate: true }
 
 <style scoped>
 .narrative-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  /* 2026-09-21 점검: 라이트 테마 색이 하드코딩돼 있어 어두운 종목상세 화면에서 혼자 흰 카드였다.
+     공용 토큰으로 맞춘다 — 색만 바꾸고 레이아웃·문구·판정은 그대로다. */
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
   border-radius: 12px;
   padding: 16px 18px;
   margin: 12px 0;
@@ -78,7 +80,7 @@ watch(() => props.stockCode, (code) => fetchNarrative(code), { immediate: true }
   font-size: 15px;
   font-weight: 700;
   margin: 0;
-  color: #111827;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .nc-verdict {
@@ -88,14 +90,14 @@ watch(() => props.stockCode, (code) => fetchNarrative(code), { immediate: true }
   border-radius: 999px;
 }
 
-.v-wait { background: #f3f4f6; color: #4b5563; }
-.v-overheated { background: #fef3c7; color: #92400e; }
-.v-watch { background: #dbeafe; color: #1e40af; }
+.v-wait { background: rgba(255, 255, 255, 0.08); color: var(--text-secondary, #b0b0c8); }
+.v-overheated { background: var(--warning-light, rgba(251, 191, 36, 0.12)); color: var(--warning, #fbbf24); }
+.v-watch { background: var(--info-light, rgba(96, 165, 250, 0.12)); color: var(--info, #60a5fa); }
 
 .nc-reason {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary, #f0f0f5);
   margin: 0 0 14px;
   line-height: 1.5;
 }
@@ -105,7 +107,7 @@ watch(() => props.stockCode, (code) => fetchNarrative(code), { immediate: true }
 .nc-section-title {
   font-size: 12px;
   font-weight: 700;
-  color: #6b7280;
+  color: var(--text-muted, #7878a0);
   margin: 0 0 4px;
 }
 
@@ -117,7 +119,7 @@ watch(() => props.stockCode, (code) => fetchNarrative(code), { immediate: true }
 
 .nc-lines li {
   font-size: 13.5px;
-  color: #374151;
+  color: var(--text-secondary, #b0b0c8);
   line-height: 1.65;
   position: relative;
 }
@@ -126,15 +128,15 @@ watch(() => props.stockCode, (code) => fetchNarrative(code), { immediate: true }
   content: '·';
   position: absolute;
   left: -12px;
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
 }
 
 .nc-disclaimer {
   font-size: 11.5px;
-  color: #9ca3af;
+  color: var(--text-muted, #7878a0);
   line-height: 1.5;
   margin: 10px 0 0;
   padding-top: 10px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--border-light, rgba(255, 255, 255, 0.05));
 }
 </style>

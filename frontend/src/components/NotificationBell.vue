@@ -581,7 +581,7 @@ onUnmounted(() => {
 .filter-item input[type="checkbox"] { accent-color: #667eea; }
 .filter-icon { font-size: 13px; }
 .filter-hint {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-light, #aaa);
   margin-top: 8px;
   font-style: italic;

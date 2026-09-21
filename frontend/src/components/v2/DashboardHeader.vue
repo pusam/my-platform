@@ -168,7 +168,7 @@ export default {
   color: rgba(255,255,255,0.6);
 }
 .search-btn kbd {
-  font-size: 10px;
+  font-size: 11px;
   background: rgba(255,255,255,0.1);
   padding: 2px 5px;
   border-radius: 4px;

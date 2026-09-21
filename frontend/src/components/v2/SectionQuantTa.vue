@@ -757,7 +757,7 @@ export default {
 .result-table tbody tr:hover { background: rgba(255,255,255,0.04); }
 .stock-cell { display: flex; flex-direction: column; gap: 2px; }
 .stock-name { font-weight: 600; }
-.stock-code { font-size: 10.5px; color: rgba(255,255,255,0.4); }
+.stock-code { font-size: 11px; color: rgba(255,255,255,0.4); }
 .score-cell { font-weight: 700; color: #c084fc; }
 .tag-chip {
   display: inline-block;
@@ -766,7 +766,7 @@ export default {
   padding: 2px 7px;
   margin: 1px 3px 1px 0;
   border-radius: 8px;
-  font-size: 10.5px;
+  font-size: 11px;
 }
 .positive { color: #ef4444; }
 .negative { color: #3b82f6; }
@@ -821,12 +821,12 @@ export default {
   color: rgba(255,193,7,0.85);
 }
 .code-chip-name { font-size: 12.5px; font-weight: 600; }
-.code-chip-code { font-family: monospace; font-size: 10px; opacity: 0.55; margin-top: 1px; }
+.code-chip-code { font-family: monospace; font-size: 11px; opacity: 0.55; margin-top: 1px; }
 
 /* 매트릭스 헤더 — 이름 + 코드 2줄 */
 .hm-head-name, .hm-side-name { font-size: 11px; font-weight: 600; }
 .hm-head-code, .hm-side-code {
-  font-size: 9.5px; font-family: monospace;
+  font-size: 11px; font-family: monospace;
   color: rgba(255,255,255,0.4); margin-top: 1px;
 }
 
@@ -879,7 +879,7 @@ export default {
 @media (max-width: 600px) {
   .section-card { padding: 14px 16px; }
   .section-title-row h2 { font-size: 15px; }
-  .badge-offline { font-size: 10px; padding: 3px 8px; }
+  .badge-offline { font-size: 11px; padding: 3px 8px; }
 
   /* universe 바 — 세로 스택 */
   .universe-bar { padding: 10px 12px; }
@@ -898,18 +898,18 @@ export default {
   .result-table { font-size: 11.5px; }
   .result-table th, .result-table td { padding: 6px 7px; }
   .stock-name { font-size: 12px; }
-  .stock-code { font-size: 9.5px; }
-  .tag-chip { font-size: 9.5px; padding: 1px 5px; }
+  .stock-code { font-size: 11px; }
+  .tag-chip { font-size: 11px; padding: 1px 5px; }
 
   /* 상관관계 칩 */
   .code-chip { padding: 4px 8px; }
   .code-chip-name { font-size: 11.5px; }
-  .code-chip-code { font-size: 9px; }
+  .code-chip-code { font-size: 11px; }
 
   /* 매트릭스 */
   .heatmap-table th, .heatmap-table td { padding: 4px 6px; }
-  .heatmap-table { font-size: 10.5px; }
-  .hm-head-name, .hm-side-name { font-size: 10px; }
-  .hm-head-code, .hm-side-code { font-size: 8.5px; }
+  .heatmap-table { font-size: 11px; }
+  .hm-head-name, .hm-side-name { font-size: 11px; }
+  .hm-head-code, .hm-side-code { font-size: 11px; }
 }
 </style>
