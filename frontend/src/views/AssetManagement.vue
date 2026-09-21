@@ -748,6 +748,9 @@ onMounted(() => {
 
 .summary-card.stock .card-header {
   background: var(--primary-gradient);
+  /* workstation 이 브랜드색을 밝은 단색(#8b93ff)으로 평탄화해 흰 글씨가 2.72 였다 → 7.10.
+     금/은/기타 헤더는 배경 밝기가 달라 일괄로 바꾸지 않는다. */
+  color: var(--text-on-accent, #0b0e13);
 }
 
 .summary-card.other .card-header {

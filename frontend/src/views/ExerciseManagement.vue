@@ -222,7 +222,7 @@ onMounted(loadRecords);
 .management-page { min-height: 100vh; background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%); color: #fff; padding: 20px; }
 .page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
 .page-header h1 { flex: 1; font-size: 20px; margin: 0; }
-.add-btn { background: #10b981; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; }
+.add-btn { background: #10b981; color: var(--text-on-accent, #0b0e13); border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; }
 .add-btn:hover { background: #059669; }
 
 .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -234,7 +234,7 @@ onMounted(loadRecords);
 
 .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 .filter-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); border-radius: 20px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
-.filter-btn.active { background: #10b981; color: #fff; border-color: #10b981; }
+.filter-btn.active { background: #10b981; color: var(--text-on-accent, #0b0e13); border-color: #10b981; }
 
 .loading-wrap { text-align: center; padding: 40px; }
 .spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #10b981; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto; }
@@ -275,10 +275,10 @@ onMounted(loadRecords);
 .form-group.third { flex: 1; }
 .type-selector { display: flex; gap: 6px; flex-wrap: wrap; }
 .type-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.6); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
-.type-btn.active { background: #10b981; color: #fff; border-color: #10b981; }
+.type-btn.active { background: #10b981; color: var(--text-on-accent, #0b0e13); border-color: #10b981; }
 .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
 .cancel-btn { flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.6); border-radius: 8px; padding: 10px; cursor: pointer; }
-.submit-btn { flex: 1; background: #10b981; color: #fff; border: none; border-radius: 8px; padding: 10px; cursor: pointer; font-weight: 600; }
+.submit-btn { flex: 1; background: #10b981; color: var(--text-on-accent, #0b0e13); border: none; border-radius: 8px; padding: 10px; cursor: pointer; font-weight: 600; }
 .submit-btn:hover { background: #059669; }
 
 @media (max-width: 600px) {

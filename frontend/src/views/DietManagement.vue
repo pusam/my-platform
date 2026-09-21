@@ -201,7 +201,7 @@ onMounted(loadRecords);
 .management-page { min-height: 100vh; background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%); color: #fff; padding: 20px; }
 .page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
 .page-header h1 { flex: 1; font-size: 20px; margin: 0; }
-.add-btn { background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; }
+.add-btn { background: #4F46E5; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 13px; }
 .add-btn:hover { background: #5558e6; }
 
 .summary-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -212,10 +212,10 @@ onMounted(loadRecords);
 
 .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 .filter-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); border-radius: 20px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
-.filter-btn.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+.filter-btn.active { background: #4F46E5; color: #fff; border-color: #4F46E5; }
 
 .loading-wrap { text-align: center; padding: 40px; }
-.spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #6366f1; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto; }
+.spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #4F46E5; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .empty-state { text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.4); }
 
@@ -230,7 +230,7 @@ onMounted(loadRecords);
 .record-date { font-size: 12px; color: rgba(255,255,255,0.4); }
 .record-actions { margin-left: auto; display: flex; gap: 6px; }
 .edit-btn, .del-btn { background: none; border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.5); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 11px; }
-.edit-btn:hover { border-color: #6366f1; color: #818cf8; }
+.edit-btn:hover { border-color: #4F46E5; color: #818cf8; }
 .del-btn:hover { border-color: #ef4444; color: #ef4444; }
 .food-name { font-size: 15px; }
 .portion { font-size: 13px; color: rgba(255,255,255,0.4); margin-left: 4px; }
@@ -249,10 +249,10 @@ onMounted(loadRecords);
 .form-group.third { flex: 1; }
 .type-selector { display: flex; gap: 6px; flex-wrap: wrap; }
 .type-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.6); border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
-.type-btn.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+.type-btn.active { background: #4F46E5; color: #fff; border-color: #4F46E5; }
 .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
 .cancel-btn { flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.6); border-radius: 8px; padding: 10px; cursor: pointer; }
-.submit-btn { flex: 1; background: #6366f1; color: #fff; border: none; border-radius: 8px; padding: 10px; cursor: pointer; font-weight: 600; }
+.submit-btn { flex: 1; background: #4F46E5; color: #fff; border: none; border-radius: 8px; padding: 10px; cursor: pointer; font-weight: 600; }
 .submit-btn:hover { background: #5558e6; }
 
 @media (max-width: 600px) {
