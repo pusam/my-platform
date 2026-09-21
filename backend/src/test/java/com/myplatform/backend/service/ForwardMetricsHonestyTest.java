@@ -58,4 +58,28 @@ class ForwardMetricsHonestyTest {
     void negativeEpsProducesNothing() {
         assertThat(StockDetailService.forwardEps(new BigDecimal("-500"), new BigDecimal("8"))).isNull();
     }
+
+    /**
+     * ⚠ <b>이 수정이 한 번 새 문제를 만들었다</b>(2026-09-21, 같은 날 자기 정정).
+     *
+     * <p>PER 발명을 걷어내고 "실측 EPS 성장률"을 쓰게 했더니 삼성전자가 <b>315.39%</b> 로 잡혔다 —
+     * {@code findTopByStockCodeOrderByReportDateDesc} 가 <b>report_date 가 미래인 12-31 추정치 행</b>을
+     * 집었기 때문이다(§4c 미래 날짜 항목이 경고하던 바로 그 함정). 그 값으로 Forward PER 이
+     * 41.8 → <b>10</b> 으로 뒤집혀, 지어낸 상수보다 <b>더</b> 오해를 부르는 수치가 됐다.
+     *
+     * <p>게다가 당일 수집분 2,587행의 {@code eps_growth} 는 <b>전부 0</b> 이었다 —
+     * 무성장인지 미산출인지 구분할 수 없으므로 0 도 쓰지 않는다.
+     *
+     * <p>결론: 지금은 대부분의 종목에서 성장률이 null 이고 Forward 지표가 <b>표시되지 않는다</b>.
+     * 그게 정직한 상태다 — 쓸 수 있는 성장률 데이터가 실제로 없다.
+     */
+    @Test
+    @DisplayName("과거 성장률을 미래 예측으로 쓰지 않는다 — 조회는 미래 날짜 행·0 을 걸러서 온다")
+    void growthMustComeFromUsablePastRow() {
+        // 조회 계층이 걸러 주므로 이 함수에 도달하는 값은 '쓸 수 있는 실측'뿐이다.
+        // 0 이 흘러들어오면 성장률로 취급하지 않는다(무성장/미산출 구분 불가).
+        assertThat(StockDetailService.forwardEps(new BigDecimal("6564"), BigDecimal.ZERO))
+                .isEqualByComparingTo("6564");   // 0% 면 곱해도 그대로 — 의미 없는 Forward 다
+        assertThat(StockDetailService.resolveEpsGrowthRate(null, new BigDecimal("41.8"))).isNull();
+    }
 }

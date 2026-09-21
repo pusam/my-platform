@@ -1915,7 +1915,9 @@ public class StockDetailService {
     private BigDecimal lookupEpsGrowth(String stockCode) {
         if (stockCode == null) return null;
         try {
-            return stockFinancialDataRepository.findTopByStockCodeOrderByReportDateDesc(stockCode)
+            // ⚠ findTopByStockCodeOrderByReportDateDesc 를 쓰면 미래 날짜(12-31 추정치) 행을 집는다 —
+            //    그 함정에 빠져 삼성전자가 315.39% 로 잡혔다(2026-09-21). 전용 쿼리로 거른다.
+            return stockFinancialDataRepository.findLatestUsableEpsGrowth(stockCode)
                     .map(com.myplatform.backend.entity.StockFinancialData::getEpsGrowth)
                     .orElse(null);
         } catch (Exception e) {

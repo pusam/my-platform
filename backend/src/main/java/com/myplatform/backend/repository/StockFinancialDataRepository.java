@@ -20,6 +20,23 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     Optional<StockFinancialData> findTopByStockCodeOrderByReportDateDesc(String stockCode);
 
     /**
+     * 쓸 수 있는 EPS 성장률 — 종목당 최신 1건(2026-09-21).
+     *
+     * <p>⚠ <b>{@code findTopByStockCodeOrderByReportDateDesc} 를 이 용도로 쓰면 안 된다</b> —
+     * report_date 최댓값이 <b>미래(12-31 추정치 행)</b> 일 수 있다(§4c 미래 날짜 항목). 실제로 그 함정에
+     * 빠져 삼성전자 EPS 성장률이 <b>315.39%</b> 로 잡히고 Forward PER 이 41.8 → 10 으로 뒤집혔다.
+     *
+     * <p>그래서 ① {@code report_date <= CURDATE()} ② {@code eps_growth <> 0} 두 조건을 건다.
+     * 0 을 빼는 이유는 <b>무성장과 미산출을 구분할 수 없어서</b>다 — 당일 수집분 2,587행이 전부 0 이었다
+     * (성장률 배치가 채우지 못한 것으로 보인다). 0 을 성장률로 믿고 Forward 지표를 만들면 또 위장이 된다.
+     */
+    @Query(value = "SELECT * FROM stock_financial_data s "
+            + " WHERE s.stock_code = :code AND s.report_date <= CURDATE() "
+            + "   AND s.eps_growth IS NOT NULL AND s.eps_growth <> 0 "
+            + " ORDER BY s.report_date DESC LIMIT 1", nativeQuery = true)
+    Optional<StockFinancialData> findLatestUsableEpsGrowth(@Param("code") String code);
+
+    /**
      * 가치 점수 산정용 — 최신 10건.
      * 단일 row 가 일부 컬럼만 채워진 케이스(예: 미래 일자 annual row 는 영업이익만, 일별 row 는 PBR/ROE 만)
      * 대비해 호출측에서 first non-null 로 합성.
