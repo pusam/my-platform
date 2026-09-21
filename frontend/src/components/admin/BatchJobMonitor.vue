@@ -359,8 +359,8 @@ export default {
 
 .refresh-btn {
   padding: 8px 16px;
-  background: #2196F3;
-  color: var(--text-on-accent, #12171f);
+  background: #1565C0;
+  color: #ffffff;
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -370,14 +370,13 @@ export default {
 }
 
 .refresh-btn:hover {
-  background: #1976D2;
+  background: #0D47A1;
 }
 
 .refresh-btn:disabled {
-  /* 비활성을 밝은 하늘색으로 두면 다크 화면에서 그 버튼만 떠 보인다 —
-     흐려 보이는 게 비활성의 의미에 맞다(2026-09-21). */
-  background: rgba(255, 255, 255, 0.10);
-  color: var(--text-muted, #8a95a3);
+  /* 비활성은 색이 아니라 **투명도**로 표현한다 — 색만 바꾸면 배경과의 대비를 잃는다.
+     실제로 어두운 글씨 + 반투명 배경 조합이 라이브에서 대비 1.18 이었다(2026-09-21). */
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
@@ -489,8 +488,8 @@ export default {
 
 .page-btn {
   padding: 8px 16px;
-  background: #2196F3;
-  color: var(--text-on-accent, #12171f);
+  background: #1565C0;
+  color: #ffffff;
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -499,12 +498,11 @@ export default {
 }
 
 .page-btn:hover {
-  background: #1976D2;
+  background: #0D47A1;
 }
 
 .page-btn:disabled {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--text-muted, #9494bd);
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
