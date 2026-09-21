@@ -1891,9 +1891,13 @@ onUnmounted(() => {
   transition: all 0.3s;
 }
 
+  /* 흰 글씨 + 밝은 녹색(#48bb78)은 대비 2.43 로 읽기 어려웠다(2026-09-21 실측).
+     녹색을 어둡게 하는 대신 밝은 액센트 위 어두운 글씨 규약(--text-on-accent)을 쓴다 — 대비 7.41,
+     hover(#38a169) 에서도 5.54. 버튼의 시각적 무게(밝은 녹색)를 유지하면서 읽힌다. */
 .start-btn.virtual-btn {
   background: #48bb78;
-  color: white;
+  color: var(--text-on-accent, #1a1a2e);
+  font-weight: 700;
 }
 
 .start-btn.virtual-btn:hover:not(:disabled) {
@@ -1971,6 +1975,8 @@ onUnmounted(() => {
 
 .trade-btn {
   background: #48bb78;
+  color: var(--text-on-accent, #1a1a2e);   /* 흰 글씨 대비 2.43 → 7.41 */
+  font-weight: 700;
 }
 
 .trade-btn:hover {
@@ -2241,7 +2247,8 @@ onUnmounted(() => {
 
 .submit-btn {
   background: #48bb78;
-  color: white;
+  color: var(--text-on-accent, #1a1a2e);   /* 흰 글씨 대비 2.43 → 7.41 */
+  font-weight: 700;
 }
 
 .submit-btn:hover:not(:disabled) {

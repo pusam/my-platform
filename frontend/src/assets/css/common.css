@@ -967,3 +967,9 @@ input[type="radio"] {
   background: rgba(255, 255, 255, 0.06);
   border-radius: 4px;
 }
+
+/* <small> 은 선언 없이 부모의 0.8배로 줄어든다 — 12.5px 부모 밑에서 10px 이 된다.
+   font-size 선언만 훑어서는 안 잡히는 구멍이라(2026-09-21 발굴 탭 실측) 하한을 건다. */
+small {
+  font-size: max(0.8em, 11px);
+}

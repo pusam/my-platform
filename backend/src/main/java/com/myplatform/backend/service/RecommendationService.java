@@ -59,6 +59,9 @@ public class RecommendationService {
     private final StockFinancialDataRepository financialDataRepository;
     private final RiskManagementService riskManagementService;
     private final StockStatusService stockStatusService;
+    // 표시용 종목명 보강 — stock_financial_data.stock_name 의 70%(2026-09-21 실측 1,869/2,660)가
+    // 이름 대신 코드다. 마스터에는 전 종목 정상 이름이 있어 읽는 쪽에서 메운다.
+    private final com.myplatform.backend.repository.StockMasterRepository stockMasterRepository;
     private final TelegramNotificationService telegramService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
@@ -843,6 +846,42 @@ public class RecommendationService {
      *
      * 캐시 30분 (가치 데이터는 분기 단위로 거의 안 변함).
      */
+    /**
+     * 표시용 종목명 — 순수 함수(회귀 {@code RecommendationDisplayNameTest}).
+     *
+     * <p>{@code stock_financial_data.stock_name} 은 상당수 행이 <b>이름 대신 종목코드</b>다
+     * (2026-09-21 실측 2,660행 중 1,869행). 그 경우에만 마스터 이름으로 채운다 —
+     * 진짜 이름이 있으면 마스터로 <b>덮어쓰지 않는다</b>(이 함수는 결측 보강이지 정규화가 아니다).
+     *
+     * <p>마스터에도 없으면 <b>코드를 그대로 남긴다</b>: 빈칸으로 지우면 어떤 종목인지조차 잃는다(§4c).
+     * 마스터 조회 실패(map=null)도 기존 값 유지 — 이름 때문에 발굴이 죽으면 안 된다(fail-open).
+     */
+    static String resolveDisplayName(String stockCode, String rawName, java.util.Map<String, String> masterNames) {
+        boolean missing = rawName == null || rawName.isBlank()
+                || (stockCode != null && rawName.trim().equals(stockCode));
+        if (!missing || stockCode == null || masterNames == null) {
+            return rawName;
+        }
+        String fromMaster = masterNames.get(stockCode);
+        return (fromMaster != null && !fromMaster.isBlank()) ? fromMaster : stockCode;
+    }
+
+    /** 코드→마스터 이름. 조회 실패는 빈 맵(§4c: 이름 때문에 발굴 전체가 죽지 않게). */
+    private java.util.Map<String, String> masterNameMap() {
+        try {
+            java.util.Map<String, String> m = new java.util.HashMap<>();
+            for (com.myplatform.backend.entity.StockMaster sm : stockMasterRepository.findAll()) {
+                if (sm.getStockCode() != null && sm.getStockName() != null) {
+                    m.put(sm.getStockCode(), sm.getStockName());
+                }
+            }
+            return m;
+        } catch (Exception e) {
+            log.warn("[발굴] 종목마스터 이름 조회 실패 — 재무 행 이름을 그대로 쓴다: {}", e.getMessage());
+            return java.util.Map.of();
+        }
+    }
+
     public Top5Response getValueTop10() {
         LocalDateTime now = LocalDateTime.now();
         boolean trading = isTradingHours(now);
@@ -912,6 +951,7 @@ public class RecommendationService {
     private List<RecommendationDto> calculateValueTop10() {
         long t0 = System.currentTimeMillis();
         List<StockFinancialData> all = loadSynthesizedFinancials("저평가TOP10");
+        java.util.Map<String, String> masterNames = masterNameMap();
 
         // 점수 산정 + 0점 초과만 필터
         List<ValueScoredStock> scored = new ArrayList<>();
@@ -923,7 +963,7 @@ public class RecommendationService {
             if (score <= 0) continue;
             ValueScoredStock vs = new ValueScoredStock();
             vs.stockCode = fin.getStockCode();
-            vs.stockName = fin.getStockName();
+            vs.stockName = resolveDisplayName(fin.getStockCode(), fin.getStockName(), masterNames);
             vs.score = score;
             vs.pbrScore = parts[0];
             vs.roeCombinedScore = parts[1];
@@ -1079,6 +1119,7 @@ public class RecommendationService {
     private List<RecommendationDto> calculateGrowthTop10() {
         long t0 = System.currentTimeMillis();
         List<StockFinancialData> all = loadSynthesizedFinancials("성장주TOP10");
+        java.util.Map<String, String> masterNames = masterNameMap();
 
         List<GrowthScoredStock> scored = new ArrayList<>();
         for (StockFinancialData fin : all) {
@@ -1092,7 +1133,7 @@ public class RecommendationService {
             if (score <= 0) continue;
             GrowthScoredStock gs = new GrowthScoredStock();
             gs.stockCode = fin.getStockCode();
-            gs.stockName = fin.getStockName();
+            gs.stockName = resolveDisplayName(fin.getStockCode(), fin.getStockName(), masterNames);
             gs.score = score;
             gs.revScore = parts[0];
             gs.profitScore = parts[1];
