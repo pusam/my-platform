@@ -237,7 +237,7 @@ public class StockDetailService {
         // → TTM 계산(정확한 네이버 상장주식수 사용) 결과를 그대로 사용
         if (financial != null) {
             enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
-            enrichWithForwardMetrics(financial, builder.build().getPrice());
+            enrichWithForwardMetrics(stockCode, financial, builder.build().getPrice());
             financial.setInvestmentTags(generateInvestmentTags(financial, stockName));
         }
         builder.financial(financial);
@@ -423,7 +423,7 @@ public class StockDetailService {
                         FinancialInfo financial = fetchFinancialInfo(stockCode, null);
                         if (financial != null) {
                             enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
-                            enrichWithForwardMetrics(financial, finalPriceInfo);
+                            enrichWithForwardMetrics(stockCode, financial, finalPriceInfo);
                             financial.setInvestmentTags(generateInvestmentTags(financial, finalStockName));
                         }
                         enrichData.put("financial", financial);
@@ -1851,37 +1851,65 @@ public class StockDetailService {
      * - 성장률 기반으로 EPS/BPS 예상치 산출
      * - Forward PER = 현재가 / Forward EPS
      */
-    private void enrichWithForwardMetrics(FinancialInfo financial, PriceInfo priceInfo) {
+    /**
+     * 표시·계산에 쓸 EPS 성장률 — 순수 함수(회귀 {@code ForwardMetricsHonestyTest}).
+     *
+     * <p>예전엔 <b>PER 구간으로 성장률을 만들어냈다</b>(PER&lt;8 → 25% … PER 없으면 15%).
+     * prod 실측에서 삼성전자·SK하이닉스·카카오가 <b>셋 다 8%</b> 였고 존재하지 않는 종목코드가 15% 를
+     * 받아왔다 — 데이터가 아니라 상수였다. 진짜 값은 {@code stock_financial_data.eps_growth} 에
+     * 당일 2,660행 중 2,587행(97%) 들어 있다.
+     *
+     * <p>실측이 없으면 <b>null</b> 이다. "보수적 기본값"도 기본값이 아니라 발명이고,
+     * 그 위에 얹은 Forward EPS·PER 은 근거 없는 파생값이 된다(§4c).
+     *
+     * @param per 옛 추정 로직이 쓰던 입력 — 이제 쓰지 않는다(시그니처에 남겨 의도를 드러낸다)
+     */
+    static BigDecimal resolveEpsGrowthRate(BigDecimal realEpsGrowth, BigDecimal per) {
+        return realEpsGrowth;   // PER 기반 추정은 폐기 — 실측이 없으면 없는 것이다
+    }
+
+    /** Forward EPS = Trailing EPS × (1 + 성장률). 성장률을 모르거나 적자면 null — 순수 함수. */
+    static BigDecimal forwardEps(BigDecimal trailingEps, BigDecimal growthRatePct) {
+        if (trailingEps == null || growthRatePct == null) return null;
+        if (trailingEps.compareTo(BigDecimal.ZERO) <= 0) return null;
+        BigDecimal multiplier = BigDecimal.ONE.add(
+                growthRatePct.divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
+        BigDecimal fwd = trailingEps.multiply(multiplier).setScale(0, RoundingMode.HALF_UP);
+        return fwd.compareTo(BigDecimal.ZERO) > 0 ? fwd : null;
+    }
+
+    /** 실측 EPS 성장률 조회 — 실패/부재는 null(§4c, fail-open). */
+    private BigDecimal lookupEpsGrowth(String stockCode) {
+        if (stockCode == null) return null;
+        try {
+            return stockFinancialDataRepository.findTopByStockCodeOrderByReportDateDesc(stockCode)
+                    .map(com.myplatform.backend.entity.StockFinancialData::getEpsGrowth)
+                    .orElse(null);
+        } catch (Exception e) {
+            log.debug("[StockDetail] EPS 성장률 조회 실패 {}: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    private void enrichWithForwardMetrics(String stockCode, FinancialInfo financial, PriceInfo priceInfo) {
         if (financial == null) return;
 
-        // EPS 성장률: DB에서 가져오거나 업종 평균 사용
-        BigDecimal epsGrowthRate = new BigDecimal("15"); // 기본 성장률 15%
-
-        // PER 기반 성장률 추정: 저PER이면 성장률 높게, 고PER이면 낮게
-        if (financial.getPer() != null && financial.getPer().compareTo(BigDecimal.ZERO) > 0) {
-            double per = financial.getPer().doubleValue();
-            if (per < 8) epsGrowthRate = new BigDecimal("25");       // 저평가 → 실적 성장 기대
-            else if (per < 12) epsGrowthRate = new BigDecimal("18");
-            else if (per < 20) epsGrowthRate = new BigDecimal("12");
-            else epsGrowthRate = new BigDecimal("8");                // 고PER → 보수적
-        }
+        // EPS 성장률 — 실측만 쓴다(§4c). 없으면 null 이고 Forward 지표도 만들지 않는다.
+        BigDecimal realEpsGrowth = lookupEpsGrowth(stockCode);
+        BigDecimal epsGrowthRate = resolveEpsGrowthRate(realEpsGrowth, financial.getPer());
         financial.setEpsGrowthRate(epsGrowthRate);
 
-        // Forward EPS = Trailing EPS × (1 + 성장률)
-        if (financial.getEps() != null && financial.getEps().compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal growthMultiplier = BigDecimal.ONE.add(
-                    epsGrowthRate.divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
-            BigDecimal forwardEps = financial.getEps().multiply(growthMultiplier)
-                    .setScale(0, RoundingMode.HALF_UP);
+        BigDecimal forwardEps = forwardEps(financial.getEps(), epsGrowthRate);
+        if (forwardEps != null) {
             financial.setForwardEps(forwardEps);
 
             // Forward PER = 현재가 / Forward EPS
             if (priceInfo != null && priceInfo.getCurrentPrice() != null
-                    && forwardEps.compareTo(BigDecimal.ZERO) > 0) {
+                    && priceInfo.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal forwardPer = priceInfo.getCurrentPrice()
                         .divide(forwardEps, 1, RoundingMode.HALF_UP);
                 financial.setForwardPer(forwardPer);
-                log.info("[StockDetail] Forward PER: {} (EPS성장률: {}%, FwdEPS: {})",
+                log.debug("[StockDetail] Forward PER: {} (실측 EPS성장률 {}%, FwdEPS {})",
                         forwardPer, epsGrowthRate, forwardEps);
             }
         }
