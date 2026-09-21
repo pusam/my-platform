@@ -1568,7 +1568,9 @@ onUnmounted(() => {
 }
 /* 행동 라벨(추천/verdict) 신호색 — 매수=빨강/매도=파랑(한국 관례, common.css --signal-*).
    점수 숫자·박스 테두리는 품질 스케일이라 초록 계열 유지 — 이 구분을 깨지 말 것. */
-.score-badge.sb-strong-buy { color: #fff; background: var(--signal-strong-buy, #ef4444); }
+/* 형제들과 달리 이것만 단색 신호색 배경이라 흰 글씨가 3.76 으로 미달이었다.
+   배경(빨강=매수 관례)은 그대로 두고 글씨를 뒤집는다 — 5.14 (2026-09-22 실측). */
+.score-badge.sb-strong-buy { color: var(--text-on-accent, #0b0e13); background: var(--signal-strong-buy, #ef4444); }
 .score-badge.sb-buy { color: var(--signal-buy, #f87171); background: rgba(239, 68, 68, 0.15); }
 .score-badge.sb-neutral { color: var(--signal-neutral, #a3a3a3); background: rgba(255, 255, 255, 0.1); }
 .score-badge.sb-caution { color: var(--warning, #fbbf24); background: rgba(251, 191, 36, 0.14); }

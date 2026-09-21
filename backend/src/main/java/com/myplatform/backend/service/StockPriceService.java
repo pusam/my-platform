@@ -480,6 +480,24 @@ public class StockPriceService {
      * [장전 처리] 08:00~09:00 사이에는 일봉 API에서 어제 등락률을 가져옴
      */
     /**
+     * 종목명 보충 — 소스가 준 이름이 우선이고, 비었을 때만 마스터를 본다(순수, 회귀
+     * {@code StockPriceNameFallbackTest}).
+     *
+     * <p><b>왜 필요한가</b>: KIS 현재가 응답의 {@code hts_kor_isnm} 이 비어서 온다(2026-09-22 실측).
+     * 시세는 단일 경로(§1)라 이 DTO 의 이름이 목록·상세·추천·발굴에 전부 그대로 나간다 —
+     * 그래서 한 곳만 고치면 화면 전부가 같이 고쳐진다.
+     * 마스터는 부팅 시 워밍된 메모리 맵이라 조회 비용이 없다({@code StockMasterService.getName}).
+     *
+     * <p>⚠ <b>지어내지 않는다</b>: 마스터도 모르면 소스가 준 값을 <b>그대로</b> 돌려준다(빈 문자열/null
+     * 포함) — 종전 의미를 바꾸지 않는다. 종목코드를 이름으로 채우는 것은 이 함수의 일이 아니다.
+     */
+    static String preferGivenNameElseMaster(String fromSource, String fromMaster) {
+        if (fromSource != null && !fromSource.isBlank()) return fromSource;
+        if (fromMaster != null && !fromMaster.isBlank()) return fromMaster;
+        return fromSource;
+    }
+
+    /**
      * 쓸 수 있는 시세인가 — <b>현재가만</b> 본다(순수, 회귀 {@code StockPriceMissingQuoteTest}).
      *
      * <p>KIS 는 <b>없는 종목코드에도 200 + {@code rt_cd=0}</b> 을 준다(§4c 에 반복 기록된 특성).
@@ -524,8 +542,12 @@ public class StockPriceService {
 
             StockPriceDto dto = new StockPriceDto();
             dto.setStockCode(stockCode);
-            dto.setStockName(getTextValue(output, "hts_kor_isnm")); // 종목명
-            stockMasterService.cacheName(stockCode, dto.getStockName(), "KIS");
+            // ⚠ KIS 현재가(FHKST01010100)는 hts_kor_isnm 을 <b>빈 값으로 준다</b>(2026-09-22 실측:
+            //    stock_price 최근 행 전부 stock_name=''). 마스터에는 2,670종목 전부 실명이 있는데
+            //    여기서 물어보지 않아 화면마다 "005930" 이 종목명 자리에 떴다.
+            String kisName = getTextValue(output, "hts_kor_isnm"); // 종목명(비어 올 수 있음)
+            stockMasterService.cacheName(stockCode, kisName, "KIS");
+            dto.setStockName(preferGivenNameElseMaster(kisName, stockMasterService.getName(stockCode)));
             dto.setCurrentPrice(getBigDecimalValue(output, "stck_prpr")); // 현재가
             dto.setOpenPrice(getBigDecimalValue(output, "stck_oprc")); // 시가
             dto.setHighPrice(getBigDecimalValue(output, "stck_hgpr")); // 고가
@@ -985,7 +1007,8 @@ public class StockPriceService {
             StockPriceDto dto = new StockPriceDto();
 
             dto.setStockCode(stockCode);
-            dto.setStockName(root.get("stockName").asText());
+            dto.setStockName(preferGivenNameElseMaster(
+                    root.get("stockName").asText(), stockMasterService.getName(stockCode)));
             dto.setCurrentPrice(parsePrice(root.get("closePrice")));
             dto.setOpenPrice(parsePrice(root.has("openPrice") ? root.get("openPrice") : null));
             dto.setHighPrice(parsePrice(root.has("highPrice") ? root.get("highPrice") : null));
@@ -1243,7 +1266,9 @@ public class StockPriceService {
     private StockPriceDto entityToDto(StockPrice entity) {
         StockPriceDto dto = new StockPriceDto();
         dto.setStockCode(entity.getStockCode());
-        dto.setStockName(entity.getStockName());
+        // 저장된 행도 이름이 비어 있을 수 있다(위 ① 의 결과가 그대로 적재된 행) — 같은 규칙으로 보충.
+        dto.setStockName(preferGivenNameElseMaster(
+                entity.getStockName(), stockMasterService.getName(entity.getStockCode())));
         dto.setCurrentPrice(entity.getCurrentPrice());
         dto.setChangePrice(entity.getChangePrice());   // 누락 시 DB 경유 시세의 전일대비 폴백(SectorTrading 등) 무력화
         dto.setOpenPrice(entity.getOpenPrice());

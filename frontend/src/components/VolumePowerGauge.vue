@@ -347,11 +347,13 @@ const signalClass = computed(() => {
   border: 1px solid var(--signal-strong-sell, #3b82f6);
 }
 
-/* 장 시작 대기 상태 */
+/* 장 시작 대기 상태.
+   ⚠ #71717a 는 이 배지 배경(#252931) 위 3.02, 설명문 배경(#12171f) 위 3.72 로 미달이었다
+   (2026-09-22 데스크톱 실측). 회색 '대기' 성격은 두고 명도만 올려 5.07~6.25. */
 .signal-badge.pre-market {
   background: rgba(113, 113, 122, 0.2);
-  color: #71717a;
-  border: 1px solid #71717a;
+  color: #9598a3;
+  border: 1px solid #9598a3;
 }
 
 .power-value.strong-buy { color: var(--signal-strong-buy, #ef4444); }
@@ -359,7 +361,7 @@ const signalClass = computed(() => {
 .power-value.neutral { color: var(--signal-neutral, #a3a3a3); }
 .power-value.sell { color: var(--signal-sell, #60a5fa); }
 .power-value.strong-sell { color: var(--signal-strong-sell, #3b82f6); }
-.power-value.pre-market { color: #71717a; }
+.power-value.pre-market { color: #9598a3; }
 
 .gauge-fill.pre-market {
   background: linear-gradient(to right, #52525b, #71717a);
@@ -376,7 +378,7 @@ const signalClass = computed(() => {
 }
 
 .description .pre-market-text {
-  color: #71717a;
+  color: #9598a3;
   font-style: italic;
 }
 
