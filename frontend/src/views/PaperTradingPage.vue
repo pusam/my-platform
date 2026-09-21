@@ -1933,7 +1933,7 @@ onUnmounted(() => {
 .negative { color: var(--stock-down, #60a5fa) !important; }
 .negative::before { content: '▼ '; font-size: 0.75em; }
 .running { color: #48bb78 !important; }
-.stopped { color: #888 !important; }
+.stopped { color: var(--text-muted, #9494bd) !important; }
 .error { color: #ed8936 !important; }
 .vix-paused { color: #f6e05e !important; }
 
@@ -2647,7 +2647,7 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 700;
   margin-bottom: 12px;
-  color: #555;
+  color: var(--text-secondary, #b0b0c8);
 }
 .weekly-history-table-wrap { overflow-x: auto; }
 .weekly-history-table {

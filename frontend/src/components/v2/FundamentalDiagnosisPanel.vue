@@ -594,7 +594,7 @@ const diagGetSupplyDemandLabel = (value) => {
   transition: all 0.2s;
 }
 
-.fund-tab-btn:hover { color: #ccc; background: var(--border-light); }
+.fund-tab-btn:hover { color: var(--text-secondary, #b0b0c8); background: var(--border-light); }
 .fund-tab-btn.active {
   color: #fff;
   background: rgba(102, 126, 234, 0.3);
@@ -780,7 +780,7 @@ const diagGetSupplyDemandLabel = (value) => {
 .tech-section-title {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
   margin-bottom: 10px;
 }
 
@@ -816,7 +816,7 @@ const diagGetSupplyDemandLabel = (value) => {
 .indicator-value {
   font-family: 'Monaco', monospace;
   font-size: 0.85rem;
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .indicator-status.squeeze { color: #f59e0b; }
@@ -893,7 +893,7 @@ const diagGetSupplyDemandLabel = (value) => {
 
 .ttm-label {
   display: inline-block;
-  font-size: 0.6rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: #60a5fa;
   background: rgba(96, 165, 250, 0.15);

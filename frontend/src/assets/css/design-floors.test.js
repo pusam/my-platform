@@ -30,8 +30,11 @@ describe('디자인 바닥값', () => {
     for (const file of walk(SRC)) {
       const text = readFileSync(file, 'utf8')
       text.split(/\r?\n/).forEach((line, i) => {
-        const m = line.match(/font-size:\s*([\d.]+)px/)
-        if (m && parseFloat(m[1]) < MIN_PX) {
+        // px 뿐 아니라 rem/em 도 본다 — 처음엔 px 만 봐서 0.65rem(=10.4px) 14곳을 놓쳤다.
+        const m = line.match(/font-size:\s*([\d.]+)(px|rem|em)/)
+        if (!m) return
+        const px = m[2] === 'px' ? parseFloat(m[1]) : parseFloat(m[1]) * 16
+        if (px < MIN_PX) {
           offenders.push(`${file.replace(SRC, '')}:${i + 1}  ${m[0]}`)
         }
       })

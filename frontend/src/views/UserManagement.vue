@@ -270,7 +270,7 @@ export default {
 }
 
 .stat-card {
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   padding: 20px 30px;
   border-radius: 12px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -281,13 +281,13 @@ export default {
 
 .stat-label {
   font-size: 14px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 .stat-value {
   font-size: 28px;
   font-weight: bold;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .stat-value.active {
@@ -295,7 +295,7 @@ export default {
 }
 
 .users-section {
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -311,7 +311,7 @@ export default {
 .section-header h2 {
   margin: 0;
   font-size: 18px;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .btn-refresh {
@@ -334,7 +334,7 @@ export default {
 .loading {
   text-align: center;
   padding: 40px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 .section-tools {
@@ -397,23 +397,23 @@ export default {
 .users-table td {
   padding: 12px;
   text-align: left;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .users-table th {
-  background: #f8f9fa;
+  background: rgba(255, 255, 255, 0.04);
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
   white-space: nowrap;
 }
 
 .users-table tbody tr:hover {
-  background: #f8f9fa;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .role-select, .status-select {
   padding: 6px 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
   border-radius: 4px;
   font-size: 13px;
   cursor: pointer;

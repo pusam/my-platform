@@ -89,7 +89,7 @@ const getPeerBarClass = (pbr) => {
 }
 
 .peer-name {
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -121,7 +121,7 @@ const getPeerBarClass = (pbr) => {
 .peer-bar-fill.peer-high { background: linear-gradient(90deg, #f87171, #ef4444); }
 
 .peer-pbr { color: #aaa; font-family: 'Monaco', monospace; font-size: 0.75rem; }
-.peer-div { color: #888; font-size: 0.7rem; }
+.peer-div { color: var(--text-muted, #9494bd); font-size: 0.7rem; }
 
 .peer-bar-row.current .peer-pbr { color: #a78bfa; font-weight: 600; }
 .peer-bar-row.current .peer-div { color: #c4b5fd; }

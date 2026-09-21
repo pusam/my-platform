@@ -2953,7 +2953,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.75rem;
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .progress-percent {
@@ -3060,7 +3060,7 @@ onUnmounted(() => {
 }
 
 .log-message {
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
   flex: 1;
 }
 

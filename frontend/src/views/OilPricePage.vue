@@ -346,7 +346,7 @@ onUnmounted(() => {
 
 .update-time {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted, #9494bd);
 }
 
 .price-main {
@@ -356,7 +356,7 @@ onUnmounted(() => {
 
 .price-label {
   font-size: 16px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
   margin-bottom: 8px;
 }
 
@@ -390,14 +390,14 @@ onUnmounted(() => {
 
 .detail-item .label {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   margin-bottom: 4px;
 }
 
 .detail-item .value {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .detail-item .value.positive {
@@ -427,7 +427,7 @@ onUnmounted(() => {
 
 .range-item .label {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   margin-bottom: 4px;
 }
 
@@ -458,13 +458,13 @@ onUnmounted(() => {
 
 .info-item .label {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted, #9494bd);
 }
 
 .info-item .value {
   font-size: 15px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .widget-footer {
@@ -477,13 +477,13 @@ onUnmounted(() => {
 
 .next-update {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted, #9494bd);
 }
 
 .error {
   text-align: center;
   padding: 60px 20px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 .retry-btn {
@@ -511,7 +511,7 @@ onUnmounted(() => {
 
 .chart-header h2 {
   margin: 0;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
   font-size: 22px;
   font-weight: 600;
 }
@@ -536,14 +536,14 @@ onUnmounted(() => {
 
 .info-section h3 {
   margin: 0 0 20px 0;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
   font-size: 20px;
 }
 
 .info-section ul {
   margin: 0;
   padding-left: 20px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 .info-section li {

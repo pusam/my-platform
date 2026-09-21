@@ -267,7 +267,7 @@ onUnmounted(() => {
   border: none;
   border-radius: 12px;
   background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  color: #4a5568;
+  color: var(--text-secondary, #b0b0c8);
   cursor: pointer;
   transition: all 0.3s ease;
 }

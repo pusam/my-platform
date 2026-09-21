@@ -865,7 +865,7 @@ onMounted(async () => {
 .score-label {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
   white-space: nowrap;
 }
 
@@ -1461,7 +1461,7 @@ onMounted(async () => {
 
 .disclaimer p {
   margin: 0;
-  color: #555;
+  color: var(--text-secondary, #b0b0c8);
   font-size: 0.85rem;
 }
 

@@ -299,7 +299,7 @@ const signalClass = computed(() => {
   display: flex;
   justify-content: space-between;
   margin-top: 8px;
-  color: #888;
+  color: var(--text-muted, #9494bd);
   font-size: 0.8rem;
 }
 
@@ -367,7 +367,7 @@ const signalClass = computed(() => {
 }
 
 .description {
-  color: #888;
+  color: var(--text-muted, #9494bd);
   font-size: 0.9rem;
 }
 

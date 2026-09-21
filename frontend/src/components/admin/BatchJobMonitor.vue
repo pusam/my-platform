@@ -261,7 +261,7 @@ export default {
 }
 
 .summary-card {
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   padding: 20px;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -289,7 +289,7 @@ export default {
 .summary-info h3 {
   margin: 0 0 4px 0;
   font-size: 13px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
   font-weight: 500;
 }
 
@@ -297,12 +297,12 @@ export default {
   margin: 0;
   font-size: 28px;
   font-weight: bold;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 
 /* 필터 바 */
 .filter-bar {
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   padding: 16px 20px;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -322,17 +322,17 @@ export default {
 
 .filter-group label {
   font-size: 14px;
-  color: #555;
+  color: var(--text-secondary, #b0b0c8);
   font-weight: 500;
 }
 
 .filter-group select {
   padding: 8px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
   border-radius: 6px;
   font-size: 14px;
-  color: #333;
-  background: white;
+  color: var(--text-primary, #f0f0f5);
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   min-width: 200px;
 }
 
@@ -347,7 +347,7 @@ export default {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
   cursor: pointer;
 }
 
@@ -378,7 +378,7 @@ export default {
 
 /* 테이블 */
 .table-container {
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow-x: auto;
@@ -391,26 +391,26 @@ export default {
 }
 
 .batch-table thead {
-  background: #f8f9fa;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .batch-table th {
   padding: 12px 16px;
   text-align: left;
   font-weight: 600;
-  color: #555;
-  border-bottom: 2px solid #e9ecef;
+  color: var(--text-secondary, #b0b0c8);
+  border-bottom: 2px solid var(--border-color, rgba(255, 255, 255, 0.08));
   white-space: nowrap;
 }
 
 .batch-table td {
   padding: 10px 16px;
   border-bottom: 1px solid #f1f3f5;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .batch-table tbody tr:hover {
-  background: #f8f9fa;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .job-name {
@@ -419,7 +419,7 @@ export default {
 }
 
 .job-class {
-  color: #888;
+  color: var(--text-muted, #9494bd);
   font-size: 13px;
   max-width: 180px;
   overflow: hidden;
@@ -429,7 +429,7 @@ export default {
 
 .empty-row {
   text-align: center;
-  color: #999;
+  color: var(--text-muted, #9494bd);
   padding: 40px 16px !important;
 }
 
@@ -469,7 +469,7 @@ export default {
 }
 
 .no-error {
-  color: #ccc;
+  color: var(--text-muted, #9494bd);
 }
 
 /* 페이지네이션 */
@@ -499,13 +499,13 @@ export default {
 
 .page-btn:disabled {
   background: #e0e0e0;
-  color: #999;
+  color: var(--text-muted, #9494bd);
   cursor: not-allowed;
 }
 
 .page-info {
   font-size: 14px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 /* 반응형 */

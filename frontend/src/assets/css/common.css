@@ -25,7 +25,10 @@
   --text-secondary: #b0b0c8;
   /* 2026-09-21 대비 점검: 가장 밝은 카드 표면(#1e1e3c) 위에서 muted 3.82 · light 2.27 로
      WCAG AA(4.5:1) 미달이었다. 두 단계 차이는 유지하면서 둘 다 통과하도록 올린다
-     (muted 5.54 · light 4.56). 더 어둡게 되돌리면 본문 글씨가 다시 읽히지 않는다. */
+     (muted 5.54 · light 4.56). 더 어둡게 되돌리면 본문 글씨가 다시 읽히지 않는다.
+     ⚠ 실제 화면에서 쓰이는 값은 workstation.css 쪽이다 — App.vue 가 common.css 뒤에
+     import 해서 :root 토큰을 덮어쓴다. 여기만 고치면 아무것도 바뀌지 않는다(그 함정에 한 번 빠졌다).
+     둘 다 고칠 것. */
   --text-muted: #9494bd;
   --text-light: #8585ad;
   --text-white: #ffffff;

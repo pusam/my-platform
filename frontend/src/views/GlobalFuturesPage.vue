@@ -909,7 +909,7 @@ onUnmounted(() => {
 .impact-comment {
   margin-top: 10px;
   font-size: 0.9rem;
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
   line-height: 1.5;
 }
 
@@ -1000,7 +1000,7 @@ onUnmounted(() => {
 }
 
 .factor-weight {
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   color: var(--text-muted, #9494bd);
 }
 
@@ -1132,7 +1132,7 @@ onUnmounted(() => {
 .vix-meter-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   color: var(--text-muted, #9494bd);
   margin-top: 4px;
 }
@@ -1232,7 +1232,7 @@ onUnmounted(() => {
 .bond-meter-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   color: var(--text-muted, #9494bd);
   margin-top: 4px;
 }
@@ -1298,7 +1298,7 @@ onUnmounted(() => {
 .fng-meter-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   color: var(--text-muted, #9494bd);
   margin-top: 4px;
 }
@@ -1589,7 +1589,7 @@ onUnmounted(() => {
 .disclaimer {
   text-align: center;
   font-size: 0.75rem;
-  color: #555;
+  color: var(--text-secondary, #b0b0c8);
   padding: 20px 0;
   border-top: 1px solid var(--border-light);
 }

@@ -179,7 +179,7 @@ onMounted(() => {
 }
 
 .content-section {
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   border-radius: 10px;
   padding: 30px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -193,17 +193,17 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 15px;
-  border-bottom: 2px solid #eee;
+  border-bottom: 2px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .section-header h2 {
   margin: 0;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
   font-size: 22px;
 }
 
 .total-count {
-  color: #666;
+  color: var(--text-muted, #9494bd);
   font-size: 14px;
 }
 
@@ -218,14 +218,14 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: #f8f9fa;
+  background: rgba(255, 255, 255, 0.04);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .board-item:hover {
-  background: #e9ecef;
+  background: rgba(255, 255, 255, 0.10);
   transform: translateX(5px);
 }
 
@@ -236,14 +236,14 @@ onMounted(() => {
 .board-title {
   margin: 0 0 8px 0;
   font-size: 16px;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .board-meta {
   display: flex;
   gap: 15px;
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted, #9494bd);
 }
 
 .delete-btn {
@@ -263,7 +263,7 @@ onMounted(() => {
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 .empty-state p {
@@ -288,7 +288,7 @@ onMounted(() => {
   gap: 20px;
   margin-top: 30px;
   padding-top: 20px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .page-btn {
@@ -306,7 +306,7 @@ onMounted(() => {
 }
 
 .page-info {
-  color: #666;
+  color: var(--text-muted, #9494bd);
 }
 
 /* 모달 */
@@ -324,7 +324,7 @@ onMounted(() => {
 }
 
 .modal {
-  background: white;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
   padding: 30px;
   border-radius: 10px;
   max-width: 400px;
@@ -333,11 +333,11 @@ onMounted(() => {
 
 .modal h3 {
   margin: 0 0 15px 0;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
 }
 
 .modal p {
-  color: #666;
+  color: var(--text-muted, #9494bd);
   margin-bottom: 25px;
 }
 
@@ -350,7 +350,7 @@ onMounted(() => {
 .cancel-btn {
   padding: 10px 20px;
   background: #eee;
-  color: #333;
+  color: var(--text-primary, #f0f0f5);
   border: none;
   border-radius: 5px;
   cursor: pointer;

@@ -325,7 +325,7 @@ const openChecklist = () => { showChecklist.value = true; };
 .level-strong-buy { border-left-color: var(--signal-strong-buy, #ef4444); background: rgba(239, 68, 68, 0.12); }
 .level-buy        { border-left-color: var(--signal-buy, #f87171); background: rgba(248, 113, 113, 0.10); }
 .level-hold       { border-left-color: #eab308; background: rgba(234, 179, 8, 0.10); }
-.level-wait       { border-left-color: #888;    background: rgba(120, 120, 120, 0.10); }
+.level-wait       { border-left-color: var(--text-muted, #9494bd);    background: rgba(120, 120, 120, 0.10); }
 
 .conclusion-main {
   display: flex;

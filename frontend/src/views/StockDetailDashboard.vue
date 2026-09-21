@@ -1894,7 +1894,7 @@ onUnmounted(() => {
 /* Forward 지표 배지 */
 .forward-badge {
   display: inline-block;
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   color: #a78bfa;
   background: rgba(167, 139, 250, 0.15);
   padding: 1px 6px;
@@ -1938,7 +1938,7 @@ onUnmounted(() => {
 
 .buyback-badge {
   display: inline-block;
-  font-size: 0.6rem;
+  font-size: 0.6875rem;
   padding: 1px 5px;
   border-radius: 6px;
   background: rgba(34, 197, 94, 0.15);
@@ -1969,7 +1969,7 @@ onUnmounted(() => {
 
 /* 데이터 출처 노트 */
 .data-source-note {
-  font-size: 0.6rem;
+  font-size: 0.6875rem;
   color: rgba(255,255,255,0.5);
   margin-top: 8px;
   padding-top: 6px;
@@ -2002,7 +2002,7 @@ onUnmounted(() => {
 .supply-header h3 {
   margin: 0;
   font-size: 1rem;
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .data-source-badge {
@@ -2371,8 +2371,8 @@ onUnmounted(() => {
   .current-price { font-size: 1.2rem; }
   .change-info { font-size: 0.85rem; }
   .score-value { font-size: 1.3rem; }
-  .score-label { font-size: 0.65rem; }
-  .score-badge { font-size: 0.65rem; padding: 1px 6px; }
+  .score-label { font-size: 0.6875rem; }
+  .score-badge { font-size: 0.6875rem; padding: 1px 6px; }
   .ai-score-box { padding: 6px 8px; gap: 2px; }
 
   /* 메인 탭 — 더 컴팩트 */
@@ -2507,7 +2507,7 @@ onUnmounted(() => {
   transition: all 0.3s;
 }
 
-.main-tab-btn:hover { color: #ccc; background: var(--border-light); }
+.main-tab-btn:hover { color: var(--text-secondary, #b0b0c8); background: var(--border-light); }
 .main-tab-btn.active {
   color: #fff;
   background: linear-gradient(135deg, rgba(102,126,234,0.3), rgba(118,75,162,0.3));

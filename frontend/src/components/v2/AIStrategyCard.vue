@@ -278,7 +278,7 @@ const formatPrice = (price) => {
   margin: 0;
 }
 
-.strategy-text { font-size: 0.9rem; color: #ccc; line-height: 1.5; margin: 0; }
+.strategy-text { font-size: 0.9rem; color: var(--text-secondary, #b0b0c8); line-height: 1.5; margin: 0; }
 
 .reasons-section {
   margin-top: 12px;
@@ -381,18 +381,18 @@ const formatPrice = (price) => {
   transform: translateX(-50%);
 }
 .marker-label {
-  font-size: 0.6rem;
+  font-size: 0.6875rem;
   color: rgba(255,255,255,0.5);
 }
 .consensus-bar-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 0.6rem;
+  font-size: 0.6875rem;
   color: rgba(255,255,255,0.35);
   margin-top: 2px;
 }
 .consensus-source {
-  font-size: 0.6rem;
+  font-size: 0.6875rem;
   color: rgba(255,255,255,0.5);
   margin-top: 6px;
 }

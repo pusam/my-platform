@@ -1001,7 +1001,7 @@ onMounted(() => {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
   cursor: pointer;
   font-size: 14px;
   transition: all 0.15s;

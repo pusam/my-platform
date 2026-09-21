@@ -1432,7 +1432,7 @@ onMounted(() => {
 .progress-markers .marker {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   color: #71717a;
 }
 

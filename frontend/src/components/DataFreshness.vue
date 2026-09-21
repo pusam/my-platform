@@ -139,13 +139,13 @@ const elapsedText = computed(() => {
 .data-freshness.light {
   background: rgba(0,0,0,0.04);
   border-color: rgba(0,0,0,0.08);
-  color: #555;
+  color: var(--text-secondary, #b0b0c8);
 }
 .data-freshness.light .elapsed { color: #222; }
-.data-freshness.light .countdown { color: #888; }
+.data-freshness.light .countdown { color: var(--text-muted, #9494bd); }
 .data-freshness.light .refresh-btn {
   background: rgba(0,0,0,0.05);
-  color: #555;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 @media (max-width: 480px) {

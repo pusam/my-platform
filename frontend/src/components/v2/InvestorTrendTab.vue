@@ -374,7 +374,7 @@ const invHasAmountChange = (value) => {
   border-radius: 10px;
   padding: 12px 16px;
   margin-bottom: 20px;
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
   font-size: 0.9rem;
 }
 
@@ -433,7 +433,7 @@ const invHasAmountChange = (value) => {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
   font-size: 0.85rem;
 }
 
@@ -469,7 +469,7 @@ const invHasAmountChange = (value) => {
 
 .inv-tab-btn:hover:not(.active) {
   border-color: rgba(255,255,255,0.2);
-  color: #ccc;
+  color: var(--text-secondary, #b0b0c8);
 }
 
 .inv-surge-grid {
@@ -526,7 +526,7 @@ const invHasAmountChange = (value) => {
 
 .inv-no-data .hint {
   font-size: 0.9rem;
-  color: #555;
+  color: var(--text-secondary, #b0b0c8);
   margin-top: 8px;
 }
 

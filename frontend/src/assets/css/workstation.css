@@ -16,8 +16,13 @@
   --bg-elevated: #1d2530;
   --text-primary: #edf1f5;
   --text-secondary: #aab3bf;
-  --text-muted: #778290;
-  --text-light: #596472;
+  /* 2026-09-21 대비 점검: 이 파일이 common.css 뒤에 import 돼 토큰을 덮어쓴다 —
+     즉 화면에서 실제로 쓰이는 값은 여기다. 가장 밝은 표면(--bg-elevated #1d2530) 위에서
+     muted 3.96:1 · light 2.57:1 로 WCAG AA(4.5:1) 미달이었다(로그 시각·날짜·라벨이 전부 이 색).
+     같은 쿨그레이 계열을 유지하면서 세 표면(#12171f/#171d26/#1d2530) 모두에서 통과하도록 올린다:
+     muted 5.08~5.91 · light 4.72~5.50. 두 단계 차이는 그대로다. */
+  --text-muted: #8a95a3;
+  --text-light: #868f9c;
   --card-bg: #12171f;
   --card-shadow: none;
   --card-shadow-hover: none;
