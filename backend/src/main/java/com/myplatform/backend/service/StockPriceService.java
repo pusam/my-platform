@@ -427,8 +427,9 @@ public class StockPriceService {
             }
         }
 
-        // 네이버 증권 API 폴백
-        return fetchFromNaver(stockCode);
+        // 네이버 증권 API 폴백 — 네이버 파서도 무조건 DTO 를 만들므로 같은 기준으로 한 번 더 거른다.
+        StockPriceDto naverPrice = fetchFromNaver(stockCode);
+        return hasUsablePrice(naverPrice) ? naverPrice : null;
     }
 
     /**
@@ -478,6 +479,29 @@ public class StockPriceService {
      * 한국투자증권 API에서 시세 조회
      * [장전 처리] 08:00~09:00 사이에는 일봉 API에서 어제 등락률을 가져옴
      */
+    /**
+     * 쓸 수 있는 시세인가 — <b>현재가만</b> 본다(순수, 회귀 {@code StockPriceMissingQuoteTest}).
+     *
+     * <p>KIS 는 <b>없는 종목코드에도 200 + {@code rt_cd=0}</b> 을 준다(§4c 에 반복 기록된 특성).
+     * {@code output} 이 비어 {@code getBigDecimalValue} 가 전부 0 을 돌려주면 0 원짜리 DTO 가 만들어지고,
+     * 컨트롤러의 {@code price == null → 404} 분기를 통과해 <b>"시세 조회 성공"</b> 으로 나갔다
+     * (prod 실측 999999: stockName "" · currentPrice 0 · dataSource KIS). 그 행이 {@code stock_price}
+     * 에 저장되기까지 했다.
+     *
+     * <p>⚠ <b>거래량·등락률·종목명으로 가르면 안 된다</b>:
+     * <ul>
+     *   <li><b>보합</b>은 등락률·전일대비가 정상적으로 0 이다(F3 불변식, 2026-09-17).
+     *   <li><b>거래정지</b>는 KIS 가 동결가를 주고 거래량이 0 이다(§4c 2026-09-07) — 가격은 유효하다.
+     * </ul>
+     * 0 원은 현실에 없는 값이라 결측으로 단정할 수 있다(§4c 의 PBR/PER 0 판정과 같은 논리).
+     *
+     * <p>가격을 <b>보정하지 않는다</b> — 쓸 수 있는 시세가 없다고 판단할 뿐이다(§3 미보정 불변식).
+     */
+    private static boolean hasUsablePrice(StockPriceDto dto) {
+        return dto != null && dto.getCurrentPrice() != null
+                && dto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0;
+    }
+
     private StockPriceDto fetchFromKoreaInvestment(String stockCode) {
         try {
             JsonNode response = kisService.getStockPrice(stockCode);
@@ -506,6 +530,14 @@ public class StockPriceService {
             dto.setOpenPrice(getBigDecimalValue(output, "stck_oprc")); // 시가
             dto.setHighPrice(getBigDecimalValue(output, "stck_hgpr")); // 고가
             dto.setLowPrice(getBigDecimalValue(output, "stck_lwpr")); // 저가
+
+            // 시세가 없는 응답(없는 종목코드 등)은 여기서 끊는다 — 이 뒤의 보충·이상치 가드는
+            // 가격이 있다는 전제 위에 있고, non-null 로 내보내면 컨트롤러가 404 를 낼 수 없다.
+            // null 을 주면 호출부(fetchStockPrice)가 네이버 폴백으로 넘어간다.
+            if (!hasUsablePrice(dto)) {
+                log.debug("한투 응답에 시세 없음 [{}] — rt_cd 는 0 이나 현재가가 비었다", stockCode);
+                return null;
+            }
             // ★ 등락률·전일대비만 <b>null 반환 파서</b>를 쓴다(F3, 2026-09-17 감사).
             //   getBigDecimalValue 는 필드 부재·숫자아님을 BigDecimal.ZERO 로 돌려줘 0 과 결측이 구분되지
             //   않는다 — 그래서 "0 = 결측"이라는 잘못된 판단이 생겼고 정상 보합이 다른 시점 값으로 덮였다.
