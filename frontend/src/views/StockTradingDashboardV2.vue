@@ -2033,8 +2033,9 @@ export default {
 .supply-stock-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; cursor: pointer; transition: background 0.15s; }
 .supply-stock-row:hover { background: rgba(255,255,255,0.04); }
 .supply-investor-badge { font-size: 11px; font-weight: 800; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.supply-investor-badge.foreign { background: rgba(239,68,68,0.15); color: #ef4444; }
-.supply-investor-badge.inst { background: rgba(59,130,246,0.15); color: #3b82f6; }
+/* 배지 자기 배경(#331e25·#18273f) 위 4.13/4.07 로 미달 — 도메인 토큰으로 5.62/5.89 (2026-09-22 실측). */
+.supply-investor-badge.foreign { background: rgba(239,68,68,0.15); color: var(--signal-buy, #f87171); }
+.supply-investor-badge.inst { background: rgba(59,130,246,0.15); color: var(--signal-sell, #60a5fa); }
 .supply-stock-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
 .supply-days { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; }
 .supply-signal { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }

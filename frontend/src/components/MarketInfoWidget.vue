@@ -290,9 +290,12 @@ onUnmounted(() => {
   font-family: 'Monaco', 'Consolas', monospace;
 }
 
+/* ⚠ 아래 둘은 위와 같은 구조(같은 색 0.2 틴트 위 같은 색 글씨)라 같이 올린다.
+   같은 모양의 .supply-investor-badge 가 0.15 틴트에서 4.13/4.07 로 측정됐고 여기는 틴트가
+   더 밝아 더 낮다. 렌더되는 상태를 못 잡아 직접 측정은 못 했다 — 배포 후 확인 대상. */
 .badge-danger {
   background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  color: var(--signal-buy, #f87171);
 }
 
 .badge-success {
@@ -300,9 +303,11 @@ onUnmounted(() => {
   color: #22c55e;
 }
 
+/* 배지 자기 틴트(#2b3139)가 카드보다 밝아 --text-muted 로는 4.33 이었다.
+   배지 틴트와 같은 회색(#9ca3af)으로 맞춰 5.19 (2026-09-22 실측). */
 .badge-neutral {
   background: rgba(156, 163, 175, 0.2);
-  color: var(--text-muted, #7878a0);
+  color: #9ca3af;
 }
 
 .badge-warning {
@@ -312,7 +317,7 @@ onUnmounted(() => {
 
 .badge-info {
   background: rgba(59, 130, 246, 0.2);
-  color: #3b82f6;
+  color: var(--signal-sell, #60a5fa);
 }
 
 .badge-crash {

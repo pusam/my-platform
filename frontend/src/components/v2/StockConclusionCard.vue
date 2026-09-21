@@ -526,7 +526,8 @@ const openChecklist = () => { showChecklist.value = true; };
 }
 .acc-good { color: #22c55e; background: rgba(34, 197, 94, 0.18); }
 .acc-mid  { color: #eab308; background: rgba(234, 179, 8, 0.18); }
-.acc-low  { color: #ef4444; background: rgba(239, 68, 68, 0.18); }
+/* 자기 배경 틴트(#4f272b) 위 3.36 이었다 — 같은 빨강 계열 도메인 토큰으로 4.58 (2026-09-22 실측). */
+.acc-low  { color: var(--signal-buy, #f87171); background: rgba(239, 68, 68, 0.18); }
 .acc-detail { opacity: 0.65; font-size: 11px; }
 
 /* 모바일 — 레벨(90px)+텍스트+버튼(nowrap) 한 줄이면 헤드라인이 ~50px 로 짓눌림 → 버튼을 아랫줄 전체폭으로 */

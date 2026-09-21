@@ -627,9 +627,10 @@ onMounted(() => {
   color: rgba(255,255,255,0.7);
 }
 
+/* 활성 탭 글씨 #8b9cf7 은 자기 배경(#323e60) 위 4.14 로 미달 — 같은 계열에서 명도만 올려 5.32. */
 .main-tab-btn.active {
   background: rgba(102,126,234,0.25);
-  color: #8b9cf7;
+  color: #a5b4fc;
   border: 1px solid rgba(102,126,234,0.4);
 }
 
@@ -668,10 +669,11 @@ onMounted(() => {
   transition: all 0.2s;
 }
 
+/* 같은 이유(#263f4c 위 4.29 → 5.52). */
 .type-btn.active {
   background: rgba(102,126,234,0.2);
   border-color: var(--primary-start);
-  color: #8b9cf7;
+  color: #a5b4fc;
 }
 
 .data-timestamp {
@@ -840,9 +842,12 @@ td {
 .price { text-align: right; font-weight: 600; font-family: monospace; }
 .rate { text-align: right; font-weight: 600; font-family: monospace; }
 
-.positive { color: #ef4444 !important; }
+/* 상승/하락 색은 도메인 단일 출처(--signal-*)를 쓴다. 하드코딩 #ef4444/#3b82f6 은 같은 관례를
+   복제한 값이고 이 화면의 배경(#1f382e·#163025 등) 위에서 3.35~4.13 으로 미달이었다.
+   토큰값은 4.56~5.62 로 통과한다(2026-09-22 실측). 빨강=상승 관례는 그대로. */
+.positive { color: var(--signal-buy, #f87171) !important; }
 .positive::before { content: '▲ '; font-size: 0.75em; }
-.negative { color: #3b82f6 !important; }
+.negative { color: var(--signal-sell, #60a5fa) !important; }
 .negative::before { content: '▼ '; font-size: 0.75em; }
 
 /* ===== 카드 그리드 (연속 매수 / 수급 급증) ===== */
