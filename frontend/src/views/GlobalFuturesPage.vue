@@ -1598,7 +1598,7 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .page-container { padding: 12px; }
   .main-price .price { font-size: 1.8rem; }
-  .main-details { grid-template-columns: repeat(2, 1fr); }
+  .main-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .futures-grid { grid-template-columns: 1fr; }
   .impact-banner { padding: 16px; }
   .page-header { flex-direction: column; align-items: flex-start; }

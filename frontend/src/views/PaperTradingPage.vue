@@ -2684,7 +2684,7 @@ onUnmounted(() => {
 }
 
 @media (max-width: 600px) {
-  .weekly-stats { grid-template-columns: repeat(2, 1fr); }
+  .weekly-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .weekly-history-table th,
   .weekly-history-table td { padding: 8px 6px; font-size: 11.5px; }
 }

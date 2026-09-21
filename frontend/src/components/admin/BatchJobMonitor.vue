@@ -514,7 +514,7 @@ export default {
 /* 반응형 */
 @media (max-width: 768px) {
   .summary-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .filter-bar {

@@ -2213,7 +2213,7 @@ export default {
 @media (max-width: 768px) {
   .market-status-bar { gap: 4px; padding: 8px 10px; }
   .msb-label { font-size: 11px; } .msb-value { font-size: 12px; }
-  .top-picks-grid { grid-template-columns: repeat(2, 1fr); }
+  .top-picks-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pick-score { font-size: 16px; }
 
   /* 차트 신호 카드 — 6 column 좁은 화면 압축 */

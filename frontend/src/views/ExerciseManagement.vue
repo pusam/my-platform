@@ -282,14 +282,14 @@ onMounted(loadRecords);
 .submit-btn:hover { background: #059669; }
 
 @media (max-width: 600px) {
-  .summary-cards { grid-template-columns: repeat(2, 1fr); }
+  .summary-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .form-row { flex-direction: column; gap: 0; }
 }
 
 @media (max-width: 480px) {
   .management-page { padding: 10px; }
   .page-header h1 { font-size: 17px; }
-  .summary-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .summary-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .summary-card { padding: 12px; }
   .card-value { font-size: 17px; }
   .record-card { padding: 12px; }

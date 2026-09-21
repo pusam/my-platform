@@ -227,11 +227,11 @@ const getQsRiskLabel = () => {
 @keyframes skeleton-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 0.2; } }
 
 @media (max-width: 768px) {
-  .quick-summary-bar { grid-template-columns: repeat(3, 1fr); }
+  .quick-summary-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .qs-value { font-size: 14px; }
 }
 @media (max-width: 480px) {
-  .quick-summary-bar { grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 10px; }
+  .quick-summary-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 10px; }
   .qs-value { font-size: 13px; }
   .qs-label { font-size: 11px; }
   .qs-sub { font-size: 11px; }
