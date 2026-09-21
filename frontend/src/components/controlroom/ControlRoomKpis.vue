@@ -303,6 +303,15 @@ const headroomText = computed(() => {
   min-height: 124px;
   min-width: 0;          /* 그리드 항목 기본 min-width:auto 해제 */
   overflow-wrap: anywhere; /* SCHEDULE_DECISIONS 같은 긴 토큰이 칸을 넘기지 않게 */
+
+  /* ⚠ 전역 유틸리티 `.alert`(common.css — 경고 배너용: display:flex·padding·margin-bottom)와
+     카드의 상태 modifier `.kpi.alert` 가 같은 이름이라 충돌한다(2026-09-21 실측).
+     경보 상태 카드 5종이 전부 배너 레이아웃을 물려받아 자식들이 **가로로** 늘어섰고,
+     375px 에서는 "봇 게 이 트" 처럼 글자가 세로로 쪼개졌다.
+     전역 규칙엔 실제 소비자가 없지만(배너들은 .alert-box 를 쓴다) 지우는 건 별건이라,
+     여기서 레이아웃을 명시해 덮이지 않게 한다 — 스코프 덕에 specificity 가 이긴다. */
+  display: block;
+  margin-bottom: 0;
 }
 
 /* 목업의 코너 마커 — 장식이지만 패널 경계를 읽기 쉽게 만든다 */
@@ -431,9 +440,13 @@ const headroomText = computed(() => {
   .v { font-size: 24px; }
 }
 
-@media (max-width: 420px) {
-  .kpi { padding: 11px; min-height: 98px; }
-  .v { font-size: 21px; }
+/* 2열을 끝까지 유지하면 375px 에서 카드가 ~172px 로 눌려 "봇 게 이 트"처럼 글자가
+   세로로 쪼개진다(2026-09-21 실측). 한 줄에 하나씩 놓아 라벨이 온전히 읽히게 한다. */
+@media (max-width: 480px) {
+  .kpis { grid-template-columns: minmax(0, 1fr); }
+  .kpi { padding: 12px 14px; min-height: 0; }
+  .v { font-size: 22px; }
   .basis { font-size: 11px; }
+  .k { white-space: nowrap; }   /* 라벨은 줄바꿈하지 않는다 — 한 칸을 다 쓰므로 자리가 충분하다 */
 }
 </style>
