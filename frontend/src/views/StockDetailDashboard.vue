@@ -50,7 +50,9 @@
         </div>
       </div>
       <div class="header-right dual-score-header">
-        <div class="ai-score-box" :class="aiScoreClass">
+        <!-- 분석 입력이 없으면 백엔드가 aiAnalysis 를 주지 않는다(§4c) — 빈 점수 박스를 띄우지 않는다.
+             옆 펀더멘털 박스와 같은 규약(v-if). -->
+        <div class="ai-score-box" :class="aiScoreClass" v-if="aiAnalysis?.overallScore">
           <span class="score-label">단기 트레이딩</span>
           <span class="score-value">{{ aiAnalysis?.overallScore || '-' }}</span>
           <span class="score-badge" :class="recBadgeClass">{{ getRecommendationLabel(aiAnalysis?.recommendation) }}</span>

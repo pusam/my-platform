@@ -792,7 +792,40 @@ public class StockDetailService {
     /**
      * AI 종합 분석 생성
      */
+    /**
+     * 투자 의견을 만들 <b>입력이 하나라도 있는가</b> — 순수 함수(회귀 {@code AiAnalysisNoInputTest}).
+     *
+     * <p>{@code generateAiAnalysis} 는 기본 50점에서 가감하는 구조라, 수급·재무·차트가 전부 없어도
+     * 50점이 남아 `HOLD` 로 분류됐다. 존재하지 않는 종목코드 999999 가 이렇게 답했다 —
+     * "관망 또는 소규모 진입 구간입니다", "0원 하회 시 비중 축소, 0원 돌파 시 추가 매수 검토".
+     * <b>없는 종목에 매매 조언을 생성</b>한 것이고, 0원을 지지·저항으로 제시하기까지 했다.
+     *
+     * <p>"중립 50점"은 중립이 아니라 <b>모른다</b>이다. 모르는 것은 화면에서 비어 있어야 한다(§4c).
+     * ⚠ 값이 하나라도 있으면 종전대로 분석한다 — 기존 동작을 좁히지 않는다.
+     */
+    static boolean hasAnalyzableInput(StockDetailDto dto) {
+        if (dto == null) return false;
+        PriceInfo p = dto.getPrice();
+        if (p != null && p.getCurrentPrice() != null
+                && p.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) return true;
+        SupplyDemand sd = dto.getSupplyDemand();
+        if (sd != null && (sd.getVolumePower() != null || sd.getForeignNetBuy() != null
+                || sd.getInstNetBuy() != null || sd.getVolumeSignal() != null)) return true;
+        FinancialInfo f = dto.getFinancial();
+        if (f != null && (f.getPer() != null || f.getPbr() != null || f.getRoe() != null
+                || f.getEps() != null)) return true;
+        ChartData c = dto.getChartData();
+        if (c != null && (c.getMa5() != null || c.getMa20() != null || c.getMa60() != null
+                || (c.getCandles() != null && !c.getCandles().isEmpty()))) return true;
+        return false;
+    }
+
     private AiAnalysis generateAiAnalysis(StockDetailDto dto) {
+        // 판정할 입력이 하나도 없으면 의견을 만들지 않는다 — "중립 50점"은 중립이 아니라 모른다는 뜻이다(§4c).
+        if (!hasAnalyzableInput(dto)) {
+            log.debug("[StockDetail] 분석 입력 없음 — AI 의견 생략 ({})", dto != null ? dto.getStockCode() : null);
+            return null;
+        }
         int score = 50; // 기본 점수
         List<String> buyReasons = new ArrayList<>();
         List<String> sellReasons = new ArrayList<>();
