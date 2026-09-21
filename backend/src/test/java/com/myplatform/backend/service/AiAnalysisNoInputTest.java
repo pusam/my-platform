@@ -83,4 +83,53 @@ class AiAnalysisNoInputTest {
     void nullDtoIsSafe() {
         assertThat(StockDetailService.hasAnalyzableInput(null)).isFalse();
     }
+
+    /**
+     * ⚠ <b>첫 구현이 이 케이스를 놓쳤다</b>(2026-09-21, 배포 후 실측으로 잡음).
+     *
+     * <p>가드를 {@code != null} 로만 썼는데, 없는 종목의 응답은 <b>null 이 아니라 placeholder</b> 였다:
+     * <pre>
+     *   financial     per 0 · pbr 0 · eps 0        ← 파싱 실패가 0 으로 적힌다
+     *   supplyDemand  volumeSignal "NEUTRAL" · programTrend "FLAT"   ← 계산된 기본 라벨
+     * </pre>
+     * 그래서 가드를 통과해 여전히 50점/HOLD 가 나왔다. §4c 가 <b>"`!= null` 만으로는 부족하다"</b>고
+     * 명시해 둔 바로 그 지점이다(비율 컬럼의 0 은 결측일 수 있다).
+     *
+     * <p>지금은 비율·EPS 는 {@code signum() > 0} 을 요구하고, 수급은 <b>숫자 필드</b>만 본다 —
+     * "NEUTRAL"·"FLAT" 같은 기본 라벨은 값이 아니다.
+     */
+    @Test
+    @DisplayName("0 은 값이 아니다 — 파싱 실패가 0 으로 적히는 컬럼들(§4c)")
+    void zeroRatiosAreNotInput() {
+        FinancialInfo zeros = FinancialInfo.builder()
+                .per(BigDecimal.ZERO).pbr(BigDecimal.ZERO).eps(BigDecimal.ZERO).build();
+        assertThat(StockDetailService.hasAnalyzableInput(dto(null, null, zeros, null))).isFalse();
+    }
+
+    @Test
+    @DisplayName("계산된 기본 라벨은 값이 아니다 — volumeSignal NEUTRAL · programTrend FLAT")
+    void defaultLabelsAreNotInput() {
+        SupplyDemand labelsOnly = SupplyDemand.builder()
+                .volumeSignal("NEUTRAL").programTrend("FLAT").build();
+        assertThat(StockDetailService.hasAnalyzableInput(dto(null, labelsOnly, null, null))).isFalse();
+    }
+
+    @Test
+    @DisplayName("없는 종목의 실제 응답 형태 — 전부 합쳐도 판정 불가")
+    void realNonexistentStockShape() {
+        // prod 실측(/api/stock/999999/summary): price 0 · financial 0 · 라벨만 있는 수급
+        assertThat(StockDetailService.hasAnalyzableInput(dto(
+                PriceInfo.builder().currentPrice(BigDecimal.ZERO).build(),
+                SupplyDemand.builder().volumeSignal("NEUTRAL").programTrend("FLAT").build(),
+                FinancialInfo.builder().per(BigDecimal.ZERO).pbr(BigDecimal.ZERO).eps(BigDecimal.ZERO).build(),
+                null))).isFalse();
+    }
+
+    @Test
+    @DisplayName("수급은 숫자가 하나라도 있으면 값이다")
+    void numericSupplyIsInput() {
+        assertThat(StockDetailService.hasAnalyzableInput(dto(null,
+                SupplyDemand.builder().volumeSignal("NEUTRAL").foreignNetBuy(new BigDecimal("120")).build(),
+                null, null))).isTrue();
+    }
 }

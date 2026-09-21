@@ -803,17 +803,25 @@ public class StockDetailService {
      * <p>"중립 50점"은 중립이 아니라 <b>모른다</b>이다. 모르는 것은 화면에서 비어 있어야 한다(§4c).
      * ⚠ 값이 하나라도 있으면 종전대로 분석한다 — 기존 동작을 좁히지 않는다.
      */
+    private static boolean positive(BigDecimal v) {
+        return v != null && v.signum() > 0;
+    }
+
     static boolean hasAnalyzableInput(StockDetailDto dto) {
         if (dto == null) return false;
         PriceInfo p = dto.getPrice();
         if (p != null && p.getCurrentPrice() != null
                 && p.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) return true;
+        // ⚠ 수급은 **숫자 필드만** 본다 — volumeSignal "NEUTRAL" · programTrend "FLAT" 은
+        //    계산된 기본 라벨이라 없는 종목에도 붙는다(2026-09-21 실측). 라벨은 값이 아니다.
         SupplyDemand sd = dto.getSupplyDemand();
         if (sd != null && (sd.getVolumePower() != null || sd.getForeignNetBuy() != null
-                || sd.getInstNetBuy() != null || sd.getVolumeSignal() != null)) return true;
+                || sd.getInstNetBuy() != null)) return true;
+        // ⚠ 비율·EPS 는 `!= null` 로 부족하다 — 파싱 실패가 **0** 으로 적힌다(§4c 비율 컬럼 항목).
+        //    없는 종목이 per/pbr/eps 0 을 달고 와서 첫 구현이 이 가드를 통과했다.
         FinancialInfo f = dto.getFinancial();
-        if (f != null && (f.getPer() != null || f.getPbr() != null || f.getRoe() != null
-                || f.getEps() != null)) return true;
+        if (f != null && (positive(f.getPer()) || positive(f.getPbr())
+                || positive(f.getRoe()) || positive(f.getEps()))) return true;
         ChartData c = dto.getChartData();
         if (c != null && (c.getMa5() != null || c.getMa20() != null || c.getMa60() != null
                 || (c.getCandles() != null && !c.getCandles().isEmpty()))) return true;
