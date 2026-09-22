@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.StockPrice;
 import com.myplatform.backend.repository.StockPriceRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,7 +15,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -219,7 +219,10 @@ class StockPriceMissingQuoteTest {
             StockPrice e = new StockPrice();
             e.setStockCode(CODE);
             e.setCurrentPrice(new BigDecimal(price));
-            e.setFetchedAt(LocalDateTime.now());   // 캐시 창 안
+            // ⚠ LocalDateTime.now() 를 쓰면 안 된다 — isValidCache 는 DateTimeUtil.kstNow() 로 재는데
+            //   CI 러너는 UTC 라 JVM 기본 시각이 KST 보다 9시간 과거가 되어 캐시가 만료로 판정된다.
+            //   로컬(KST)에서는 둘이 같아 통과하고 CI 에서만 깨진다 — 2026-09-22 에 실제로 그랬다.
+            e.setFetchedAt(DateTimeUtil.kstNow());   // 캐시 창 안
             e.setDataSource("KIS");
             return e;
         }
