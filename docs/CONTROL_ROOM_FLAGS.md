@@ -240,5 +240,29 @@ flags:
       severity 를 info 로 둔 것은 공시가 이미 붙어 있기 때문이다.
     recorded_on: 2026-09-22
     ref: GeminiService 예측 fallback, ForecastDetailModal.vue, SectionMarketMap.vue
-
+  - id: naver-legacy-finance-crawl-dead
+    severity: critical
+    title: 네이버 레거시 금융 크롤 사망 — 올인원 2·3단계가 100% 실패 중
+    key: FinancialDataCrawlerService
+    body: >
+      2026-09-22 15:38 배치의 단계 로그(전날 추가)가 바로 드러냈다 —
+      1/4 기본 재무 성공 2,662 실패 0 · 2/4 영업이익률 성공 0 실패 366 ·
+      3/4 분기별 재무제표 성공 0 실패 2,662 · 4/4 성장률 2,189건.
+      예외가 없어 '완료'로 끝나고 알림도 울리지 않는다.
+      원인 — 네이버가 finance.naver.com/item/main.naver 를 stock.naver.com SPA 로 302 이전했다.
+      서버에서 직접 확인: 302 → https://stock.naver.com/domestic/stock/{code}/price (140KB) 인데
+      그 HTML 에 '영업이익' 이 0회다(JS 렌더링). 폴백인 navercomp.wisereport.co.kr 은 200/91KB 로
+      살아 있지만 라벨만 있고 값은 JS 로 로드돼 파싱이 빈다.
+      영향 — ① 영업이익률: 무해하다. operating_margin 은 KIS 수집기(1단계)가 채우고 있다
+      (9/22 일별 2,662행 중 2,296행 채워짐). ② 분기 재무: 실제 정지다. 네이버 분기 행
+      (net_income 有 · market_cap NULL)의 마지막 대량 생성이 2026-08-27(8,542행)이고 9/4 이후 0건.
+      CLAUDE.md §4c 대로 findLatestTwoQuartersPerStock 이 이 행만 보므로 가치·성장 축 입력이 3주째 고정이다.
+      ⚠ 관제실 규칙 ③④ 가 이걸 못 잡는 것은 설계상 당연하다 — ③은 회계기간 200일 기준인데
+      최신 분기가 그만큼 낡지 않았고, ④는 배치 생사를 보는데 배치는 1·4단계로 살아 있다.
+      '배치는 도는데 특정 단계만 0건'을 보는 규칙이 없다.
+      확인할 것 — ① 분기 재무 소스를 다시 정할 것(KIS stock_quarterly_financial V55 가 이미 있으니
+      네이버 분기 크롤을 은퇴시키고 그쪽으로 합치는 선택지 포함) ② 단계별 성공 0건을 규칙으로 볼 것
+      ③ 2단계(영업이익률)는 KIS 가 대신하고 있으니 존치 여부 자체를 판단할 것.
+    recorded_on: 2026-09-23
+    ref: FinancialDataCrawlerService.crawlQuarterlyFinancials/crawlFromFnGuide, AsyncCrawlerService 2·3단계
 ```
