@@ -396,6 +396,7 @@ public class QuantScreenerController {
     public ResponseEntity<Map<String, Object>> collectSingleStock(
             @PathVariable String stockCode) {
         log.info("단일 종목 재무 데이터 수집 API 호출: {}", stockCode);
+        if (!isValidStockCode(stockCode)) return invalidStockCode(stockCode);
 
         Map<String, Object> response = new HashMap<>();
         try {
@@ -620,6 +621,7 @@ public class QuantScreenerController {
             @PathVariable String stockCode) {
 
         log.info("단일 종목 영업이익률 크롤링 API 호출: {}", stockCode);
+        if (!isValidStockCode(stockCode)) return invalidStockCode(stockCode);
 
         Map<String, Object> response = new HashMap<>();
         try {
@@ -735,6 +737,7 @@ public class QuantScreenerController {
                description = "특정 종목의 재무 지표를 크롤링하여 결과만 확인합니다 (저장 안함).")
     public ResponseEntity<Map<String, Object>> previewCrawl(@PathVariable String stockCode) {
         log.info("크롤링 미리보기 API 호출: {}", stockCode);
+        if (!isValidStockCode(stockCode)) return invalidStockCode(stockCode);
 
         Map<String, Object> response = new HashMap<>();
         try {
@@ -782,6 +785,31 @@ public class QuantScreenerController {
 
     // ========== 분기별 재무제표 수집 API (PEG, 턴어라운드용) ==========
 
+
+    /**
+     * 경로로 받은 종목코드가 형식에 맞는가 — 순수({@code QuantScreenerStockCodeTest}).
+     *
+     * <p><b>왜 필요한가</b>(2026-09-23): 분기 크롤 엔드포인트를 지우자
+     * {@code POST /collect/finance} 가 {@code /collect/{stockCode}} 에 잡혀
+     * <b>stockCode="finance" 로 수집이 돌았고 그게 성공(200 · "재무 데이터 수집 완료")으로 응답됐다.</b>
+     * KIS 는 없는 코드에도 200 을 주므로 수집기가 빈 행을 저장했다 — 실제로
+     * {@code stock_code='finance'} 행이 하나 생겼다. §4c(없는 것을 있는 것처럼) 그대로다.
+     *
+     * <p>기준은 종목마스터 규약과 같다 — <b>6자리 영숫자</b>(`\d{6}` 로 좁히면 종류주식이 빠진다).
+     */
+    static boolean isValidStockCode(String stockCode) {
+        return stockCode != null && stockCode.matches("[0-9A-Z]{6}");
+    }
+
+    /** 형식 위반 응답 — 성공으로 위장하지 않는다. */
+    private ResponseEntity<Map<String, Object>> invalidStockCode(String stockCode) {
+        log.warn("잘못된 종목코드 형식으로 호출됨: {}", stockCode);
+        Map<String, Object> body = new HashMap<>();
+        body.put("success", false);
+        body.put("stockCode", stockCode);
+        body.put("message", "종목코드 형식이 아닙니다(6자리 영숫자).");
+        return ResponseEntity.badRequest().body(body);
+    }
 
     // ⚠ 분기별 재무제표 수집 엔드포인트 3종(전종목 비동기/동기, 단일종목)은 2026-09-23 제거했다.
     //   네이버 레거시 금융 페이지가 SPA 로 이전해 소스가 죽었고(2026-09-22 실측 성공 0 / 실패 2,662),
