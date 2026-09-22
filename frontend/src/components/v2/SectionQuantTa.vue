@@ -757,7 +757,8 @@ export default {
 .result-table tbody tr:hover { background: rgba(255,255,255,0.04); }
 .stock-cell { display: flex; flex-direction: column; gap: 2px; }
 .stock-name { font-weight: 600; }
-.stock-code { font-size: 11px; color: rgba(255,255,255,0.4); }
+/* 흰색 alpha 0.4 는 어두운 패널에서 3.5 안팎이라 미달 — 0.6 (2026-09-22 실측). */
+.stock-code { font-size: 11px; color: rgba(255,255,255,0.6); }
 .score-cell { font-weight: 700; color: #c084fc; }
 .tag-chip {
   display: inline-block;

@@ -2407,7 +2407,8 @@ onUnmounted(() => {
 .composite-badge.cb-strong { background: rgba(34,197,94,0.18); color: #4ade80; border-color: rgba(34,197,94,0.4); }
 .composite-badge.cb-medium { background: rgba(234,179,8,0.18); color: #facc15; border-color: rgba(234,179,8,0.4); }
 .composite-badge.cb-weak { background: rgba(249,115,22,0.18); color: #fb923c; border-color: rgba(249,115,22,0.4); }
-.composite-badge.cb-none { background: rgba(156,163,175,0.12); color: rgba(255,255,255,0.4); border-color: rgba(156,163,175,0.2); }
+/* 자기 틴트 배경(#2c2d48) 위 3.47 → 0.6 으로 5.92 (2026-09-22 실측). '신호 0/5' 는 정보라 흐려선 안 된다. */
+.composite-badge.cb-none { background: rgba(156,163,175,0.12); color: rgba(255,255,255,0.6); border-color: rgba(156,163,175,0.2); }
 
 /* ========== 관련 종목 섹션 ========== */
 .related-section {

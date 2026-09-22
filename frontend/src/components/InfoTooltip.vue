@@ -51,9 +51,11 @@ export default {
   user-select: none;
   margin-left: 4px;
 }
+/* ⚠ 여기는 색이 아니라 opacity 가 원인이다 — 상속받은 글씨색(흰색 alpha 0.4)에 0.5 가 곱해져
+   실효 alpha 0.2 가 된다. 도움말 아이콘이라 있는 줄도 모를 만큼 흐렸다(2026-09-22). */
 .info-icon {
   font-size: 12px;
-  opacity: 0.5;
+  opacity: 0.75;
   transition: opacity 0.15s;
   line-height: 1;
 }

@@ -173,7 +173,9 @@ onUnmounted(() => {
 .toast-close {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.3);
+  /* 닫기 버튼이 토스트 배경(#151b24) 위 2.71 이었다 — 흰색 alpha 0.3 은 어두운 패널에서
+     어떤 배경이든 미달이다. 0.6 으로 올려 6.90 (2026-09-22 실측). */
+  color: rgba(255, 255, 255, 0.6);
   font-size: 18px;
   cursor: pointer;
   padding: 0 4px;

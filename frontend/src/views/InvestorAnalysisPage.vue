@@ -805,7 +805,8 @@ td {
 
 .rank { font-weight: 700; color: var(--primary-start); text-align: center; }
 .stock-name { font-weight: 600; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stock-code { color: rgba(255,255,255,0.4); font-family: monospace; }
+/* 표 배경(#163025) 위 3.55 → 0.6 으로 6.07 (2026-09-22 실측). */
+.stock-code { color: rgba(255,255,255,0.6); font-family: monospace; }
 
 .amount-cell { padding: 6px 12px !important; }
 
