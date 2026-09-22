@@ -10,6 +10,13 @@ import java.util.*;
  * - 테마주 섹터 정의 및 관련 종목코드 관리
  */
 @Component
+/*
+ * ⚠ 섹터 색은 배지에서 <b>자기 색 12.5% 틴트 위 글씨</b>로 쓰인다(SectorTradingPage .sector-badge).
+ *   그래서 500-level 원색은 대비가 4.5 를 못 넘는다 — 2026-09-22 실측으로 5색(#A855F7 3.98 ·
+ *   #3B82F6 4.22 · #EF4444 4.25 · #F43F5E 4.36 · #EC4899 4.48)이 미달이라 400-level 로 올렸다
+ *   (5.49~5.80). 나머지 11색은 통과해서 그대로 뒀다. 2026-09-21 에 올린 4색(#818CF8·#A78BFA·
+ *   #A8A29E·#94A3B8)도 같은 이유다. 새 섹터 색을 넣을 땐 이 계산을 먼저 할 것.
+ */
 public class SectorStockConfig {
 
     /**
@@ -291,7 +298,7 @@ public class SectorStockConfig {
         sectors.put("NUCLEAR", new SectorInfo(
             "NUCLEAR",
             "원전/SMR",
-            "#EF4444",
+            "#F87171",
             Arrays.asList(
                 "009540", // 한국조선해양
                 "267260", // HD현대일렉트릭
@@ -310,7 +317,7 @@ public class SectorStockConfig {
         sectors.put("SHIPBUILDING", new SectorInfo(
             "SHIPBUILDING",
             "조선",
-            "#3B82F6",
+            "#60A5FA",
             Arrays.asList(
                 "009540", // 한국조선해양
                 "010140", // 삼성중공업
@@ -348,7 +355,7 @@ public class SectorStockConfig {
         sectors.put("BIO", new SectorInfo(
             "BIO",
             "바이오/헬스케어",
-            "#EC4899",
+            "#F472B6",
             Arrays.asList(
                 "207940", // 삼성바이오로직스
                 "068270", // 셀트리온
@@ -443,7 +450,7 @@ public class SectorStockConfig {
         sectors.put("CHEMICAL", new SectorInfo(
             "CHEMICAL",
             "화학/소재",
-            "#A855F7",
+            "#C084FC",
             Arrays.asList(
                 "051910", // LG화학
                 "011170", // 롯데케미칼
@@ -481,7 +488,7 @@ public class SectorStockConfig {
         sectors.put("RETAIL", new SectorInfo(
             "RETAIL",
             "유통/소비재",
-            "#F43F5E",
+            "#FB7185",
             Arrays.asList(
                 "004170", // 신세계
                 "139480", // 이마트

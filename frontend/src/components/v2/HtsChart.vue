@@ -56,7 +56,9 @@ let prevCloseByTime = new Map();   // time → 직전 봉 종가 — 범례 등�
 
 const MA_META = {
   ma5: { color: '#f59e0b', width: 2 },
-  ma20: { color: '#3b82f6', width: 2 },
+  // MA20 만 500-level 파랑이라 범례·토글 배지(자기 색 틴트 위 글씨)에서 3.78 로 미달이었다 —
+  // 400-level 로 올려 5.47. 나머지 MA 색(ma5 5.91 · ma60 · ma120)은 통과한다(2026-09-22 실측).
+  ma20: { color: '#60a5fa', width: 2 },
   ma60: { color: '#10b981', width: 2 },
   ma120: { color: '#a855f7', width: 2 },
 };

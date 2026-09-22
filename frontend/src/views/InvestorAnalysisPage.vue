@@ -684,9 +684,10 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+/* 자기 색 틴트 위 글씨라 원색은 3.36 이었다 — 도메인 토큰으로 4.56 (2026-09-22 실측). */
 .data-timestamp.status-live {
   background: rgba(239,68,68,0.15);
-  color: #ef4444;
+  color: var(--signal-buy, #f87171);
   border: 1px solid rgba(239,68,68,0.3);
 }
 

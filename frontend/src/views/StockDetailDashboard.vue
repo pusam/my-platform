@@ -1572,7 +1572,9 @@ onUnmounted(() => {
    배경(빨강=매수 관례)은 그대로 두고 글씨를 뒤집는다 — 5.14 (2026-09-22 실측). */
 .score-badge.sb-strong-buy { color: var(--text-on-accent, #0b0e13); background: var(--signal-strong-buy, #ef4444); }
 .score-badge.sb-buy { color: var(--signal-buy, #f87171); background: rgba(239, 68, 68, 0.15); }
-.score-badge.sb-neutral { color: var(--signal-neutral, #a3a3a3); background: rgba(255, 255, 255, 0.1); }
+/* 흰 틴트 배경이라 유효 배경(#3d3d58)이 카드보다 밝다 — 전역 --signal-neutral 을 건드리는 대신
+   이 배지에서만 한 단계 밝은 회색을 쓴다: 4.15 → 5.10 (2026-09-22 실측). */
+.score-badge.sb-neutral { color: #b5b5b5; background: rgba(255, 255, 255, 0.1); }
 .score-badge.sb-caution { color: var(--warning, #fbbf24); background: rgba(251, 191, 36, 0.14); }
 .score-badge.sb-sell { color: var(--signal-sell, #60a5fa); background: rgba(59, 130, 246, 0.15); }
 
