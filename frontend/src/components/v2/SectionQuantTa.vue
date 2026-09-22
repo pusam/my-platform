@@ -609,8 +609,8 @@ export default {
 .universe-info { font-size: 13px; color: rgba(255,255,255,0.85); }
 .universe-label { color: rgba(255,255,255,0.55); margin-right: 8px; }
 .universe-value strong { color: #c084fc; font-size: 16px; margin-right: 4px; }
-.universe-sub { color: rgba(255,255,255,0.45); font-size: 11px; margin-left: 4px; }
-.universe-value.subtle { color: rgba(255,255,255,0.4); }
+.universe-sub { color: rgba(255,255,255,0.6); font-size: 11px; margin-left: 4px; }
+.universe-value.subtle { color: rgba(255,255,255,0.6); }
 .collect-controls { display: flex; gap: 8px; align-items: center; }
 .collect-select {
   padding: 5px 10px;
@@ -776,7 +776,7 @@ export default {
   text-align: center; padding: 30px;
   color: rgba(255,255,255,0.6); font-size: 13px;
 }
-.empty-msg.subtle { color: rgba(255,255,255,0.35); }
+.empty-msg.subtle { color: rgba(255,255,255,0.6); }
 
 /* ===== 상관관계 ===== */
 .corr-input-row {
@@ -828,7 +828,7 @@ export default {
 .hm-head-name, .hm-side-name { font-size: 11px; font-weight: 600; }
 .hm-head-code, .hm-side-code {
   font-size: 11px; font-family: monospace;
-  color: rgba(255,255,255,0.4); margin-top: 1px;
+  color: rgba(255,255,255,0.6); margin-top: 1px;
 }
 
 .warn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }

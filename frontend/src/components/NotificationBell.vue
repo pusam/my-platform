@@ -528,7 +528,7 @@ onUnmounted(() => {
   color: rgba(255,255,255,0.65);
 }
 .notification-dropdown.dark .notification-time {
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
 }
 .notification-dropdown.dark .empty-state,
 .notification-dropdown.dark .loading-state {
@@ -604,5 +604,5 @@ onUnmounted(() => {
 .notification-dropdown.dark .filter-title { color: rgba(255,255,255,0.55); }
 .notification-dropdown.dark .filter-item { color: rgba(255,255,255,0.85); }
 .notification-dropdown.dark .filter-item:hover { background: rgba(255,255,255,0.05); }
-.notification-dropdown.dark .filter-hint { color: rgba(255,255,255,0.4); }
+.notification-dropdown.dark .filter-hint { color: rgba(255,255,255,0.6); }
 </style>

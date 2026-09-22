@@ -146,7 +146,7 @@ export default {
 .tr-explain em { color: #f87171; font-style: normal; }
 
 .tr-loading, .tr-empty {
-  padding: 40px; text-align: center; color: rgba(255,255,255,0.4);
+  padding: 40px; text-align: center; color: rgba(255,255,255,0.6);
 }
 
 .tr-list { display: flex; flex-direction: column; gap: 4px; }
@@ -172,7 +172,7 @@ export default {
 }
 .tr-name-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tr-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.95); }
-.tr-code { font-size: 11px; color: rgba(255,255,255,0.4); font-variant-numeric: tabular-nums; }
+.tr-code { font-size: 11px; color: rgba(255,255,255,0.6); font-variant-numeric: tabular-nums; }
 .tr-score {
   font-size: 14px; font-weight: 700;
   padding: 4px 10px; border-radius: 8px;
@@ -188,7 +188,7 @@ export default {
   font-size: 11px; font-weight: 700;
   padding: 3px 6px; border-radius: 4px;
   background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.6);
   white-space: nowrap;
 }
 .tr-sig-dot.matched {

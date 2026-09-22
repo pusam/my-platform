@@ -240,7 +240,7 @@ export default {
   border-color: rgba(99, 102, 241, 0.6);
 }
 .stock-input-field::placeholder {
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
 }
 
 .has-selection .stock-input-field {
@@ -295,7 +295,7 @@ export default {
 .dropdown-empty {
   padding: 12px;
   text-align: center;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   font-size: 13px;
 }
 
@@ -323,13 +323,13 @@ export default {
 }
 
 .item-code {
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.6);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
 
 .item-market {
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
   font-size: 11px;
   padding: 2px 6px;
   background: rgba(255,255,255,0.06);

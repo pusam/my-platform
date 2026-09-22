@@ -92,7 +92,7 @@ const isVpInValueArea = (bin) => {
 }
 .vp-stat strong { color: #fff; }
 .vp-disclaimer {
-  font-size: 11px; color: rgba(255,255,255,0.4);
+  font-size: 11px; color: rgba(255,255,255,0.6);
   padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
   margin-left: auto;
 }

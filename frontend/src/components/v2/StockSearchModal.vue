@@ -178,7 +178,7 @@ export default {
 }
 
 .search-icon {
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   flex-shrink: 0;
 }
 
@@ -191,7 +191,7 @@ export default {
   font-size: 15px;
 }
 .search-input-wrapper input::placeholder {
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.6);
 }
 
 .search-results {
@@ -203,7 +203,7 @@ export default {
 .search-empty {
   padding: 24px;
   text-align: center;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   font-size: 14px;
 }
 
@@ -232,12 +232,12 @@ export default {
 }
 
 .result-code {
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   font-size: 12px;
 }
 
 .result-market {
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.6);
   font-size: 12px;
 }
 </style>

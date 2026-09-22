@@ -749,7 +749,7 @@ export default {
 
 .invest-hero-arrow {
   font-size: 24px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.6);
   transition: all 0.3s ease;
   flex-shrink: 0;
 }

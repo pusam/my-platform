@@ -239,7 +239,7 @@ onMounted(loadRecords);
 .loading-wrap { text-align: center; padding: 40px; }
 .spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #10b981; border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.empty-state { text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.4); }
+.empty-state { text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.6); }
 
 .record-list { display: flex; flex-direction: column; gap: 10px; }
 .record-card { background: var(--border-light); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; }
@@ -253,7 +253,7 @@ onMounted(loadRecords);
 .intensity-badge.low { background: rgba(34,197,94,0.15); color: #4ade80; }
 .intensity-badge.medium { background: rgba(251,191,36,0.15); color: #fbbf24; }
 .intensity-badge.high { background: rgba(239,68,68,0.15); color: #f87171; }
-.record-date { font-size: 12px; color: rgba(255,255,255,0.4); }
+.record-date { font-size: 12px; color: rgba(255,255,255,0.6); }
 .record-actions { margin-left: auto; display: flex; gap: 6px; }
 .edit-btn, .del-btn { background: none; border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.5); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 11px; }
 .edit-btn:hover { border-color: #10b981; color: #34d399; }
@@ -262,7 +262,7 @@ onMounted(loadRecords);
 .stats-row { display: flex; gap: 12px; margin-top: 8px; font-size: 13px; color: rgba(255,255,255,0.5); }
 .stat-item b { color: #fff; }
 .stat-item.burn b { color: #f87171; }
-.memo { font-size: 12px; color: rgba(255,255,255,0.35); margin-top: 6px; }
+.memo { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 6px; }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-content { background: #1e1e3a; border-radius: 16px; padding: 24px; width: 90%; max-width: 480px; max-height: 85vh; overflow-y: auto; }

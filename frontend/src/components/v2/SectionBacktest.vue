@@ -301,7 +301,7 @@ export default {
   text-align: center;
 }
 .state-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.6; }
-.state-text { font-size: 14px; color: rgba(255,255,255,0.4); margin: 0; }
+.state-text { font-size: 14px; color: rgba(255,255,255,0.6); margin: 0; }
 .state-btn {
   margin-top: 12px;
   padding: 8px 20px;
@@ -356,7 +356,7 @@ export default {
 }
 .compare-metric {
   font-size: 11px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
 }
 .compare-val {
   font-size: 15px;
@@ -378,7 +378,7 @@ export default {
   padding: 3px 8px;
   border-radius: 6px;
   background: var(--border-light);
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.6);
 }
 
 /* Overall */
@@ -397,7 +397,7 @@ export default {
 .stat-label {
   display: block;
   font-size: 11px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   margin-bottom: 4px;
 }
 .stat-value {
@@ -429,7 +429,7 @@ export default {
 .strategy-icon { font-size: 16px; }
 .strategy-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); }
 .strategy-stats { margin-left: auto; display: flex; gap: 6px; }
-.expand-arrow { font-size: 11px; color: rgba(255,255,255,0.3); margin-left: 4px; }
+.expand-arrow { font-size: 11px; color: rgba(255,255,255,0.6); margin-left: 4px; }
 
 .hit-badge, .return-badge {
   font-size: 11px;
@@ -449,7 +449,7 @@ export default {
   gap: 12px;
   margin-top: 6px;
   font-size: 11px;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
 }
 
 /* Picks */
@@ -470,15 +470,15 @@ export default {
 .pick-row:hover { background: var(--border-light); }
 .pick-info { flex: 1; min-width: 0; }
 .pick-name { font-size: 13px; color: rgba(255,255,255,0.8); }
-.pick-code { font-size: 11px; color: rgba(255,255,255,0.3); margin-left: 4px; }
-.pick-prices { font-size: 11px; color: rgba(255,255,255,0.4); }
+.pick-code { font-size: 11px; color: rgba(255,255,255,0.6); margin-left: 4px; }
+.pick-prices { font-size: 11px; color: rgba(255,255,255,0.6); }
 .pick-rec { margin-right: 2px; }
 .pick-cur { color: rgba(255,255,255,0.6); }
 .pick-return-wrap { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
 .pick-return { font-size: 12px; font-weight: 700; text-align: right; }
 .pick-return.positive { color: #ef4444; }
 .pick-return.negative { color: #3b82f6; }
-.pick-cost-label { font-size: 11px; color: rgba(255,255,255,0.3); }
+.pick-cost-label { font-size: 11px; color: rgba(255,255,255,0.6); }
 
 /* Best / Worst */
 .best-worst {

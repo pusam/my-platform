@@ -1788,12 +1788,12 @@ onUnmounted(() => {
 .channel-caption .breakout-badge.down { color: #60a5fa; }
 
 /* 기간 토글 + 60봉 dense 모드 (봉 폭 축소) */
-.ind-toggle.period-toggle.active { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: rgba(255,255,255,0.85); }
+.ind-toggle.period-toggle.active { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.6); color: rgba(255,255,255,0.85); }
 .scope-tag {
   margin-left: 6px;
   font-size: 11px;
   font-weight: 500;
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.6);
 }
 
 .panel-fail {
@@ -1846,7 +1846,7 @@ onUnmounted(() => {
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 6px;
   background: transparent;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
   cursor: pointer;
   transition: all 0.15s;
   -webkit-tap-highlight-color: transparent;
@@ -2435,7 +2435,7 @@ onUnmounted(() => {
 }
 .related-row:hover { background: rgba(99,102,241,0.1); }
 .related-name { color: rgba(255,255,255,0.95); font-weight: 600; font-size: 13px; }
-.related-code { color: rgba(255,255,255,0.4); font-size: 11px; font-variant-numeric: tabular-nums; }
+.related-code { color: rgba(255,255,255,0.6); font-size: 11px; font-variant-numeric: tabular-nums; }
 .related-corr {
   font-size: 11px; padding: 2px 8px; border-radius: 8px; font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -2459,7 +2459,7 @@ onUnmounted(() => {
 .cps-header-icon { font-size: 18px; }
 .cps-title { margin: 0; color: rgba(255,255,255,0.9); font-size: 15px; font-weight: 600; flex: 1; }
 .cps-disclaimer {
-  font-size: 11px; color: rgba(255,255,255,0.4);
+  font-size: 11px; color: rgba(255,255,255,0.6);
   padding: 2px 8px; background: rgba(255,255,255,0.05);
   border-radius: 10px;
 }
@@ -2486,7 +2486,7 @@ onUnmounted(() => {
 .cps-card-desc {
   margin: 0 0 6px 0; color: rgba(255,255,255,0.7); font-size: 13px; line-height: 1.5;
 }
-.cps-dates { font-size: 11px; color: rgba(255,255,255,0.45); font-variant-numeric: tabular-nums; }
+.cps-dates { font-size: 11px; color: rgba(255,255,255,0.6); font-variant-numeric: tabular-nums; }
 .cps-ref { margin-left: 4px; }
 
 /* ========== 메인 탭 바 ========== */

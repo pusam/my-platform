@@ -1954,7 +1954,7 @@ onMounted(() => {
 
 .impact-mini-score {
   font-size: 12px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
 }
 
 .impact-mini-comment {
@@ -1980,7 +1980,7 @@ onMounted(() => {
 
 .futures-name {
   font-size: 11px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   margin-bottom: 4px;
 }
 
@@ -2002,7 +2002,7 @@ onMounted(() => {
 .futures-sub-label {
   font-size: 11px;
   font-weight: 600;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 12px 0 6px;
@@ -2019,7 +2019,7 @@ onMounted(() => {
 .no-futures-data {
   text-align: center;
   padding: 20px;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.6);
   font-size: 13px;
 }
 

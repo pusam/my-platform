@@ -699,7 +699,7 @@ onMounted(() => {
 
 .data-timestamp.status-unknown {
   background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   border: 1px solid rgba(255,255,255,0.1);
 }
 
@@ -729,7 +729,7 @@ onMounted(() => {
   padding: 10px 20px;
   background: none;
   border: none;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
@@ -895,7 +895,7 @@ td {
 
 .stock-info { display: flex; flex-direction: column; }
 .card-stock-name { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.9); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
-.card-stock-code { font-size: 12px; color: rgba(255,255,255,0.35); font-family: monospace; }
+.card-stock-code { font-size: 12px; color: rgba(255,255,255,0.6); font-family: monospace; }
 
 .consecutive-badge {
   background: linear-gradient(135deg, var(--primary-start), #764ba2);
@@ -931,7 +931,7 @@ td {
   align-items: center;
 }
 
-.detail-row .label { color: rgba(255,255,255,0.4); font-size: 12px; }
+.detail-row .label { color: rgba(255,255,255,0.6); font-size: 12px; }
 .detail-row .value { font-weight: 600; color: rgba(255,255,255,0.85); font-size: 13px; }
 .detail-row .value.amount { font-family: monospace; }
 .detail-row .value.date { font-size: 12px; color: rgba(255,255,255,0.5); }
@@ -946,7 +946,7 @@ td {
 .no-data {
   text-align: center;
   padding: 48px 20px;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
 }
 
 .no-data p { font-size: 15px; margin-bottom: 8px; }

@@ -1903,7 +1903,7 @@ export default {
 }
 .so-pick-row:hover { background: rgba(255,255,255,0.06); }
 .so-pick-rank {
-  font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.4);
+  font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.6);
   padding-top: 2px; min-width: 20px;
 }
 .so-pick-main { flex: 1; min-width: 0; }
@@ -2016,7 +2016,7 @@ export default {
 .rec-detail-score { font-size: 11px; font-weight: 700; width: 20px; text-align: right; flex-shrink: 0; }
 .rec-detail-track.na { opacity: 0.3; }
 .rec-detail-na-line { height: 1px; margin-top: 1px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0, rgba(255,255,255,0.2) 3px, transparent 3px, transparent 6px); }
-.na-text { color: rgba(255,255,255,0.45); font-size: 11px; }
+.na-text { color: rgba(255,255,255,0.6); font-size: 11px; }
 .rec-price-area { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .rec-current-price { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 500; }
 .rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }
@@ -2091,7 +2091,7 @@ export default {
 
 /* ===== 오늘 강세 섹터 카드 ===== */
 .strong-sectors .ss-disclaimer {
-  font-size: 11px; color: rgba(255,255,255,0.4);
+  font-size: 11px; color: rgba(255,255,255,0.6);
   padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
 }
 .ss-list { display: flex; flex-direction: column; gap: 8px; }
@@ -2125,7 +2125,7 @@ export default {
   border-top: 1px dashed rgba(255,255,255,0.08);
   align-items: center;
 }
-.ss-kw-label { font-size: 11px; color: rgba(255,255,255,0.4); margin-right: 4px; }
+.ss-kw-label { font-size: 11px; color: rgba(255,255,255,0.6); margin-right: 4px; }
 .ss-keyword {
   font-size: 11px;
   padding: 2px 7px;
@@ -2140,7 +2140,7 @@ export default {
   display: flex; align-items: center; gap: 8px; margin-left: auto;
 }
 .chart-signals .cs-disclaimer {
-  font-size: 11px; color: rgba(255,255,255,0.4);
+  font-size: 11px; color: rgba(255,255,255,0.6);
   padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
 }
 .cs-filter { display: flex; gap: 2px; padding: 2px; background: rgba(255,255,255,0.04); border-radius: 8px; }
@@ -2168,7 +2168,7 @@ export default {
 .cs-row.sig-neutral { border-left-color: var(--text-muted, #9494bd); }
 .cs-name-block { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .cs-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); }
-.cs-code { font-size: 11px; color: rgba(255,255,255,0.4); font-variant-numeric: tabular-nums; }
+.cs-code { font-size: 11px; color: rgba(255,255,255,0.6); font-variant-numeric: tabular-nums; }
 .cs-pattern { font-size: 12px; color: rgba(255,255,255,0.65); }
 .cs-confidence, .cs-signal {
   font-size: 11px; padding: 1px 7px; border-radius: 8px;
@@ -2179,7 +2179,7 @@ export default {
 .cs-signal.sg-bullish { background: rgba(239,68,68,0.18); color: #f87171; }
 .cs-signal.sg-bearish { background: rgba(59,130,246,0.18); color: #60a5fa; }
 .cs-signal.sg-neutral { background: rgba(156,163,175,0.18); color: #d1d5db; }
-.cs-extra { font-size: 11px; color: rgba(255,255,255,0.4); }
+.cs-extra { font-size: 11px; color: rgba(255,255,255,0.6); }
 .cs-composite {
   font-size: 11px; font-weight: 700;
   padding: 2px 7px; border-radius: 8px;
@@ -2189,7 +2189,7 @@ export default {
 .cs-composite.cb-strong { background: rgba(34,197,94,0.18); color: #4ade80; border-color: rgba(34,197,94,0.4); }
 .cs-composite.cb-medium { background: rgba(234,179,8,0.18); color: #facc15; border-color: rgba(234,179,8,0.4); }
 .cs-composite.cb-weak { background: rgba(249,115,22,0.18); color: #fb923c; border-color: rgba(249,115,22,0.4); }
-.cs-composite.cb-none { background: rgba(156,163,175,0.12); color: rgba(255,255,255,0.4); border-color: rgba(156,163,175,0.2); }
+.cs-composite.cb-none { background: rgba(156,163,175,0.12); color: rgba(255,255,255,0.6); border-color: rgba(156,163,175,0.2); }
 
 /* ===== AI TOP 픽 ===== */
 .top-picks-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -2371,13 +2371,13 @@ export default {
 }
 .news-time {
   font-size: 11px;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.6);
   flex-shrink: 0;
 }
 
 .empty-msg {
   text-align: center;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.6);
   font-size: 13px;
   padding: 20px 0;
 }

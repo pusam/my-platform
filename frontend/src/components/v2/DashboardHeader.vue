@@ -158,7 +158,7 @@ export default {
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 9px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -172,7 +172,7 @@ export default {
   background: rgba(255,255,255,0.1);
   padding: 2px 5px;
   border-radius: 4px;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
   font-family: inherit;
 }
 

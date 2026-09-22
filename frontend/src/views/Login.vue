@@ -380,7 +380,7 @@ async function maybePromptEnroll(username) {
 }
 .webauthn-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.6);
 }
 .webauthn-btn svg {
   width: 20px;

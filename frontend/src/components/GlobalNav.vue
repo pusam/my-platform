@@ -138,7 +138,7 @@ const isActive = (itemPath) => {
   padding: 8px 16px;
   border-radius: 8px;
   text-decoration: none;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   font-size: 13px;
   font-weight: 500;
   transition: all 0.15s;
@@ -195,7 +195,7 @@ const isActive = (itemPath) => {
     justify-content: center;
     gap: 5px;
     text-decoration: none;
-    color: rgba(255,255,255,0.35);
+    color: rgba(255,255,255,0.6);
     font-size: 13px;
     padding: 8px 0;
     border-radius: 8px;

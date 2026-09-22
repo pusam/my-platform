@@ -365,7 +365,7 @@ export default {
 }
 .target-label {
   font-size: 12px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
 }
 .target-value {
   font-size: 15px;
@@ -389,7 +389,7 @@ export default {
 .summary-label {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -407,7 +407,7 @@ export default {
   align-items: center;
   justify-content: space-between;
   font-size: 12px;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
 }
 /* Scrollbar */
 .modal-container::-webkit-scrollbar { width: 6px; }

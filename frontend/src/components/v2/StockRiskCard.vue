@@ -312,7 +312,7 @@ export default {
 .disclosure-name { flex: 1; color: rgba(255,255,255,0.85); }
 .disclosure-date {
   font-family: monospace;
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.6);
   font-size: 11px;
 }
 .news-item .news-link, .news-item .news-title {
@@ -323,7 +323,7 @@ export default {
 .news-item .news-link { text-decoration: none; }
 .news-item .news-link:hover { color: #a5b4fc; text-decoration: underline; }
 .news-date {
-  font-family: monospace; color: rgba(255,255,255,0.45);
+  font-family: monospace; color: rgba(255,255,255,0.6);
   font-size: 11px;
 }
 
@@ -342,7 +342,7 @@ export default {
 .risk-meta {
   margin-top: 10px;
   font-size: 11px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
 }
 
 @media (max-width: 600px) {

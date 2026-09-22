@@ -388,7 +388,7 @@ const formatPrice = (price) => {
   display: flex;
   justify-content: space-between;
   font-size: 0.6875rem;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
   margin-top: 2px;
 }
 .consensus-source {

@@ -294,7 +294,7 @@ export default {
   border-radius: 10px;
   font-size: 11px; font-weight: 600;
   background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.6);
 }
 .auto-refresh-badge .status-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -352,7 +352,7 @@ export default {
   font-size: 12px;
 }
 .last-update {
-  font-size: 11px; color: rgba(255,255,255,0.4);
+  font-size: 11px; color: rgba(255,255,255,0.6);
 }
 
 .investor-tabs {
@@ -444,7 +444,7 @@ export default {
 }
 .card-stock-code {
   font-family: monospace; font-size: 11px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.6);
 }
 .rank-info {
   display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
@@ -479,7 +479,7 @@ export default {
 
 .empty-msg {
   text-align: center; padding: 24px;
-  color: rgba(255,255,255,0.4); font-size: 12.5px;
+  color: rgba(255,255,255,0.6); font-size: 12.5px;
 }
 .empty-msg .hint { margin-top: 6px; font-size: 11px; opacity: 0.8; }
 

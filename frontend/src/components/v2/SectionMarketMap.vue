@@ -466,7 +466,7 @@ export default {
 }
 .state-box-sm { padding: 28px 16px; }
 .state-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.6; }
-.state-text { font-size: 14px; color: rgba(255,255,255,0.4); margin: 0 0 16px 0; }
+.state-text { font-size: 14px; color: rgba(255,255,255,0.6); margin: 0 0 16px 0; }
 .state-box-sm .state-text { margin-bottom: 0; }
 .state-btn {
   display: inline-flex;
@@ -597,15 +597,15 @@ export default {
 
 .analysis-date {
   font-size: 11px;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.6);
   text-align: right;
   margin-bottom: 6px;
 }
 .more-links { margin-top: 8px; }
-.more-links a { font-size: 12px; color: rgba(255,255,255,0.4); text-decoration: none; }
+.more-links a { font-size: 12px; color: rgba(255,255,255,0.6); text-decoration: none; }
 .more-links a:hover { color: var(--primary-start); }
 
-.empty-msg { text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; padding: 20px 0; }
+.empty-msg { text-align: center; color: rgba(255,255,255,0.6); font-size: 13px; padding: 20px 0; }
 
 /* Forecast */
 .forecast-section { padding: 4px 0; }
@@ -801,7 +801,7 @@ export default {
 .flow-icon { font-size: 11px; font-weight: 700; }
 .flow-icon.flow-inflow { color: #34d399; }
 .flow-icon.flow-outflow { color: #f87171; }
-.flow-icon.flow-neutral { color: rgba(255, 255, 255, 0.35); font-size: 11px; }
+.flow-icon.flow-neutral { color: rgba(255, 255, 255, 0.6); font-size: 11px; }
 .rotation-name {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.85);
@@ -838,10 +838,10 @@ export default {
 }
 .rotation-rate.flow-inflow { color: #34d399; }
 .rotation-rate.flow-outflow { color: #f87171; }
-.rotation-rate.flow-neutral { color: rgba(255, 255, 255, 0.4); }
+.rotation-rate.flow-neutral { color: rgba(255, 255, 255, 0.6); }
 .rotation-amount {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 @media (max-width: 768px) {
