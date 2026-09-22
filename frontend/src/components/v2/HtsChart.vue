@@ -284,7 +284,9 @@ watch(
   bottom: 2px; right: 6px;
   z-index: 3;
   font-size: 11px;
-  color: rgba(255,255,255,0.28);
+  /* TradingView 귀속 표기는 lightweight-charts 사용 조건이라 보여야 한다 —
+     0.28 은 차트 배경(#121323) 위 2.50 이었다. 0.6 으로 7.11 (2026-09-22 실측). */
+  color: rgba(255,255,255,0.6);
   text-decoration: none;
   pointer-events: auto;
 }

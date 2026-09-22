@@ -933,7 +933,11 @@ const showSrLines = ref(true);
 const showPatternMarkers = ref(true);
 const indicatorList = [
   { key: 'ma5', label: 'MA5', color: '#f59e0b' },
-  { key: 'ma20', label: 'MA20', color: '#3b82f6' },
+  // ⚠ 아래 CSS 의 [style*="--ind-color: ..."] 속성 선택자가 이 문자열과 정확히 일치해야 한다 —
+  //    색만 바꾸고 선택자를 그대로 두면 활성 배지의 배경 틴트가 사라진다.
+  //    #3b82f6 은 토글 배경(#1d2b50) 위 3.78 이라 미달이었다 → #60a5fa 5.47 (2026-09-22 실측).
+  //    HtsChart 의 MA_META.ma20 도 같은 값으로 맞춰 두었다(선 색과 배지 색이 어긋나면 안 된다).
+  { key: 'ma20', label: 'MA20', color: '#60a5fa' },
   { key: 'ma60', label: 'MA60', color: '#10b981' },
   { key: 'ma120', label: 'MA120', color: '#a855f7' },
   { key: 'bb', label: '볼린저', color: '#6b7280' }
@@ -1861,7 +1865,7 @@ onUnmounted(() => {
   color: var(--ind-color);
 }
 .ind-toggle.active[style*="--ind-color: #f59e0b"] { background: rgba(245,158,11,0.18); }
-.ind-toggle.active[style*="--ind-color: #3b82f6"] { background: rgba(59,130,246,0.18); }
+.ind-toggle.active[style*="--ind-color: #60a5fa"] { background: rgba(96,165,250,0.18); }
 .ind-toggle.active[style*="--ind-color: #10b981"] { background: rgba(16,185,129,0.18); }
 .ind-toggle.active[style*="--ind-color: #a855f7"] { background: rgba(168,85,247,0.18); }
 .ind-toggle.active[style*="--ind-color: #6b7280"] { background: rgba(107,114,128,0.18); }
