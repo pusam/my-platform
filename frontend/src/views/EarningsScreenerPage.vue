@@ -300,7 +300,7 @@
           </div>
           <p class="action-desc">
             <strong>모든 데이터를 한 번에 수집합니다:</strong><br>
-            1️⃣ 기본 재무 데이터 → 2️⃣ 영업이익률 → 3️⃣ 분기별 재무제표 → 4️⃣ 성장률 계산 (PEG용)
+            1️⃣ 기본 재무 데이터 → 2️⃣ 영업이익률 → 3️⃣ 성장률 계산 (PEG용)
           </p>
           <div class="action-info">
             <span class="info-tag highlight">⏱️ 총 20-30분 소요</span>
