@@ -14,20 +14,27 @@ export const HTS_UP_COLOR = '#ef4444';
 export const HTS_DOWN_COLOR = '#3b82f6';
 const VOL_ALPHA_HEX = '80'; // ~0.5 — 8자리 hex 알파(#ef444480)
 
+/**
+ * 일봉 날짜 정규화 — 'yyyy-MM-dd…' | 'yyyyMMdd' → 'yyyy-mm-dd'. 그 외는 null. 순수.
+ *
+ * ⚠ lightweight-charts 는 'yyyy-mm-dd' 만 받고 아니면 <b>throw</b> 한다. KIS 일봉
+ *   (stck_bsop_date)은 yyyyMMdd 8자라 `substring(0,10)` 으로는 그대로 통과해 버린다 —
+ *   그 값이 setData/setMarkers 에 닿는 순간 예외가 나고 차트 렌더가 통째로 중단된다
+ *   (2026-09-22 운영 콘솔: "Invalid date string=20260811").
+ *   날짜를 만드는 곳이 둘(시리즈·마커)이라 한쪽만 고쳐서는 안 잡힌다 — 그래서 한 곳으로 모았다.
+ */
+export function toDailyDate(v) {
+  if (v == null) return null;
+  const s = String(v);
+  if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  return s.length >= 10 ? s.substring(0, 10) : null;
+}
+
 /** 봉 라벨(date/tradeDate)을 lightweight-charts time 으로 변환. 순수. 실패/결측이면 null. */
 export function toSeriesTime(dateLabel, isIntraday, todayYmd) {
   if (dateLabel == null) return null;
   const s = String(dateLabel);
-  if (!isIntraday) {
-    // 일봉 — lightweight-charts 는 'yyyy-mm-dd' 만 받는다.
-    // ⚠ KIS 일봉(stck_bsop_date)은 yyyyMMdd(8자)라 아래 10자 분기를 타지 못한다.
-    //    예전엔 그 8자를 **그대로** 돌려줬고, 차트가
-    //    "Invalid date string=20260811, expected format=yyyy-mm-dd" 로 throw 하면서
-    //    setData 가 중단돼 종목상세가 통째로 덜 그려졌다(2026-09-22 운영 콘솔에서 확인).
-    if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-    // 알 수 없는 형식은 null → 호출부가 그 봉만 건너뛴다. 값을 지어내지도, 그대로 흘리지도 않는다(§4c).
-    return s.length >= 10 ? s.substring(0, 10) : null;
-  }
+  if (!isIntraday) return toDailyDate(s);
   // 분봉 — 'HH:mm' → KST epoch 초
   const m = s.match(/^(\d{2}):(\d{2})/);
   if (!m || !todayYmd) return null;
@@ -107,13 +114,15 @@ export function toChannelLines(channel, firstTime, lastTime) {
  */
 export function toMarkerData(chartPatterns, displayCandles) {
   if (!chartPatterns?.length || !displayCandles?.length) return [];
-  const dates = new Set(displayCandles.map(c => String(c.date ?? c.tradeDate).substring(0, 10)));
+  // ⚠ 여기가 두 번째 날짜 생성 지점이다 — substring(0,10) 은 yyyyMMdd 8자를 그대로 통과시켜
+  //    time 으로 나가고 setMarkers 가 throw 한다(2026-09-22, 시리즈만 고쳤더니 여기서 재발).
+  const dates = new Set(displayCandles.map(c => toDailyDate(c.date ?? c.tradeDate)).filter(Boolean));
   const markers = [];
   for (const p of chartPatterns) {
     if (!p.keyPoints) continue;
     for (const kp of p.keyPoints) {
-      const d = String(kp.date).substring(0, 10);
-      if (!dates.has(d)) continue;
+      const d = toDailyDate(kp.date);
+      if (d == null || !dates.has(d)) continue;
       const bull = p.signal === 'BULLISH';
       markers.push({
         time: d,

@@ -4,6 +4,30 @@ import {
   HTS_UP_COLOR, HTS_DOWN_COLOR,
 } from './htsChartData'
 
+describe('toMarkerData — 날짜 형식', () => {
+  // ⚠ 시리즈(toSeriesTime)만 고쳤더니 **여기서 그대로 재발**했다(2026-09-22).
+  //    마커는 날짜를 따로 만들고 있었고 substring(0,10) 이 yyyyMMdd 8자를 통과시켜
+  //    setMarkers 가 "Invalid date string=20260811" 로 throw 했다.
+  //    날짜를 만드는 지점이 둘이면 둘 다 같은 규칙을 써야 한다.
+  it('KIS yyyyMMdd 봉과 keyPoint 를 매칭하고 time 을 yyyy-mm-dd 로 낸다', () => {
+    const candles = [{ date: '20260811', open: 1, high: 2, low: 1, close: 2 }]
+    const patterns = [{ signal: 'BULLISH', label: '쌍바닥', keyPoints: [{ date: '20260811' }] }]
+    const m = toMarkerData(patterns, candles)
+    expect(m).toHaveLength(1)
+    expect(m[0].time).toBe('2026-08-11')
+  })
+  it('형식이 다른 두 소스도 같은 날짜로 매칭된다', () => {
+    const candles = [{ date: '2026-08-11' }]
+    const patterns = [{ signal: 'BEARISH', keyPoints: [{ date: '20260811' }] }]
+    expect(toMarkerData(patterns, candles)[0].time).toBe('2026-08-11')
+  })
+  it('알 수 없는 날짜의 keyPoint 는 버린다 — 지어내지 않는다', () => {
+    const candles = [{ date: '2026-08-11' }]
+    const patterns = [{ signal: 'BULLISH', keyPoints: [{ date: 'bad' }, { date: null }] }]
+    expect(toMarkerData(patterns, candles)).toHaveLength(0)
+  })
+})
+
 describe('toSeriesTime', () => {
   it('일봉 → yyyy-MM-dd 앞 10자 그대로', () => {
     expect(toSeriesTime('2026-07-15', false, null)).toBe('2026-07-15')
