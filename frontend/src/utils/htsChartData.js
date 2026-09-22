@@ -19,8 +19,14 @@ export function toSeriesTime(dateLabel, isIntraday, todayYmd) {
   if (dateLabel == null) return null;
   const s = String(dateLabel);
   if (!isIntraday) {
-    // 일봉 — 'yyyy-MM-dd' 앞 10자
-    return s.length >= 10 ? s.substring(0, 10) : s;
+    // 일봉 — lightweight-charts 는 'yyyy-mm-dd' 만 받는다.
+    // ⚠ KIS 일봉(stck_bsop_date)은 yyyyMMdd(8자)라 아래 10자 분기를 타지 못한다.
+    //    예전엔 그 8자를 **그대로** 돌려줬고, 차트가
+    //    "Invalid date string=20260811, expected format=yyyy-mm-dd" 로 throw 하면서
+    //    setData 가 중단돼 종목상세가 통째로 덜 그려졌다(2026-09-22 운영 콘솔에서 확인).
+    if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+    // 알 수 없는 형식은 null → 호출부가 그 봉만 건너뛴다. 값을 지어내지도, 그대로 흘리지도 않는다(§4c).
+    return s.length >= 10 ? s.substring(0, 10) : null;
   }
   // 분봉 — 'HH:mm' → KST epoch 초
   const m = s.match(/^(\d{2}):(\d{2})/);

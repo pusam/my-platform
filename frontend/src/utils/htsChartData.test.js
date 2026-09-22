@@ -14,6 +14,21 @@ describe('toSeriesTime', () => {
     // 2026-07-15 09:30 KST = 00:30 UTC
     expect(t).toBe(Math.floor(Date.UTC(2026, 6, 15, 0, 30, 0) / 1000))
   })
+  // ⚠ 2026-09-22 운영 콘솔에서 잡은 실제 예외:
+  //    "Invalid date string=20260811, expected format=yyyy-mm-dd"
+  //    KIS 일봉은 stck_bsop_date 가 yyyyMMdd(8자)라 `s.length >= 10` 분기를 타지 못하고
+  //    8자 문자열이 **그대로** lightweight-charts 로 들어가 throw 했다. 예외가 setData 를
+  //    중단시켜 종목상세가 통째로 덜 그려졌다(본문 1,459자에서 멈춤, PER·차트·결론 모두 없음).
+  it('KIS yyyyMMdd(8자)도 일봉으로 받는다 — 그대로 넘기면 차트가 throw 한다', () => {
+    expect(toSeriesTime('20260811', false, null)).toBe('2026-08-11')
+    expect(toSeriesTime(20260811, false, null)).toBe('2026-08-11')   // 숫자로 와도 동일
+  })
+
+  it('알 수 없는 짧은 형식은 null — 문자열을 그대로 넘기지 않는다', () => {
+    expect(toSeriesTime('2026-08', false, null)).toBeNull()
+    expect(toSeriesTime('abcdefgh', false, null)).toBeNull()
+  })
+
   it('결측/형식 오류 → null', () => {
     expect(toSeriesTime(null, false, null)).toBeNull()
     expect(toSeriesTime('bad', true, '2026-07-15')).toBeNull()
