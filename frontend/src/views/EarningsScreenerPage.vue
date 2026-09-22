@@ -303,7 +303,7 @@
             1️⃣ 기본 재무 데이터 → 2️⃣ 영업이익률 → 3️⃣ 분기별 재무제표 → 4️⃣ 성장률 계산 (PEG용)
           </p>
           <div class="action-info">
-            <span class="info-tag highlight">⏱️ 총 30-40분 소요</span>
+            <span class="info-tag highlight">⏱️ 총 20-30분 소요</span>
             <span class="info-tag">📈 2,000+ 종목</span>
             <span class="info-tag">✨ 마법의 공식 + PEG 스크리너</span>
           </div>
@@ -750,10 +750,6 @@ const isCollectingAll = ref(false);
 const collectAllProgress = ref('');
 const collectAllResult = ref(null);
 const isFixingNames = ref(false);
-const isCollectingQuarterly = ref(false);
-const isCollectingSingleQuarterly = ref(false);
-const quarterlyStockCode = ref('');
-const quarterlyResult = ref(null);
 const collectProgress = ref('');
 
 // SSE 실시간 진행률
@@ -843,9 +839,8 @@ const collectAllInOne = async () => {
   if (!confirm('전체 데이터 수집을 시작하시겠습니까?\n\n' +
                '1단계: 기본 재무 데이터 (10-15분)\n' +
                '2단계: 영업이익률 크롤링 (15-20분)\n' +
-               '3단계: 분기별 재무제표 (10-15분)\n' +
-               '4단계: 성장률 계산 (즉시 완료)\n\n' +
-               '총 약 30-40분 소요됩니다.\n' +
+               '3단계: 성장률 계산 (즉시 완료)\n\n' +
+               '총 약 20-30분 소요됩니다.\n' +
                '진행률이 실시간으로 표시됩니다.')) {
     return;
   }
@@ -991,7 +986,6 @@ const startSseSubscription = async (taskType) => {
     eventSource.close();
     sseConnection.value = null;
     isCrawling.value = false;
-    isCollectingQuarterly.value = false;
     isCollectingAll.value = false;
     fetchCollectStatus();
   });
@@ -1022,7 +1016,7 @@ const startSseSubscription = async (taskType) => {
 
       // 3초 후 재연결 시도
       sseReconnectTimer = setTimeout(() => {
-        if (isCollectingAll.value || isCrawling.value || isCollectingQuarterly.value) {
+        if (isCollectingAll.value || isCrawling.value) {
           startSseSubscription(taskType);
         }
       }, 3000);
@@ -1031,13 +1025,11 @@ const startSseSubscription = async (taskType) => {
       sseProgress.value.message = '⚠️ 연결 끊김 - 수집은 백그라운드에서 계속됩니다';
       collectAllProgress.value = '⚠️ 연결 끊김 (백그라운드 수집 중)';
       isCrawling.value = false;
-      isCollectingQuarterly.value = false;
-      isCollectingAll.value = false;
+        isCollectingAll.value = false;
     } else {
       addLog('ERROR', 'SSE 연결이 끊어졌습니다.');
       isCrawling.value = false;
-      isCollectingQuarterly.value = false;
-      isCollectingAll.value = false;
+        isCollectingAll.value = false;
     }
   };
 };
@@ -1095,67 +1087,7 @@ const crawlOperatingMargin = async () => {
   }
 };
 
-// 분기별 재무제표 수집 (PEG, 턴어라운드용)
-const collectQuarterlyFinance = async () => {
-  if (isCollectingQuarterly.value) return;
 
-  if (!confirm('분기별 재무제표 수집을 시작하시겠습니까?\n\n' +
-    '• 네이버 금융에서 최근 4개 분기 데이터를 크롤링합니다.\n' +
-    '• EPS 성장률이 계산되어 PEG 스크리너가 작동합니다.\n' +
-    '• 과거 분기 데이터로 턴어라운드 분석이 가능해집니다.\n' +
-    '• 진행률이 실시간으로 표시됩니다.\n\n' +
-    '약 20-25분 소요됩니다.')) {
-    return;
-  }
-
-  isCollectingQuarterly.value = true;
-  collectProgress.value = '분기별 재무제표 수집 시작...';
-
-  // SSE 구독 시작
-  startSseSubscription('collect-finance');
-
-  try {
-    // 비동기 수집 API 호출
-    const response = await api.post('/screener/collect/finance/async');
-
-    if (!response.data.success) {
-      collectProgress.value = response.data.message;
-      isCollectingQuarterly.value = false;
-      closeProgressBar();
-    }
-  } catch (error) {
-    console.error('분기별 재무제표 수집 오류:', error);
-    collectProgress.value = '수집 시작 오류: ' + (error.response?.data?.message || error.message);
-    isCollectingQuarterly.value = false;
-    closeProgressBar();
-  }
-};
-
-// 단일 종목 분기별 재무제표 수집
-const collectSingleQuarterly = async () => {
-  if (!quarterlyStockCode.value || isCollectingSingleQuarterly.value) return;
-
-  isCollectingSingleQuarterly.value = true;
-  quarterlyResult.value = null;
-
-  try {
-    const response = await api.post(`/screener/collect/finance/${quarterlyStockCode.value}`);
-    quarterlyResult.value = {
-      stockCode: quarterlyStockCode.value,
-      success: response.data.success,
-      message: response.data.message
-    };
-  } catch (error) {
-    console.error('단일 종목 분기별 수집 오류:', error);
-    quarterlyResult.value = {
-      stockCode: quarterlyStockCode.value,
-      success: false,
-      message: error.response?.data?.message || error.message
-    };
-  } finally {
-    isCollectingSingleQuarterly.value = false;
-  }
-};
 
 const previewCrawl = async () => {
   if (!testStockCode.value) return;

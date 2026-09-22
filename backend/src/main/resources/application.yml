@@ -203,8 +203,14 @@ recommendation:
   # ⚠ 켜면 earnings 가 살아나 composite 총점 · validCount · 후보 수가 동시에 움직인다.
   #    켜기 전에 GET /api/diagnostics/earnings-source?compare=true 로 두 경로 건수를 보고,
   #    켠 날짜를 docs/SCHEDULE_DECISIONS.md 에 기록할 것 — 그 날이 측정 표본의 경계가 된다.
+  #
+  # 2026-09-23 기본값을 true 로 올렸다 — V55 단일화. prod 는 이미 .env 로 켜 있어 동작 변화는 없고,
+  # 새 환경이 조용히 죽은 경로(false)로 되돌아가는 것을 막는 것이 목적이다.
+  # 레거시(false) 경로는 findLatestTwoQuartersPerStock 을 쓰는데, 2026-08-27 tr_id 수정 이후
+  # 일별 스냅샷도 net_income 을 채우게 되어 그 쿼리가 '분기 2건'이 아니라 '연속한 이틀'을 집는다
+  # (2026-09-23 실측: 2,191종목이 1일 간격, 진짜 분기 91일 간격은 420종목뿐).
   earnings:
-    quarterly-source: ${RECOMMENDATION_EARNINGS_QUARTERLY_SOURCE:false}
+    quarterly-source: ${RECOMMENDATION_EARNINGS_QUARTERLY_SOURCE:true}
 
 # 봇 on/off 는 UI 에서 관리 (/paper-trading/bot/start|stop).
 # 상태는 bot_config 테이블에 저장되어 서버 재기동 시 자동 복원됨.
