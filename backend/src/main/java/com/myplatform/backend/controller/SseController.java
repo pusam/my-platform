@@ -56,9 +56,7 @@ public class SseController {
      * SSE 구독 엔드포인트
      *
      * @param taskType 구독할 작업 유형
-     *                 - crawl-operating-margin: 영업이익률 크롤링
-     *                 - collect-finance: 분기별 재무제표 수집
-     *                 - collect-all: 전 종목 재무 데이터 수집
+     *                 - collect-all-in-one: 원버튼 전체 데이터 수집(기본 재무 → 성장률)
      * @param clientId 클라이언트 ID (미지정 시 자동 생성)
      * @return SseEmitter 스트림
      */
@@ -66,10 +64,7 @@ public class SseController {
     @Operation(summary = "SSE 구독",
                description = "작업 진행률 및 로그를 실시간으로 수신합니다.\n\n" +
                            "**지원 작업 유형:**\n" +
-                           "- `crawl-operating-margin`: 영업이익률 크롤링\n" +
-                           "- `collect-finance`: 분기별 재무제표 수집\n" +
-                           "- `collect-all`: 전 종목 재무 데이터 수집\n" +
-                           "- `fix-stock-names`: 종목명 일괄 수정\n\n" +
+                           "- `collect-all-in-one`: 원버튼 전체 데이터 수집(기본 재무 → 성장률)\n\n" +
                            "**이벤트 타입:**\n" +
                            "- `CONNECTED`: 연결 성공\n" +
                            "- `START`: 작업 시작\n" +
@@ -78,7 +73,7 @@ public class SseController {
                            "- `COMPLETE`: 작업 완료\n" +
                            "- `ERROR`: 오류 발생")
     public SseEmitter subscribe(
-            @Parameter(description = "작업 유형", example = "crawl-operating-margin")
+            @Parameter(description = "작업 유형", example = "collect-all-in-one")
             @RequestParam String taskType,
             @Parameter(description = "클라이언트 ID (자동 생성됨)")
             @RequestParam(required = false) String clientId) {
@@ -101,9 +96,10 @@ public class SseController {
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "connectedClients", sseEmitterService.getConnectedClientCount(),
-                "crawlOperatingMarginSubscribers", sseEmitterService.getSubscriberCount("crawl-operating-margin"),
-                "collectFinanceSubscribers", sseEmitterService.getSubscriberCount("collect-finance"),
-                "collectAllSubscribers", sseEmitterService.getSubscriberCount("collect-all")
+                // 예전엔 crawl-operating-margin · collect-finance · collect-all 의 구독자 수를 보고했다 — 앞의 둘은
+                // 2026-09-23 은퇴, collect-all 은 존재한 적 없는 이름이라 항상 0 이었고, 실제로 도는 유일한 SSE 작업
+                // (collect-all-in-one)은 한 번도 보고되지 않았다.
+                "collectAllInOneSubscribers", sseEmitterService.getSubscriberCount("collect-all-in-one")
         ));
     }
 }

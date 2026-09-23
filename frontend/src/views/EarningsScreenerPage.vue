@@ -748,7 +748,6 @@ const magicFormulaCollecting = ref(false);
 const isCollectingAll = ref(false);
 const collectAllProgress = ref('');
 const collectAllResult = ref(null);
-const isFixingNames = ref(false);
 const collectProgress = ref('');
 
 // SSE 실시간 진행률
@@ -1046,33 +1045,6 @@ const closeProgressBar = () => {
 };
 
 
-
-const fixStockNames = async () => {
-  if (isFixingNames.value) return;
-
-  if (!confirm('종목명 일괄 수정을 시작하시겠습니까?\n종목코드가 종목명으로 저장된 데이터를 수정합니다.')) {
-    return;
-  }
-
-  isFixingNames.value = true;
-  collectProgress.value = '종목명 수정 시작...';
-
-  try {
-    const response = await api.post('/screener/fix-stock-names');
-    if (response.data.success) {
-      const data = response.data.data;
-      collectProgress.value = `종목명 수정 완료! 총 ${data.total}개 중 수정: ${data.fixedCount}, 실패: ${data.failCount}, 스킵: ${data.skipCount} (소요시간: ${data.elapsedSeconds}초)`;
-      await fetchCollectStatus();
-    } else {
-      collectProgress.value = '종목명 수정 실패: ' + response.data.message;
-    }
-  } catch (error) {
-    console.error('종목명 수정 오류:', error);
-    collectProgress.value = '종목명 수정 중 오류 발생: ' + (error.response?.data?.message || error.message);
-  } finally {
-    isFixingNames.value = false;
-  }
-};
 
 const fetchMagicFormula = async () => {
   loading.value = true;

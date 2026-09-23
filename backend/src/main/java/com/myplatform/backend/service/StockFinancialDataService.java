@@ -128,6 +128,25 @@ public class StockFinancialDataService {
         return stockFinancialDataRepository.count();
     }
 
+    // 아래 3개는 수집 상태 화면용 카운트다. 원래 FinancialDataCrawlerService 에 있었는데 그 클래스의 크롤
+    // (분기·영업이익률·종목명)이 2026-09-23 전부 은퇴해 카운트만 남았고, 'Crawler' 라는 이름이 거짓이 되어
+    // 클래스를 지우고 재무 데이터 서비스로 옮겼다. 쿼리는 그대로(예전 findAll 전체 적재 → COUNT 쿼리 교체분).
+
+    /** 영업이익률이 없는 종목 수 — 이제 KIS 1단계만 채운다(네이버 보충 크롤 은퇴). */
+    public long countMissingOperatingMargin() {
+        return stockFinancialDataRepository.countMissingOperatingMargin();
+    }
+
+    /** 영업이익률이 있는 종목 수. */
+    public long countWithOperatingMargin() {
+        return stockFinancialDataRepository.countWithOperatingMargin();
+    }
+
+    /** 성장률 데이터(epsGrowth 또는 profitGrowth)가 있는 종목 수 — PEG 스크리너용. */
+    public long countWithGrowthData() {
+        return stockFinancialDataRepository.countWithGrowthData();
+    }
+
     /**
      * 마지막 데이터 업데이트 시간 조회
      */

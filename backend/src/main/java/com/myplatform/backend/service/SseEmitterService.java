@@ -38,7 +38,7 @@ public class SseEmitterService {
      * 새로운 SSE 연결 생성
      *
      * @param clientId 클라이언트 ID (UUID 권장)
-     * @param taskType 구독할 작업 유형 (예: "crawl-operating-margin", "collect-finance")
+     * @param taskType 구독할 작업 유형 (예: "collect-all-in-one")
      * @return SseEmitter
      */
     public SseEmitter subscribe(String clientId, String taskType) {

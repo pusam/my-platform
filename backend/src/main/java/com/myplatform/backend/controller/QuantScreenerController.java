@@ -4,7 +4,6 @@ import com.myplatform.backend.dto.EarningSurpriseDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.service.AsyncCrawlerService;
 import com.myplatform.backend.service.EarningSurpriseService;
-import com.myplatform.backend.service.FinancialDataCrawlerService;
 import com.myplatform.backend.service.GeminiService;
 import com.myplatform.backend.service.QuantScreenerService;
 import com.myplatform.backend.service.RedisCacheService;
@@ -46,7 +45,6 @@ public class QuantScreenerController {
     private static final String CACHE_SCREENER_AI = "screenerAi";
     private static final Duration SCREENER_AI_TTL = Duration.ofMinutes(5);
     private final StockFinancialDataService stockFinancialDataService;
-    private final FinancialDataCrawlerService financialDataCrawlerService;
     private final AsyncCrawlerService asyncCrawlerService;
     private final StockFinancialDataCollector stockFinancialDataCollector;
 
@@ -515,11 +513,11 @@ public class QuantScreenerController {
         try {
             long totalCount = stockFinancialDataService.getDataCount();
             var lastUpdatedAt = stockFinancialDataService.getLastUpdatedAt();
-            long withOperatingMargin = financialDataCrawlerService.countWithOperatingMargin();
-            long missingOperatingMargin = financialDataCrawlerService.countMissingOperatingMargin();
+            long withOperatingMargin = stockFinancialDataService.countWithOperatingMargin();
+            long missingOperatingMargin = stockFinancialDataService.countMissingOperatingMargin();
 
             // 성장률 데이터 현황 (PEG 스크리너용)
-            long withGrowthData = financialDataCrawlerService.countWithGrowthData();
+            long withGrowthData = stockFinancialDataService.countWithGrowthData();
 
             // 마지막 자동 수집 결과 (08:30, 15:40 스케줄러)
             Map<String, Object> lastAutoCollect = asyncCrawlerService.getLastAutoCollectStatus();
@@ -579,81 +577,7 @@ public class QuantScreenerController {
         }
     }
 
-    // ========== 비동기 크롤링 API (SSE 연동) ==========
-
-
-    /**
-     * 종목명 일괄 수정 (비동기)
-     */
-    @PostMapping("/fix-stock-names/async")
-    @Operation(summary = "종목명 일괄 수정 (비동기)",
-               description = "즉시 응답하고 백그라운드에서 수정을 수행합니다.")
-    public ResponseEntity<Map<String, Object>> fixAllStockNamesAsync() {
-        log.info("종목명 일괄 수정 비동기 API 호출");
-
-        Map<String, Object> response = new HashMap<>();
-
-        if (asyncCrawlerService.isTaskRunning("fix-stock-names")) {
-            response.put("success", false);
-            response.put("message", "이미 수정 작업이 진행 중입니다.");
-            return ResponseEntity.ok(response);
-        }
-
-        asyncCrawlerService.fixAllStockNamesAsync();
-
-        response.put("success", true);
-        response.put("message", "종목명 수정이 시작되었습니다. SSE를 구독하여 진행률을 확인하세요.");
-        response.put("taskType", "fix-stock-names");
-        response.put("sseEndpoint", "/api/sse/subscribe?taskType=fix-stock-names");
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * 크롤링 작업 상태 확인
-     */
-    @GetMapping("/async-status")
-    @Operation(summary = "비동기 작업 상태 확인",
-               description = "현재 진행 중인 비동기 크롤링/수집 작업 상태를 확인합니다.")
-    public ResponseEntity<Map<String, Object>> getAsyncStatus() {
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        // crawl-operating-margin · collect-finance 항목은 뺐다 — 두 작업 모두 2026-09-23 에 은퇴해
-        // 영원히 running=false 인 상태를 보고하고 있었다(없는 작업의 상태를 '정상'처럼 보여주지 않는다).
-        response.put("fixStockNames", Map.of(
-                "running", asyncCrawlerService.isTaskRunning("fix-stock-names"),
-                "taskType", "fix-stock-names"
-        ));
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * 종목명 일괄 수정
-     * - 종목코드가 종목명으로 저장된 데이터 수정
-     * - StockShortData 또는 네이버 금융에서 종목명 조회
-     */
-    @PostMapping("/fix-stock-names")
-    @Operation(summary = "종목명 일괄 수정",
-               description = "종목코드가 종목명으로 잘못 저장된 데이터를 수정합니다. " +
-                           "StockShortData 또는 네이버 금융에서 종목명을 조회하여 업데이트합니다.")
-    public ResponseEntity<Map<String, Object>> fixAllStockNames() {
-        log.info("종목명 일괄 수정 API 호출");
-
-        Map<String, Object> response = new HashMap<>();
-        try {
-            Map<String, Object> result = financialDataCrawlerService.fixAllStockNames();
-            response.put("success", true);
-            response.put("data", result);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("종목명 일괄 수정 오류", e);
-            response.put("success", false);
-            response.put("message", "종목명 수정 중 오류 발생: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
-
-    // ========== 분기별 재무제표 수집 API (PEG, 턴어라운드용) ==========
-
+    // ========== 경로 종목코드 형식 가드 ==========
 
     /**
      * 경로로 받은 종목코드가 형식에 맞는가 — 순수({@code QuantScreenerStockCodeTest}).
@@ -683,4 +607,8 @@ public class QuantScreenerController {
     // ⚠ 분기별 재무제표 수집 엔드포인트 3종(전종목 비동기/동기, 단일종목)은 2026-09-23 제거했다.
     //   네이버 레거시 금융 페이지가 SPA 로 이전해 소스가 죽었고(2026-09-22 실측 성공 0 / 실패 2,662),
     //   분기 재무 단일 출처는 KIS V55(stock_quarterly_financial)다. 되살리지 말 것.
+    // ⚠ 같은 날 나머지 네이버 크롤 엔드포인트도 전부 제거했다 — /crawl-operating-margin(동기·비동기·단일),
+    //   /crawl-preview, /fix-stock-names(동기·비동기), 그리고 그 작업들의 상태만 보고하던 /async-status.
+    //   전부 finance.naver.com/item/main.naver(→ stock.naver.com SPA 302, 값 없음)를 읽었다.
+    //   영업이익률은 KIS 1단계, 종목명은 StockPriceService·수집기의 마스터 폴백이 채운다.
 }

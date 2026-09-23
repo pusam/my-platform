@@ -1,7 +1,5 @@
 package com.myplatform.backend.service;
 
-import com.myplatform.backend.entity.StockFinancialData;
-import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,19 +14,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 비동기 크롤링 서비스
- * - SSE를 통한 실시간 진행률 전송
- * - 장시간 크롤링 작업을 백그라운드에서 처리
+ * 원버튼 재무 수집(비동기) — 1 기본 재무(KIS) → 2 성장률. SSE 로 진행률을 보낸다.
+ *
+ * <p>⚠ 이름에 'Crawler' 가 남아 있지만 <b>2026-09-23 부터 크롤은 하지 않는다</b> — 네이버 레거시 금융 크롤
+ * (분기 재무제표·영업이익률·종목명)을 전부 은퇴시켰다(소스가 SPA 로 이전해 값이 없었다). 스케줄러·컨트롤러가
+ * 이 이름으로 주입받고 있어 이름은 그대로 뒀다. 새 네이버 크롤을 여기 다시 붙이지 말 것 — {@code NaverLegacyCrawlRetiredTest}.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class AsyncCrawlerService {
 
-    private final FinancialDataCrawlerService financialDataCrawlerService;
     private final StockFinancialDataService stockFinancialDataService;
     private final StockFinancialDataCollector stockFinancialDataCollector;
-    private final StockFinancialDataRepository stockFinancialDataRepository;
     private final SseEmitterService sseEmitterService;
     private final BatchJobMonitorService batchMonitor;
 
@@ -42,38 +40,6 @@ public class AsyncCrawlerService {
     private volatile String lastAutoCollectMessage;
     private volatile Map<String, Object> lastAutoCollectResult;
 
-
-    /**
-     * 종목명 일괄 수정 비동기 처리
-     */
-    @Async("crawlerExecutor")
-    public CompletableFuture<Map<String, Object>> fixAllStockNamesAsync() {
-        String taskType = "fix-stock-names";
-        Map<String, Object> result = new HashMap<>();
-
-        AtomicBoolean isRunning = runningTasks.computeIfAbsent(taskType, k -> new AtomicBoolean(false));
-        if (!isRunning.compareAndSet(false, true)) {
-            result.put("success", false);
-            result.put("message", "이미 종목명 수정이 진행 중입니다.");
-            sseEmitterService.sendError(taskType, "이미 수정 작업이 진행 중입니다.");
-            return CompletableFuture.completedFuture(result);
-        }
-
-        try {
-            sseEmitterService.sendStart(taskType, 0, "종목명 수정을 시작합니다.");
-
-            // 동기 메서드 호출 (내부에서 로그 출력)
-            Map<String, Object> crawlerResult = financialDataCrawlerService.fixAllStockNames();
-
-            result.putAll(crawlerResult);
-            sseEmitterService.sendComplete(taskType, result);
-
-            return CompletableFuture.completedFuture(result);
-
-        } finally {
-            isRunning.set(false);
-        }
-    }
 
     /**
      * 원버튼 전체 데이터 수집 (비동기)
@@ -170,15 +136,6 @@ public class AsyncCrawlerService {
      */
     public boolean isAnyTaskRunning() {
         return runningTasks.values().stream().anyMatch(AtomicBoolean::get);
-    }
-
-    /**
-     * 종목코드로 종목명 조회
-     */
-    private String getStockName(String stockCode) {
-        return stockFinancialDataRepository.findTopByStockCodeOrderByReportDateDesc(stockCode)
-                .map(StockFinancialData::getStockName)
-                .orElse(stockCode);
     }
 
     /**
