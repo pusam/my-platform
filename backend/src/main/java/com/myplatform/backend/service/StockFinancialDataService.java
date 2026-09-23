@@ -190,8 +190,17 @@ public class StockFinancialDataService {
      */
     List<String> resolveCollectionUniverse() {
         List<String> existing = stockFinancialDataRepository.findAllStockCodes();
-        java.util.LinkedHashSet<String> union = new java.util.LinkedHashSet<>(
-                existing == null ? List.of() : existing);
+        // ⚠ 형식이 틀린 코드는 실재 종목일 수 없다 — 유니버스가 자기참조라 한 번 들어온 쓰레기 코드가
+        //    매일 재수집되며 영구히 남는다(2026-09-23 실측: stock_code='finance' 가 9/23 유니버스를
+        //    2,662 → 2,663 으로 늘렸다. KIS 는 없는 코드에도 200 을 주니 수집기가 또 빈 행을 저장한다).
+        //    기준은 StockCodeFormat 단일 출처(6자리 영숫자 — \d{6} 이면 신형 영문 코드가 빠진다).
+        //    R5 합집합 불변식은 그대로다: 실제 종목은 한 개도 줄지 않는다.
+        java.util.LinkedHashSet<String> union = new java.util.LinkedHashSet<>();
+        int dropped = 0;
+        for (String code : (existing == null ? List.<String>of() : existing)) {
+            if (com.myplatform.backend.util.StockCodeFormat.isValid(code)) union.add(code);
+            else dropped++;
+        }
         int existingCount = union.size();
 
         int added = 0;
@@ -199,7 +208,8 @@ public class StockFinancialDataService {
             List<String> masterCodes = stockMasterRepository.findActiveEquityCodes();
             if (masterCodes != null) {
                 for (String code : masterCodes) {
-                    if (code != null && union.add(code)) added++;
+                    if (!com.myplatform.backend.util.StockCodeFormat.isValid(code)) { dropped++; continue; }
+                    if (union.add(code)) added++;
                 }
             }
         } catch (Exception e) {
@@ -209,6 +219,11 @@ public class StockFinancialDataService {
 
         log.info("[재무수집] 유니버스 {}종목 (기존 {} + 마스터 신규 {})",
                 union.size(), existingCount, added);
+        if (dropped > 0) {
+            // 조용히 거르면 쓰레기 코드가 어디서 오는지 아무도 모른다(§4c 침묵 금지).
+            log.warn("[재무수집] 형식이 틀린 종목코드 {}건을 유니버스에서 제외했다 — 재무 테이블/마스터에 잘못된 코드가 있다",
+                    dropped);
+        }
         return new java.util.ArrayList<>(union);
     }
 

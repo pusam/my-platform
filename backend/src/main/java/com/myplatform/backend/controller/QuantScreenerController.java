@@ -798,7 +798,7 @@ public class QuantScreenerController {
      * <p>기준은 종목마스터 규약과 같다 — <b>6자리 영숫자</b>(`\d{6}` 로 좁히면 종류주식이 빠진다).
      */
     static boolean isValidStockCode(String stockCode) {
-        return stockCode != null && stockCode.matches("[0-9A-Z]{6}");
+        return com.myplatform.backend.util.StockCodeFormat.isValid(stockCode);
     }
 
     /** 형식 위반 응답 — 성공으로 위장하지 않는다. */
