@@ -15,12 +15,19 @@ import java.time.LocalDate;
 import java.util.*;
 
 /**
- * 재무 데이터 크롤링 서비스
- * - 네이버 금융에서 영업이익률, 순이익률 등 재무 지표 크롤링
- * - 분기별 재무제표 크롤링 (PEG, 턴어라운드 스크리너용)
- * - KIS API로 수집할 수 없는 데이터 보완용
+ * 네이버 금융 크롤링 — <b>2026-09-23 기준 남은 것은 종목명 보정과 DB 카운트뿐</b>.
  *
- * <p>⚠ <b>클래스 @Transactional 금지</b>: 전종목 크롤(crawlAllOperatingMargin)은
+ * <p>이 클래스의 크롤은 전부 {@code finance.naver.com/item/main.naver} 를 읽었는데, 네이버가 그 페이지를
+ * {@code stock.naver.com} SPA 로 302 이전해 새 HTML 에 값이 없다(JS 렌더링). 그래서 분기 재무제표 크롤과
+ * 영업이익률 크롤을 은퇴시켰다 — 분기 재무의 단일 출처는 KIS V55({@code stock_quarterly_financial}),
+ * 영업이익률은 KIS 1단계 수집기다.
+ *
+ * <p>⚠ <b>남은 {@link #crawlStockName} 도 같은 이유로 죽어 있다</b> — 리다이렉트된 페이지 제목이
+ * {@code "Npay 증권"}(콜론 없음)이고 파싱 대상 {@code wrap_company}·{@code rate_info} 도 없어 모든 종목에서
+ * null 을 돌려준다(2026-09-23 실측). 배치는 부르지 않고 수동 엔드포인트({@code fixAllStockNames})뿐이며,
+ * 종목명은 {@code StockPriceService} 의 마스터 폴백이 채우고 있어 기능상 공백은 없다. 은퇴 여부는 판단 사안.
+ *
+ * <p>⚠ <b>클래스 @Transactional 금지</b>: 전종목 크롤(fixAllStockNames)은
  * 종목마다 Thread.sleep(500~600) + Jsoup HTTP(15s timeout) 를 수천 회 반복 — 클래스 tx 로 감싸면 DB 커넥션
  * 1개를 수십 분~시간 pin(+ 전체 save 가 배치 끝 일괄 커밋이라 도중 크래시 시 진행분 전부 유실).
  * 원자성 요구 없음: 모든 쓰기는 독립 단건 upsert(save 명시, dirty-checking 의존 없음) + 종목별 try/catch 로
@@ -32,345 +39,19 @@ import java.util.*;
 public class FinancialDataCrawlerService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
-    private final SseEmitterService sseEmitterService;
 
     private static final String NAVER_FINANCE_URL = "https://finance.naver.com/item/main.naver?code=";
-    private static final String NAVER_FINANCE_DETAIL_URL = "https://finance.naver.com/item/coinfo.naver?code=";
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-    /**
-     * 전 종목 영업이익률 크롤링
-     * - StockFinancialData 테이블에 있는 종목 대상
-     * - 이미 operatingMargin이 있는 종목은 스킵 (forceUpdate=false 시)
-     *
-     * @param forceUpdate true면 이미 데이터가 있어도 업데이트
-     * @return 크롤링 결과
-     */
-    public Map<String, Object> crawlAllOperatingMargin(boolean forceUpdate) {
-        Map<String, Object> result = new HashMap<>();
-        long startTime = System.currentTimeMillis();
-
-        log.info("========== 영업이익률 크롤링 시작 (forceUpdate: {}) ==========", forceUpdate);
-
-        // 오늘 날짜의 재무 데이터가 있는 종목 조회
-        LocalDate today = LocalDate.now();
-        List<StockFinancialData> allData = stockFinancialDataRepository.findByReportDate(today);
-
-        if (allData.isEmpty()) {
-            // 오늘 날짜 데이터가 없으면 종목별 최신 데이터 일괄 조회 (N+1 방지)
-            allData = stockFinancialDataRepository.findLatestPerStock();
-            log.info("오늘 날짜 데이터 없음. 종목별 최신 데이터 일괄 조회: {}개", allData.size());
-        }
-
-        int totalCount = allData.size();
-        log.info("크롤링 대상 종목 수: {}", totalCount);
-
-        if (totalCount == 0) {
-            result.put("success", false);
-            result.put("message", "크롤링할 종목이 없습니다. 먼저 /api/screener/collect-all을 호출하세요.");
-            return result;
-        }
-
-        int successCount = 0;
-        int failCount = 0;
-        int skipCount = 0;
-        int progressInterval = Math.max(totalCount / 20, 1);
-
-        for (int i = 0; i < allData.size(); i++) {
-            StockFinancialData data = allData.get(i);
-
-            // 이미 영업이익률이 있고 forceUpdate가 false면 스킵
-            if (!forceUpdate && data.getOperatingMargin() != null
-                    && data.getOperatingMargin().compareTo(BigDecimal.ZERO) != 0) {
-                skipCount++;
-                continue;
-            }
-
-            try {
-                // Rate Limit: 500ms 대기 (네이버 차단 방지)
-                if (i > 0) {
-                    Thread.sleep(500);
-                }
-
-                Map<String, BigDecimal> financials = crawlFinancialRatios(data.getStockCode());
-
-                if (financials != null && !financials.isEmpty()) {
-                    // 영업이익률 업데이트
-                    if (financials.containsKey("operatingMargin")) {
-                        data.setOperatingMargin(financials.get("operatingMargin"));
-                    }
-                    // 순이익률 업데이트
-                    if (financials.containsKey("netMargin")) {
-                        data.setNetMargin(financials.get("netMargin"));
-                    }
-                    // ROE 업데이트 (크롤링 값이 더 정확할 수 있음)
-                    if (financials.containsKey("roe")) {
-                        data.setRoe(financials.get("roe"));
-                    }
-                    // 부채비율 업데이트
-                    if (financials.containsKey("debtRatio")) {
-                        data.setDebtRatio(financials.get("debtRatio"));
-                    }
-
-                    // 종목명이 없거나 종목코드와 같은 경우 수정
-                    fixStockNameIfNeeded(data);
-
-                    stockFinancialDataRepository.save(data);
-                    successCount++;
-                    log.debug("크롤링 성공: {} ({}) - 영업이익률: {}%",
-                            data.getStockName(), data.getStockCode(), financials.get("operatingMargin"));
-                } else {
-                    failCount++;
-                    log.debug("크롤링 실패 (데이터 없음): {}", data.getStockCode());
-                }
-
-                // 진행률 로깅
-                if ((i + 1) % progressInterval == 0 || i == totalCount - 1) {
-                    int progress = (int) (((i + 1) * 100.0) / totalCount);
-                    log.info("진행률: {}/{} ({}%) - 성공: {}, 실패: {}, 스킵: {}",
-                            i + 1, totalCount, progress, successCount, failCount, skipCount);
-
-                    // SSE 진행률 전송
-                    String stockName = data.getStockName() != null ? data.getStockName() : data.getStockCode();
-                    sseEmitterService.sendProgress("collect-all-in-one", i + 1, totalCount,
-                            successCount, failCount, stockName);
-                }
-
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("크롤링 중단됨");
-                break;
-            } catch (Exception e) {
-                log.error("크롤링 실패 [{}]: {}", data.getStockCode(), e.getMessage());
-                failCount++;
-            }
-        }
-
-        long elapsedTime = System.currentTimeMillis() - startTime;
-        log.info("========== 영업이익률 크롤링 완료 ==========");
-        log.info("총 {}개 종목 중 성공: {}, 실패: {}, 스킵: {}, 소요시간: {}초",
-                totalCount, successCount, failCount, skipCount, elapsedTime / 1000);
-
-        result.put("success", true);
-        result.put("total", totalCount);
-        result.put("successCount", successCount);
-        result.put("failCount", failCount);
-        result.put("skipCount", skipCount);
-        result.put("elapsedSeconds", elapsedTime / 1000);
-        result.put("message", String.format("영업이익률 크롤링 완료 (성공: %d, 실패: %d, 스킵: %d)",
-                successCount, failCount, skipCount));
-
-        return result;
-    }
-
-    /**
-     * 단일 종목 재무비율 크롤링
-     * - 네이버 금융에서 영업이익률, 순이익률, ROE, 부채비율 추출
-     *
-     * @param stockCode 종목코드
-     * @return 재무비율 Map (operatingMargin, netMargin, roe, debtRatio)
-     */
-    public Map<String, BigDecimal> crawlFinancialRatios(String stockCode) {
-        Map<String, BigDecimal> ratios = new HashMap<>();
-
-        try {
-            String url = NAVER_FINANCE_URL + stockCode;
-            Document doc = Jsoup.connect(url)
-                    .userAgent(USER_AGENT)
-                    .timeout(10000)
-                    .get();
-
-            // 네이버 금융 재무정보 테이블에서 데이터 추출
-            // 투자지표 섹션의 테이블 파싱
-            Elements tables = doc.select("div.section.cop_analysis table");
-
-            for (Element table : tables) {
-                Elements rows = table.select("tr");
-
-                for (Element row : rows) {
-                    String header = row.select("th").text().trim();
-                    Elements tds = row.select("td");
-
-                    if (tds.isEmpty()) continue;
-
-                    // 첫 번째 td가 최근 데이터
-                    String value = tds.first().text().trim();
-
-                    if (header.contains("영업이익률")) {
-                        BigDecimal margin = parsePercentage(value);
-                        if (margin != null) {
-                            ratios.put("operatingMargin", margin);
-                        }
-                    } else if (header.contains("순이익률")) {
-                        BigDecimal margin = parsePercentage(value);
-                        if (margin != null) {
-                            ratios.put("netMargin", margin);
-                        }
-                    } else if (header.contains("ROE")) {
-                        BigDecimal roe = parsePercentage(value);
-                        if (roe != null) {
-                            ratios.put("roe", roe);
-                        }
-                    } else if (header.contains("부채비율")) {
-                        BigDecimal debt = parsePercentage(value);
-                        if (debt != null) {
-                            ratios.put("debtRatio", debt);
-                        }
-                    }
-                }
-            }
-
-            // 투자지표 테이블에서 추가 정보 추출
-            Elements investTables = doc.select("table.per_table");
-            for (Element table : investTables) {
-                Elements rows = table.select("tr");
-                for (Element row : rows) {
-                    String header = row.select("th, em").text().trim();
-                    String value = row.select("td").text().trim();
-
-                    if (header.contains("ROE") && !ratios.containsKey("roe")) {
-                        BigDecimal roe = parsePercentage(value);
-                        if (roe != null) {
-                            ratios.put("roe", roe);
-                        }
-                    }
-                }
-            }
-
-            // 기업현황 테이블에서도 시도
-            Element corpSection = doc.selectFirst("div.corp_group2");
-            if (corpSection != null) {
-                Elements dlItems = corpSection.select("dl");
-                for (Element dl : dlItems) {
-                    String dt = dl.select("dt").text().trim();
-                    String dd = dl.select("dd").text().trim();
-
-                    if (dt.contains("영업이익률") && !ratios.containsKey("operatingMargin")) {
-                        BigDecimal margin = parsePercentage(dd);
-                        if (margin != null) {
-                            ratios.put("operatingMargin", margin);
-                        }
-                    }
-                }
-            }
-
-            // FnGuide 스타일 테이블에서 추출 시도
-            Elements fnTables = doc.select("table.tb_type1");
-            for (Element table : fnTables) {
-                Elements thElements = table.select("thead th");
-                Elements rows = table.select("tbody tr");
-
-                for (Element row : rows) {
-                    String rowHeader = row.select("th").text().trim();
-                    Elements tds = row.select("td");
-
-                    if (tds.isEmpty()) continue;
-
-                    // 최근 연간 또는 분기 데이터 (보통 마지막 또는 마지막에서 두 번째)
-                    String value = tds.size() > 1 ? tds.get(tds.size() - 2).text().trim()
-                                                  : tds.first().text().trim();
-
-                    if (rowHeader.contains("영업이익률") && !ratios.containsKey("operatingMargin")) {
-                        BigDecimal margin = parsePercentage(value);
-                        if (margin != null) {
-                            ratios.put("operatingMargin", margin);
-                        }
-                    } else if (rowHeader.contains("순이익률") && !ratios.containsKey("netMargin")) {
-                        BigDecimal margin = parsePercentage(value);
-                        if (margin != null) {
-                            ratios.put("netMargin", margin);
-                        }
-                    } else if (rowHeader.contains("ROE") && !ratios.containsKey("roe")) {
-                        BigDecimal roe = parsePercentage(value);
-                        if (roe != null) {
-                            ratios.put("roe", roe);
-                        }
-                    }
-                }
-            }
-
-            log.trace("종목 {} 크롤링 결과: {}", stockCode, ratios);
-            return ratios;
-
-        } catch (Exception e) {
-            log.debug("크롤링 실패 [{}]: {}", stockCode, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 단일 종목 영업이익률 크롤링 및 저장
-     */
-    public boolean crawlSingleStock(String stockCode) {
-        try {
-            Map<String, BigDecimal> financials = crawlFinancialRatios(stockCode);
-            if (financials == null || financials.isEmpty()) {
-                return false;
-            }
-
-            Optional<StockFinancialData> dataOpt = stockFinancialDataRepository
-                    .findTopByStockCodeOrderByReportDateDesc(stockCode);
-
-            if (dataOpt.isEmpty()) {
-                log.warn("종목 {} 의 재무 데이터가 없습니다. 먼저 collect를 실행하세요.", stockCode);
-                return false;
-            }
-
-            StockFinancialData data = dataOpt.get();
-            if (financials.containsKey("operatingMargin")) {
-                data.setOperatingMargin(financials.get("operatingMargin"));
-            }
-            if (financials.containsKey("netMargin")) {
-                data.setNetMargin(financials.get("netMargin"));
-            }
-            if (financials.containsKey("roe")) {
-                data.setRoe(financials.get("roe"));
-            }
-            if (financials.containsKey("debtRatio")) {
-                data.setDebtRatio(financials.get("debtRatio"));
-            }
-
-            // 종목명이 없거나 종목코드와 같은 경우 수정
-            fixStockNameIfNeeded(data);
-
-            stockFinancialDataRepository.save(data);
-            log.info("크롤링 저장 완료: {} ({}) - 영업이익률: {}%",
-                    data.getStockName(), stockCode, financials.get("operatingMargin"));
-            return true;
-
-        } catch (Exception e) {
-            log.error("크롤링 저장 실패 [{}]: {}", stockCode, e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * 백분율 문자열 파싱
-     * - "12.34%", "12.34", "-5.67" 등 처리
-     */
-    private BigDecimal parsePercentage(String value) {
-        if (value == null || value.isEmpty() || "-".equals(value) || "N/A".equalsIgnoreCase(value)) {
-            return null;
-        }
-
-        try {
-            // % 기호 제거
-            value = value.replace("%", "").trim();
-            // 콤마 제거
-            value = value.replace(",", "");
-            // 공백 제거
-            value = value.replaceAll("\\s+", "");
-
-            if (value.isEmpty() || "-".equals(value)) {
-                return null;
-            }
-
-            return new BigDecimal(value);
-        } catch (NumberFormatException e) {
-            log.trace("숫자 파싱 실패: {}", value);
-            return null;
-        }
-    }
+    // ========== 영업이익률 크롤링 — 2026-09-23 은퇴 ==========
+    //
+    // 올인원 2단계였다. 소스(finance.naver.com/item/main.naver)가 stock.naver.com SPA 로 302 이전해
+    // 새 HTML 에 값이 없다 — 2026-09-22 15:38 · 09-23 08:30 두 회차 모두 성공 0 / 실패 366~367.
+    // 대상이 정확히 'operating_margin 이 없는 종목'이었는데(9/22 일별 2,662행 중 2,296행이 이미 채워짐,
+    // 2,662 − 2,296 = 366) 그 값은 1단계 KIS 수집기가 매출·영업이익으로 계산해 채우고 있어 잃는 것이 없다.
+    // crawlAllOperatingMargin · crawlFinancialRatios · crawlSingleStock · parsePercentage 와
+    // 엔드포인트 4종(/crawl-operating-margin 동기·비동기·단일, /crawl-preview)을 지웠다.
+    // 분기 크롤(위)과 같은 이유 — 되살리지 말 것. 영업이익률의 단일 출처는 KIS 1단계다.
 
     /**
      * 영업이익률이 없는 종목 수 조회

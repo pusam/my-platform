@@ -579,104 +579,7 @@ public class QuantScreenerController {
         }
     }
 
-    // ========== 영업이익률 크롤링 API ==========
-
-    /**
-     * 전 종목 영업이익률 크롤링
-     * - 네이버 금융에서 영업이익률, 순이익률, ROE, 부채비율 크롤링
-     * - 2000개 종목 기준 약 15-20분 소요
-     */
-    @PostMapping("/crawl-operating-margin")
-    @Operation(summary = "영업이익률 크롤링",
-               description = "네이버 금융에서 영업이익률 등 재무 지표를 크롤링합니다. " +
-                           "Rate Limit 고려하여 종목당 500ms 대기합니다. " +
-                           "약 2000개 종목 기준 15-20분 소요됩니다.")
-    public ResponseEntity<Map<String, Object>> crawlOperatingMargin(
-            @Parameter(description = "기존 데이터 강제 업데이트 여부 (기본: false)")
-            @RequestParam(defaultValue = "false") boolean forceUpdate) {
-
-        log.info("영업이익률 크롤링 API 호출 - forceUpdate: {}", forceUpdate);
-
-        Map<String, Object> response = new HashMap<>();
-        try {
-            Map<String, Object> result = financialDataCrawlerService.crawlAllOperatingMargin(forceUpdate);
-            response.put("success", true);
-            response.put("data", result);
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("영업이익률 크롤링 오류", e);
-            response.put("success", false);
-            response.put("message", "크롤링 중 오류 발생: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
-
-    /**
-     * 단일 종목 영업이익률 크롤링
-     */
-    @PostMapping("/crawl-operating-margin/{stockCode}")
-    @Operation(summary = "단일 종목 영업이익률 크롤링",
-               description = "특정 종목의 영업이익률을 네이버 금융에서 크롤링합니다.")
-    public ResponseEntity<Map<String, Object>> crawlSingleOperatingMargin(
-            @PathVariable String stockCode) {
-
-        log.info("단일 종목 영업이익률 크롤링 API 호출: {}", stockCode);
-        if (!isValidStockCode(stockCode)) return invalidStockCode(stockCode);
-
-        Map<String, Object> response = new HashMap<>();
-        try {
-            boolean success = financialDataCrawlerService.crawlSingleStock(stockCode);
-            response.put("success", success);
-            response.put("stockCode", stockCode);
-            response.put("message", success ? "크롤링 완료" : "크롤링 실패");
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("단일 종목 영업이익률 크롤링 오류: {}", stockCode, e);
-            response.put("success", false);
-            response.put("message", "크롤링 중 오류 발생: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
-
     // ========== 비동기 크롤링 API (SSE 연동) ==========
-
-    /**
-     * 영업이익률 크롤링 (비동기)
-     * - 즉시 응답하고 백그라운드에서 크롤링 수행
-     * - SSE로 진행률 실시간 전송 (/api/sse/subscribe?taskType=crawl-operating-margin)
-     */
-    @PostMapping("/crawl-operating-margin/async")
-    @Operation(summary = "영업이익률 크롤링 (비동기)",
-               description = "즉시 응답하고 백그라운드에서 크롤링을 수행합니다.\n\n" +
-                           "**SSE 연동 방법:**\n" +
-                           "1. 먼저 `/api/sse/subscribe?taskType=crawl-operating-margin` 구독\n" +
-                           "2. 이 API 호출\n" +
-                           "3. SSE로 진행률 수신 (PROGRESS, COMPLETE 이벤트)")
-    public ResponseEntity<Map<String, Object>> crawlOperatingMarginAsync(
-            @Parameter(description = "기존 데이터 강제 업데이트 여부 (기본: false)")
-            @RequestParam(defaultValue = "false") boolean forceUpdate) {
-
-        log.info("영업이익률 비동기 크롤링 API 호출 - forceUpdate: {}", forceUpdate);
-
-        Map<String, Object> response = new HashMap<>();
-
-        // 이미 실행 중인지 확인
-        if (asyncCrawlerService.isTaskRunning("crawl-operating-margin")) {
-            response.put("success", false);
-            response.put("message", "이미 크롤링이 진행 중입니다. SSE를 구독하여 진행률을 확인하세요.");
-            response.put("taskType", "crawl-operating-margin");
-            return ResponseEntity.ok(response);
-        }
-
-        // 비동기 작업 시작
-        asyncCrawlerService.crawlAllOperatingMarginAsync(forceUpdate);
-
-        response.put("success", true);
-        response.put("message", "영업이익률 크롤링이 시작되었습니다. SSE를 구독하여 진행률을 확인하세요.");
-        response.put("taskType", "crawl-operating-margin");
-        response.put("sseEndpoint", "/api/sse/subscribe?taskType=crawl-operating-margin");
-        return ResponseEntity.ok(response);
-    }
 
 
     /**
@@ -714,47 +617,13 @@ public class QuantScreenerController {
     public ResponseEntity<Map<String, Object>> getAsyncStatus() {
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
-        response.put("crawlOperatingMargin", Map.of(
-                "running", asyncCrawlerService.isTaskRunning("crawl-operating-margin"),
-                "taskType", "crawl-operating-margin"
-        ));
-        response.put("collectFinance", Map.of(
-                "running", asyncCrawlerService.isTaskRunning("collect-finance"),
-                "taskType", "collect-finance"
-        ));
+        // crawl-operating-margin · collect-finance 항목은 뺐다 — 두 작업 모두 2026-09-23 에 은퇴해
+        // 영원히 running=false 인 상태를 보고하고 있었다(없는 작업의 상태를 '정상'처럼 보여주지 않는다).
         response.put("fixStockNames", Map.of(
                 "running", asyncCrawlerService.isTaskRunning("fix-stock-names"),
                 "taskType", "fix-stock-names"
         ));
         return ResponseEntity.ok(response);
-    }
-
-    /**
-     * 단일 종목 재무비율 조회 (크롤링만, 저장 안함)
-     */
-    @GetMapping("/crawl-preview/{stockCode}")
-    @Operation(summary = "크롤링 미리보기",
-               description = "특정 종목의 재무 지표를 크롤링하여 결과만 확인합니다 (저장 안함).")
-    public ResponseEntity<Map<String, Object>> previewCrawl(@PathVariable String stockCode) {
-        log.info("크롤링 미리보기 API 호출: {}", stockCode);
-        if (!isValidStockCode(stockCode)) return invalidStockCode(stockCode);
-
-        Map<String, Object> response = new HashMap<>();
-        try {
-            Map<String, BigDecimal> ratios = financialDataCrawlerService.crawlFinancialRatios(stockCode);
-            response.put("success", ratios != null && !ratios.isEmpty());
-            response.put("stockCode", stockCode);
-            response.put("data", ratios);
-            response.put("message", ratios != null && !ratios.isEmpty()
-                    ? "크롤링 성공"
-                    : "데이터를 찾을 수 없습니다");
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("크롤링 미리보기 오류: {}", stockCode, e);
-            response.put("success", false);
-            response.put("message", "크롤링 중 오류 발생: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
-        }
     }
 
     /**

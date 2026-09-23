@@ -19,8 +19,31 @@ class FinancialDataCrawlerServiceTest {
         assertThat(FinancialDataCrawlerService.class.isAnnotationPresent(Transactional.class))
                 .as("클래스 @Transactional 재추가 금지 — 전종목 크롤 tx 롱홀드")
                 .isFalse();
-        assertThat(FinancialDataCrawlerService.class.getMethod("crawlAllOperatingMargin", boolean.class)
+        // 남은 장시간 전종목 크롤은 종목명 보정뿐이다(영업이익률·분기 크롤은 2026-09-23 은퇴).
+        assertThat(FinancialDataCrawlerService.class.getMethod("fixAllStockNames")
                 .isAnnotationPresent(Transactional.class)).isFalse();
+    }
+
+    /**
+     * 영업이익률 크롤 은퇴 가드(2026-09-23).
+     *
+     * <p>올인원 2단계였다. 소스가 분기 크롤과 같은 죽은 페이지라 9/22·9/23 두 회차 모두 성공 0 / 실패 366~367.
+     * 대상이 정확히 operating_margin 이 없는 종목이었는데, 그 값은 1단계 KIS 수집기가 이미 채운다 —
+     * 영업이익률의 단일 출처는 KIS 다.
+     *
+     * <p>이름에 {@code OperatingMargin} 이 든 카운트 메서드(DB 상태 조회)는 남았으므로 부분 문자열로는 못 막는다.
+     * 그래서 "crawl 로 시작하는 public 메서드는 종목명 보정 하나뿐"으로 고정한다.
+     */
+    @Test
+    @DisplayName("영업이익률 크롤은 은퇴했다 — 남은 crawl* 메서드는 crawlStockName 뿐")
+    void operatingMarginCrawl_isRetired() {
+        assertThat(java.util.Arrays.stream(FinancialDataCrawlerService.class.getMethods())
+                .map(java.lang.reflect.Method::getName)
+                .filter(n -> n.startsWith("crawl"))
+                .distinct()
+                .toList())
+                .as("영업이익률/재무비율 크롤이 다시 생겼다 — 영업이익률은 KIS 1단계 수집기가 채운다")
+                .containsExactly("crawlStockName");
     }
 
     /**

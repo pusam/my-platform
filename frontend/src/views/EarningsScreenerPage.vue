@@ -300,10 +300,10 @@
           </div>
           <p class="action-desc">
             <strong>모든 데이터를 한 번에 수집합니다:</strong><br>
-            1️⃣ 기본 재무 데이터 → 2️⃣ 영업이익률 → 3️⃣ 성장률 계산 (PEG용)
+            1️⃣ 기본 재무 데이터 → 2️⃣ 성장률 계산 (PEG용)
           </p>
           <div class="action-info">
-            <span class="info-tag highlight">⏱️ 총 20-30분 소요</span>
+            <span class="info-tag highlight">⏱️ 총 약 40분 소요</span>
             <span class="info-tag">📈 2,000+ 종목</span>
             <span class="info-tag">✨ 마법의 공식 + PEG 스크리너</span>
           </div>
@@ -745,7 +745,6 @@ const turnaroundStocks = ref([]);
 const collectStatus = ref(null);
 const isCollecting = ref(false);
 const magicFormulaCollecting = ref(false);
-const isCrawling = ref(false);
 const isCollectingAll = ref(false);
 const collectAllProgress = ref('');
 const collectAllResult = ref(null);
@@ -796,8 +795,6 @@ const turnaroundFilters = ref({
 
 // 크롤링 옵션
 const crawlForceUpdate = ref(false);
-const testStockCode = ref('');
-const crawlPreview = ref(null);
 
 const changeTab = (tab) => {
   selectedTab.value = tab;
@@ -837,10 +834,9 @@ const collectAllInOne = async () => {
   if (isCollectingAll.value) return;
 
   if (!confirm('전체 데이터 수집을 시작하시겠습니까?\n\n' +
-               '1단계: 기본 재무 데이터 (10-15분)\n' +
-               '2단계: 영업이익률 크롤링 (15-20분)\n' +
-               '3단계: 성장률 계산 (즉시 완료)\n\n' +
-               '총 약 20-30분 소요됩니다.\n' +
+               '1단계: 기본 재무 데이터 (약 35분)\n' +
+               '2단계: 성장률 계산 (약 2분)\n\n' +
+               '총 약 40분 소요됩니다.\n' +
                '진행률이 실시간으로 표시됩니다.')) {
     return;
   }
@@ -874,7 +870,7 @@ const collectAllInOne = async () => {
 const collectAllFinancialData = async () => {
   if (isCollecting.value) return;
 
-  if (!confirm('전 종목 재무 데이터 수집을 시작하시겠습니까?\n약 10-15분 소요됩니다.')) {
+  if (!confirm('전 종목 재무 데이터 수집을 시작하시겠습니까?\n약 35분 소요됩니다.')) {
     return;
   }
 
@@ -985,7 +981,6 @@ const startSseSubscription = async (taskType) => {
     collectAllProgress.value = '✅ ' + data.message;
     eventSource.close();
     sseConnection.value = null;
-    isCrawling.value = false;
     isCollectingAll.value = false;
     fetchCollectStatus();
   });
@@ -1016,7 +1011,7 @@ const startSseSubscription = async (taskType) => {
 
       // 3초 후 재연결 시도
       sseReconnectTimer = setTimeout(() => {
-        if (isCollectingAll.value || isCrawling.value) {
+        if (isCollectingAll.value) {
           startSseSubscription(taskType);
         }
       }, 3000);
@@ -1024,12 +1019,10 @@ const startSseSubscription = async (taskType) => {
       addLog('ERROR', 'SSE 재연결 실패 - 백그라운드에서 수집 계속됨');
       sseProgress.value.message = '⚠️ 연결 끊김 - 수집은 백그라운드에서 계속됩니다';
       collectAllProgress.value = '⚠️ 연결 끊김 (백그라운드 수집 중)';
-      isCrawling.value = false;
-        isCollectingAll.value = false;
+          isCollectingAll.value = false;
     } else {
       addLog('ERROR', 'SSE 연결이 끊어졌습니다.');
-      isCrawling.value = false;
-        isCollectingAll.value = false;
+          isCollectingAll.value = false;
     }
   };
 };
@@ -1052,56 +1045,7 @@ const closeProgressBar = () => {
   }
 };
 
-const crawlOperatingMargin = async () => {
-  if (isCrawling.value) return;
 
-  if (!confirm('영업이익률 크롤링을 시작하시겠습니까?\n\n' +
-    '• 진행률이 실시간으로 표시됩니다.\n' +
-    '• 약 15-20분 소요됩니다.\n' +
-    '• 브라우저를 닫아도 백그라운드에서 계속 진행됩니다.')) {
-    return;
-  }
-
-  isCrawling.value = true;
-  collectProgress.value = '영업이익률 크롤링 시작...';
-
-  // SSE 구독 시작
-  startSseSubscription('crawl-operating-margin');
-
-  try {
-    // 비동기 크롤링 API 호출
-    const response = await api.post('/screener/crawl-operating-margin/async', null, {
-      params: { forceUpdate: crawlForceUpdate.value }
-    });
-
-    if (!response.data.success) {
-      collectProgress.value = response.data.message;
-      isCrawling.value = false;
-      closeProgressBar();
-    }
-  } catch (error) {
-    console.error('영업이익률 크롤링 오류:', error);
-    collectProgress.value = '크롤링 시작 오류: ' + (error.response?.data?.message || error.message);
-    isCrawling.value = false;
-    closeProgressBar();
-  }
-};
-
-
-
-const previewCrawl = async () => {
-  if (!testStockCode.value) return;
-
-  crawlPreview.value = null;
-
-  try {
-    const response = await api.get(`/screener/crawl-preview/${testStockCode.value}`);
-    crawlPreview.value = response.data;
-  } catch (error) {
-    console.error('크롤링 미리보기 오류:', error);
-    crawlPreview.value = { success: false, message: '오류 발생' };
-  }
-};
 
 const fixStockNames = async () => {
   if (isFixingNames.value) return;
