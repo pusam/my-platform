@@ -82,10 +82,29 @@ class MarketCalendarServiceTest {
             assertThat(svc.isRegularSession(LocalDate.of(2026, 8, 17), LocalTime.of(10, 0))).isFalse();
         }
 
-        @Test @DisplayName("2026-09-28 추석 대체휴일(월) / 2026-10-05 개천절 대체휴일(월) → 휴장")
-        void chuseokAndFoundationSubstitute2026() {
-            assertThat(svc.isMarketClosed(LocalDate.of(2026, 9, 28))).isTrue();
+        @Test @DisplayName("2026-10-05 개천절 대체휴일(월) → 휴장 — 개천절은 토요일 겹침도 대체한다")
+        void foundationSubstitute2026() {
             assertThat(svc.isMarketClosed(LocalDate.of(2026, 10, 5))).isTrue();
+        }
+
+        /**
+         * 2026-09-28 실사고: 이 날짜를 "추석 대체휴일"로 넣어 <b>정상 거래일을 휴장으로</b> 처리했다 —
+         * 재무·수급 수집, 종합추천, 알림, 일봉 갱신이 전부 {@code isMarketClosed()} 게이트에서 스킵되고
+         * 시그널 D+N 날짜 계산이 하루씩 밀린다. 설·추석은 <b>일요일(또는 다른 공휴일)</b>과 겹칠 때만
+         * 대체공휴일이 생긴다 — 2026 추석 연휴(9/24~26)는 토요일(9/26)과만 겹쳐 대상이 아니다.
+         */
+        @Test @DisplayName("설·추석은 토요일 겹침으로 대체공휴일이 생기지 않는다 — 2026-09-28(월) 정상 개장")
+        void chuseokSaturdayOverlapIsNotSubstitute2026() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 9, 28))).isFalse();
+            assertThat(svc.isRegularSession(LocalDate.of(2026, 9, 28), LocalTime.of(10, 0))).isTrue();
+            // 연휴 전 마지막 거래일(9/23) 다음 거래일은 9/28 — 시그널 D+1 이 9/29 로 밀리면 평가 창이 어긋난다
+            assertThat(svc.minusTradingDays(LocalDate.of(2026, 9, 29), 1)).isEqualTo(LocalDate.of(2026, 9, 28));
+            assertThat(svc.minusTradingDays(LocalDate.of(2026, 9, 28), 1)).isEqualTo(LocalDate.of(2026, 9, 23));
+        }
+
+        @Test @DisplayName("설 연휴가 일요일과 겹치면 대체한다 — 2027-02-09(화) 휴장(2/7 일요일 겹침)")
+        void seollalSundayOverlapIsSubstitute2027() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2027, 2, 9))).isTrue();
         }
 
         @Test @DisplayName("2026-12-31 연말 폐장일(목) → 휴장")
