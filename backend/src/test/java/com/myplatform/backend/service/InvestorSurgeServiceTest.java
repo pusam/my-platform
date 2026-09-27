@@ -22,6 +22,7 @@ import java.time.ZoneId;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -62,10 +63,7 @@ class InvestorSurgeServiceTest {
         // 2026-07-03(금) 10:22 KST — 수집 cron 발화 시각(:x2), 기관 데이터 제공 시간(10:00 이후)
         Clock fixedClock = Clock.fixed(
                 LocalDateTime.of(2026, 7, 3, 10, 22).atZone(KST).toInstant(), KST);
-        service = new InvestorSurgeService(
-                snapshotRepository, alertHistoryRepository, koreaInvestmentService,
-                telegramService, stockPriceService, redisCacheService,
-                schedulerLockService, signalOutcomeProvider, fixedClock);
+        service = serviceAt(fixedClock);
 
         when(schedulerLockService.tryLock(anyString(), any(Duration.class))).thenReturn(true);
         when(telegramService.isEnabled()).thenReturn(false);          // 알림 경로 무관
@@ -75,6 +73,46 @@ class InvestorSurgeServiceTest {
         when(snapshotRepository.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         // refreshAllSurgeStocksCache → getSurgeStocks 경로: 최신 시각 없음 → 빈 리스트로 compute
         when(snapshotRepository.findLatestSnapshotTime(any(), any())).thenReturn(Optional.empty());
+    }
+
+    /** 실제 달력(순수)으로 조립 — 시계가 고정이라 결정적이다. */
+    private InvestorSurgeService serviceAt(Clock clock) {
+        return new InvestorSurgeService(
+                snapshotRepository, alertHistoryRepository, koreaInvestmentService,
+                telegramService, stockPriceService, redisCacheService,
+                schedulerLockService, signalOutcomeProvider, clock, new MarketCalendarService());
+    }
+
+    /**
+     * 2026-09-24·25(추석 연휴, 목·금) 실측: MON-FRI cron 이 그대로 돌아, KIS 가 준 직전 거래일(9/23) 값이
+     * '오늘' 스냅샷 3,960행/일 + SURGE 시그널 43건/일로 저장됐다 — 이틀 모두 같은 종목·같은 가격.
+     */
+    @Test
+    @DisplayName("휴장일(2026-09-24 추석 연휴·목)엔 KIS 를 부르지 않고 스냅샷·시그널·알림을 만들지 않는다")
+    void collectIntradaySnapshot_skipsOnWeekdayHoliday() {
+        InvestorSurgeService holiday = serviceAt(Clock.fixed(
+                LocalDateTime.of(2026, 9, 24, 10, 22).atZone(KST).toInstant(), KST));
+        when(koreaInvestmentService.getForeignInstitutionTotal(anyString(), anyBoolean(), anyBoolean()))
+                .thenReturn(kisRankingResponse());
+
+        holiday.collectIntradaySnapshot();
+
+        verify(koreaInvestmentService, never()).getForeignInstitutionTotal(anyString(), anyBoolean(), anyBoolean());
+        verify(snapshotRepository, never()).saveAll(any());
+        verify(signalOutcomeProvider, never()).getIfAvailable();
+    }
+
+    @Test
+    @DisplayName("연휴 다음 거래일(2026-09-28 월)은 정상 수집한다 — 대체공휴일 오기재로 막히지 않는다")
+    void collectIntradaySnapshot_runsOnFirstTradingDayAfterHoliday() {
+        InvestorSurgeService monday = serviceAt(Clock.fixed(
+                LocalDateTime.of(2026, 9, 28, 10, 22).atZone(KST).toInstant(), KST));
+        when(koreaInvestmentService.getForeignInstitutionTotal(anyString(), anyBoolean(), anyBoolean()))
+                .thenReturn(kisRankingResponse());
+
+        monday.collectIntradaySnapshot();
+
+        verify(snapshotRepository, org.mockito.Mockito.atLeastOnce()).saveAll(any());
     }
 
     /** KIS 외국인/기관 순매수 순위 정상 응답(1종목) 스텁 */

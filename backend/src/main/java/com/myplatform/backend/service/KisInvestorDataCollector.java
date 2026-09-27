@@ -33,6 +33,7 @@ public class KisInvestorDataCollector {
     private final KoreaInvestmentService koreaInvestmentService;
     private final ObjectMapper objectMapper;
     private final StockMasterService stockMasterService;
+    private final MarketCalendarService marketCalendar;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -48,8 +49,10 @@ public class KisInvestorDataCollector {
     public void scheduledDailyCollection() {
         LocalDate today = LocalDate.now();
 
-        // 주말 체크 (cron에서도 체크하지만 이중 확인)
-        if (today.getDayOfWeek() == DayOfWeek.SATURDAY || today.getDayOfWeek() == DayOfWeek.SUNDAY) {
+        // 휴장일 체크 — 주말만 보던 가드가 평일 공휴일을 통과시켜 직전 거래일 값을 '오늘' 행으로
+        // 적재했다(2026-09-24·25 각 167행). 달력은 주말을 포함한다.
+        if (marketCalendar.isMarketClosed(today)) {
+            log.info("[배치] 16:00 휴장일 — 투자자 일별 보완 수집 스킵");
             return;
         }
 

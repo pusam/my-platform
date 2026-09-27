@@ -54,12 +54,17 @@ public class MarketTimingService {
     private static final String KEY_CURRENT = "current";
     private static final Duration TTL_MARKET_STATUS = Duration.ofMinutes(2);
 
+    // 휴장일 가드 — MON-FRI cron 만으론 평일 공휴일에 '오늘' 행을 만든다(2026-09-28)
+    private final MarketCalendarService marketCalendar;
+
     public MarketTimingService(MarketDailyStatusRepository marketDailyStatusRepository,
                                TelegramNotificationService telegramNotificationService,
-                               RedisCacheService redisCacheService) {
+                               RedisCacheService redisCacheService,
+                               MarketCalendarService marketCalendar) {
         this.marketDailyStatusRepository = marketDailyStatusRepository;
         this.telegramNotificationService = telegramNotificationService;
         this.redisCacheService = redisCacheService;
+        this.marketCalendar = marketCalendar;
     }
 
     // ADR 기준값
@@ -104,17 +109,20 @@ public class MarketTimingService {
             Thread.currentThread().interrupt();
             return;
         }
-        LocalDate today = LocalDate.now();
+        initializeIfEmptyNow(LocalDate.now());
+    }
 
-        // 주말이면 금요일 날짜 사용
-        java.time.DayOfWeek dayOfWeek = today.getDayOfWeek();
-        if (dayOfWeek == java.time.DayOfWeek.SATURDAY) {
-            today = today.minusDays(1);
-        } else if (dayOfWeek == java.time.DayOfWeek.SUNDAY) {
-            today = today.minusDays(2);
+    /** {@link #initializeDataIfEmpty} 본체 — 45초 지연 없이 테스트하려고 분리. */
+    void initializeIfEmptyNow(LocalDate today) {
+        // 휴장일(주말·평일 공휴일)이면 수집하지 않는다 — collectMarketData 는 '오늘' 날짜로 저장한다.
+        // 예전엔 주말에 금요일 행 유무를 보고 수집해 그 값이 주말 날짜 행으로 남을 수 있었고,
+        // 평일 공휴일은 아예 못 걸렀다(2026-09-28).
+        if (marketCalendar.isMarketClosed(today)) {
+            log.info("휴장일 — ADR 시장 데이터 초기 수집 스킵 (날짜: {})", today);
+            return;
         }
 
-        // 오늘(또는 가장 최근 영업일) 데이터가 없으면 수집
+        // 오늘 데이터가 없으면 수집
         boolean kospiExists = marketDailyStatusRepository.findByMarketTypeAndTradeDate("KOSPI", today).isPresent();
         boolean kosdaqExists = marketDailyStatusRepository.findByMarketTypeAndTradeDate("KOSDAQ", today).isPresent();
 
@@ -374,6 +382,12 @@ public class MarketTimingService {
     @Scheduled(scheduler = "cacheScheduler", cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void scheduledMarketDataCollection() {
+        // 휴장일 가드 — collectMarketData 는 '오늘' 날짜로 저장한다. 평일 공휴일에 돌면 직전 거래일 값이
+        // 휴장일 행으로 남고, ADR 은 "최근 20행"이라 그 값이 창 안에 중복으로 세어진다(2026-09-24·25 실측).
+        if (marketCalendar.isMarketClosed()) {
+            log.info("[배치] 16:30 휴장일 — ADR 시장 지표 수집 스킵");
+            return;
+        }
         log.info("=== ADR 시장 지표 자동 수집 시작 (16:30) ===");
         try {
             collectMarketData();
@@ -988,7 +1002,7 @@ public class MarketTimingService {
     /**
      * 특정 기간 동안의 시장 데이터 수집 (Backfill)
      * - 네이버 금융 차단 방지를 위해 요청 간 1초 딜레이 적용
-     * - 주말은 자동으로 스킵
+     * - 휴장일(주말·공휴일)은 자동으로 스킵 — MarketCalendarService 기준
      *
      * @param startDate 시작 날짜
      * @param endDate   종료 날짜
@@ -1005,10 +1019,9 @@ public class MarketTimingService {
         LocalDate currentDate = startDate;
 
         while (!currentDate.isAfter(endDate)) {
-            // 주말 스킵
-            java.time.DayOfWeek dayOfWeek = currentDate.getDayOfWeek();
-            if (dayOfWeek == java.time.DayOfWeek.SATURDAY || dayOfWeek == java.time.DayOfWeek.SUNDAY) {
-                log.debug("주말 스킵: {}", currentDate);
+            // 휴장일 스킵(주말 + 평일 공휴일) — 주말만 거르면 공휴일에 유령 일자 행이 생긴다
+            if (marketCalendar.isMarketClosed(currentDate)) {
+                log.debug("휴장일 스킵: {}", currentDate);
                 skipCount++;
                 currentDate = currentDate.plusDays(1);
                 continue;

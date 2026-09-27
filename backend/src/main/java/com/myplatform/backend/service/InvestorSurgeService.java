@@ -49,6 +49,8 @@ public class InvestorSurgeService {
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
     // 수집 경로 시간 결정성 — ClockConfig#kstClock 주입 (봇과 동일 컨벤션)
     private final Clock clock;
+    // 휴장일 가드 — MON-FRI cron 만으론 평일 공휴일(추석·대체공휴일)에도 돈다(2026-09-28)
+    private final MarketCalendarService marketCalendar;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
@@ -68,6 +70,15 @@ public class InvestorSurgeService {
      */
     @Scheduled(cron = "0 2/10 8-19 * * MON-FRI", zone = "Asia/Seoul")  // 트레이딩 입력 — 기본 taskScheduler 풀
     public void collectIntradaySnapshot() {
+        // 휴장일(평일 공휴일) 가드 — MON-FRI cron 만으론 추석·대체공휴일에도 돈다. KIS 는 휴장일에도 직전
+        // 거래일 값을 200 으로 주므로, 막지 않으면 그 값이 '오늘' 스냅샷·SURGE 시그널·급증 알림으로 나간다
+        // (2026-09-24·25 실측: 스냅샷 3,960행/일 + SURGE 시그널 43건/일, 이틀 모두 같은 종목·같은 가격).
+        // 10분 주기라 스킵 로그는 DEBUG(§5 — 정상 경로 로그를 반복하지 않는다).
+        if (marketCalendar.isMarketClosed(LocalDate.now(clock))) {
+            log.debug("휴장일 — 장중 스냅샷 수집 스킵");
+            return;
+        }
+
         LocalTime now = LocalTime.now(clock);
 
         // 08:00 이전, 20:00 이후는 수집하지 않음
@@ -359,8 +370,9 @@ public class InvestorSurgeService {
         LocalDateTime snapshotDateTime = LocalDateTime.of(today, latestTime);
         LocalDateTime now = DateTimeUtil.kstNow();
         long staleMinutes = java.time.Duration.between(snapshotDateTime, now).toMinutes();
-        boolean isTradingHours = now.getDayOfWeek() != DayOfWeek.SATURDAY
-                && now.getDayOfWeek() != DayOfWeek.SUNDAY
+        // 휴장일엔 수집이 멈추므로(collectIntradaySnapshot 가드) '오래됨'이 정상이다 — 같은 달력으로 판정해야
+        // 평일 공휴일에 조회마다 WARN 이 쌓이지 않는다(달력은 주말을 포함한다).
+        boolean isTradingHours = !marketCalendar.isMarketClosed(now.toLocalDate())
                 && now.toLocalTime().isAfter(LocalTime.of(8, 0))
                 && now.toLocalTime().isBefore(LocalTime.of(20, 0));
         if (isTradingHours && staleMinutes > 30) {
