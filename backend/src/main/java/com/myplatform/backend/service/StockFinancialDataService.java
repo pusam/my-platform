@@ -27,12 +27,20 @@ public class StockFinancialDataService {
     private final KoreaInvestmentService koreaInvestmentService;
     private final StockFinancialDataCollector collector;
     private final SseEmitterService sseEmitterService;
+    // 휴장일 가드 — 23:00 MON-FRI cron 이 평일 공휴일에 휴장일 날짜 행을 만들었다(2026-09-24·25 각 51행)
+    private final MarketCalendarService marketCalendar;
 
     /**
      * 매일 밤 재무 데이터 업데이트 체크 (23:00)
      */
     @Scheduled(scheduler = "batchScheduler", cron = "0 0 23 * * MON-FRI", zone = "Asia/Seoul")
     public void collectDailyFinancialData() {
+        // 휴장일 가드 — 수집기는 '오늘' 날짜로 쓴다. 평일 공휴일에 돌면 직전 거래일 순매수 상위 종목이
+        // 휴장일 날짜 행으로 남는다(2026-09-24·25 각 51행).
+        if (marketCalendar.isMarketClosed()) {
+            log.info("[배치] 23:00 휴장일 — 재무 데이터 일일 수집 스킵");
+            return;
+        }
         log.info("=== 재무 데이터 일일 수집 시작 (23:00) ===");
         collectFinancialDataFromTopStocks();
         log.info("=== 재무 데이터 일일 수집 완료 ===");

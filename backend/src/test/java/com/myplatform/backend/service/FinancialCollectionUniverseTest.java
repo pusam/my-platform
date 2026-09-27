@@ -28,7 +28,8 @@ class FinancialCollectionUniverseTest {
                 financialRepo, masterRepo,
                 mock(KoreaInvestmentService.class),
                 mock(StockFinancialDataCollector.class),
-                mock(SseEmitterService.class));
+                mock(SseEmitterService.class),
+                mock(MarketCalendarService.class));
     }
 
     @Test
