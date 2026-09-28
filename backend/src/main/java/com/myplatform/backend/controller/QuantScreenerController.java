@@ -364,29 +364,6 @@ public class QuantScreenerController {
     // ========== 재무 데이터 수집 API ==========
 
     /**
-     * 재무 데이터 수동 수집
-     */
-    @PostMapping("/collect")
-    @Operation(summary = "재무 데이터 수집", description = "외국인/기관 순매수 상위 종목의 재무 데이터를 수집합니다.")
-    public ResponseEntity<Map<String, Object>> collectFinancialData() {
-        log.info("재무 데이터 수동 수집 API 호출");
-
-        Map<String, Object> response = new HashMap<>();
-        try {
-            Map<String, Integer> result = stockFinancialDataService.collectManually();
-            response.put("success", true);
-            response.put("data", result);
-            response.put("message", "재무 데이터 수집 완료");
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("재무 데이터 수집 오류", e);
-            response.put("success", false);
-            response.put("message", "수집 중 오류 발생: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
-
-    /**
      * 특정 종목 재무 데이터 수집
      */
     @PostMapping("/collect/{stockCode}")
@@ -412,35 +389,12 @@ public class QuantScreenerController {
     }
 
     /**
-     * 재무 데이터 삭제 후 재수집
-     */
-    @PostMapping("/recollect")
-    @Operation(summary = "재무 데이터 재수집", description = "기존 데이터를 삭제하고 새로 수집합니다.")
-    public ResponseEntity<Map<String, Object>> recollectFinancialData() {
-        log.info("재무 데이터 재수집 API 호출");
-
-        Map<String, Object> response = new HashMap<>();
-        try {
-            Map<String, Object> result = stockFinancialDataService.deleteAndRecollect();
-            response.put("success", true);
-            response.put("data", result);
-            response.put("message", "재무 데이터 재수집 완료");
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("재무 데이터 재수집 오류", e);
-            response.put("success", false);
-            response.put("message", "재수집 중 오류 발생: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
-
-    /**
      * 원버튼 전체 데이터 수집 (비동기)
      * - 즉시 응답하고 백그라운드에서 수집 수행
      * - SSE로 진행률 실시간 전송 (/api/sse/subscribe?taskType=collect-all-in-one)
-     * - 1단계: 기본 재무 데이터 수집 (KIS API)
-     * - 2단계: 영업이익률 크롤링 (네이버 금융)
-     * - 3단계: 분기별 재무제표 수집 (네이버 금융)
+     * - 1단계: 기본 재무 데이터 수집 (KIS API — 영업이익률·분기 원본(V55) 포함)
+     * - 2단계: 성장률 계산 (PEG 용)
+     * (네이버 영업이익률·분기 재무 크롤은 2026-09-23 은퇴 — 소스 페이지가 SPA 로 이전해 값이 없다)
      */
     @PostMapping("/collect-all-in-one")
     @Operation(summary = "원버튼 전체 데이터 수집 (비동기)",
@@ -474,15 +428,15 @@ public class QuantScreenerController {
 
     /**
      * 전 종목 재무 데이터 수집
-     * - StockShortData에 있는 모든 종목의 재무 데이터를 수집
-     * - 2000개 이상의 종목 대상, Rate Limit 고려
-     * - 소요시간: 약 10-15분 예상
+     * - 수집 유니버스(기존 수집분 ∪ 종목 마스터 활성 KOSPI/KOSDAQ)의 모든 종목 — 원버튼 1단계와 같은 경로
+     * - 약 2,660종목, Rate Limit 고려
+     * - 소요시간: 약 35분(2026-09 실측)
      */
     @PostMapping("/collect-all")
     @Operation(summary = "전 종목 재무 데이터 수집",
-               description = "StockShortData 테이블에 있는 모든 종목의 재무 데이터를 수집합니다. " +
-                           "KIS API Rate Limit 고려하여 종목당 300ms 대기합니다. " +
-                           "약 2000개 종목 기준 10-15분 소요됩니다.")
+               description = "수집 유니버스(기존 수집분 ∪ 종목 마스터)의 모든 종목 재무 데이터를 수집합니다. " +
+                           "KIS API Rate Limit 고려하여 종목당 대기합니다. " +
+                           "약 2,660종목 기준 35분 안팎 소요됩니다.")
     public ResponseEntity<Map<String, Object>> collectAllStocksFinancialData() {
         log.info("전 종목 재무 데이터 수집 API 호출");
 

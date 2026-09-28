@@ -1,12 +1,9 @@
 package com.myplatform.backend.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -14,8 +11,12 @@ import java.util.*;
 /**
  * 주식 재무 데이터 수집 서비스
  * - KIS API를 통해 PER, PBR, ROE 등 재무 지표 수집
- * - 투자자 매매 상위 종목 기준으로 수집
+ * - 전 종목 수집(원버튼 배치 1단계)·단일 종목 수집 — 둘 다 배치와 같은 수집기 경로
+ *   ({@link StockFinancialDataCollector#collectStockFinancialDataSimple})
  * - 각 종목별 수집은 독립 트랜잭션으로 처리 (StockFinancialDataCollector)
+ *
+ * <p>순매수 상위 재수집(23:00·수동·전체삭제 후 재수집)은 2026-09-28 은퇴 — 배치가 이미 쓴 당일 행을
+ * 옛 수집기 복사본으로 덮어 시총 0·PEG 삭제를 만들었다({@code NightlyFinancialRecollectRetiredTest}).
  */
 @Service
 @RequiredArgsConstructor
@@ -24,109 +25,16 @@ public class StockFinancialDataService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final com.myplatform.backend.repository.StockMasterRepository stockMasterRepository;
-    private final KoreaInvestmentService koreaInvestmentService;
     private final StockFinancialDataCollector collector;
     private final SseEmitterService sseEmitterService;
-    // 휴장일 가드 — 23:00 MON-FRI cron 이 평일 공휴일에 휴장일 날짜 행을 만들었다(2026-09-24·25 각 51행)
-    private final MarketCalendarService marketCalendar;
-
-    /**
-     * 매일 밤 재무 데이터 업데이트 체크 (23:00)
-     */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 23 * * MON-FRI", zone = "Asia/Seoul")
-    public void collectDailyFinancialData() {
-        // 휴장일 가드 — 수집기는 '오늘' 날짜로 쓴다. 평일 공휴일에 돌면 직전 거래일 순매수 상위 종목이
-        // 휴장일 날짜 행으로 남는다(2026-09-24·25 각 51행).
-        if (marketCalendar.isMarketClosed()) {
-            log.info("[배치] 23:00 휴장일 — 재무 데이터 일일 수집 스킵");
-            return;
-        }
-        log.info("=== 재무 데이터 일일 수집 시작 (23:00) ===");
-        collectFinancialDataFromTopStocks();
-        log.info("=== 재무 데이터 일일 수집 완료 ===");
-    }
-
-    /**
-     * 외국인/기관 순매수 상위 종목의 재무 데이터 수집
-     */
-    public Map<String, Integer> collectFinancialDataFromTopStocks() {
-        Map<String, Integer> result = new HashMap<>();
-        Set<String> collectedCodes = new HashSet<>();
-        int successCount = 0;
-        int failCount = 0;
-
-        try {
-            // 외국인 순매수 상위 종목
-            JsonNode foreignBuy = koreaInvestmentService.getForeignNetBuyTop();
-            if (foreignBuy != null && foreignBuy.has("output")) {
-                for (JsonNode item : foreignBuy.get("output")) {
-                    String stockCode = item.has("mksc_shrn_iscd") ? item.get("mksc_shrn_iscd").asText() : null;
-                    if (stockCode != null && !collectedCodes.contains(stockCode)) {
-                        collectedCodes.add(stockCode);
-                    }
-                }
-            }
-
-            // 기관 순매수 상위 종목
-            Thread.sleep(500);
-            JsonNode instBuy = koreaInvestmentService.getInstitutionNetBuyTop();
-            if (instBuy != null && instBuy.has("output")) {
-                for (JsonNode item : instBuy.get("output")) {
-                    String stockCode = item.has("mksc_shrn_iscd") ? item.get("mksc_shrn_iscd").asText() : null;
-                    if (stockCode != null && !collectedCodes.contains(stockCode)) {
-                        collectedCodes.add(stockCode);
-                    }
-                }
-            }
-
-            log.info("수집 대상 종목 수: {}", collectedCodes.size());
-
-            // 각 종목별 재무 데이터 수집 (독립 트랜잭션)
-            for (String stockCode : collectedCodes) {
-                try {
-                    Thread.sleep(200);
-                    if (collector.collectStockFinancialData(stockCode)) {
-                        successCount++;
-                    } else {
-                        failCount++;
-                    }
-                } catch (Exception e) {
-                    log.error("종목 {} 재무 데이터 수집 실패: {}", stockCode, e.getMessage());
-                    failCount++;
-                }
-            }
-
-        } catch (Exception e) {
-            log.error("재무 데이터 수집 중 오류", e);
-        }
-
-        result.put("total", collectedCodes.size());
-        result.put("success", successCount);
-        result.put("fail", failCount);
-        log.info("재무 데이터 수집 완료 - 성공: {}, 실패: {}", successCount, failCount);
-
-        return result;
-    }
-
-    /**
-     * 단일 종목 재무 데이터 수집
-     */
-    public boolean collectStockFinancialData(String stockCode) {
-        return collector.collectStockFinancialData(stockCode);
-    }
-
-    /**
-     * 수동으로 재무 데이터 수집 트리거
-     */
-    public Map<String, Integer> collectManually() {
-        return collectFinancialDataFromTopStocks();
-    }
 
     /**
      * 특정 종목 재무 데이터 수동 수집
      */
     public boolean collectSingleStock(String stockCode) {
-        return collector.collectStockFinancialData(stockCode);
+        // 배치(원버튼 1단계)와 같은 경로 — 예전 완전판은 hts_avls(이미 억원)를 1e8 로 또 나눠 시총 0 을
+        // 썼다(2026-09-28 은퇴). 수동 수집이 배치와 다른 값을 쓰면 어느 쪽이 맞는지 다시 갈린다.
+        return collector.collectStockFinancialDataSimple(stockCode);
     }
 
     /**
@@ -170,35 +78,6 @@ public class StockFinancialDataService {
         status.put("count", stockFinancialDataRepository.count());
         status.put("lastUpdatedAt", getLastUpdatedAt());
         return status;
-    }
-
-    /**
-     * 전체 재무 데이터 삭제 후 재수집
-     * - 삭제와 수집을 분리하여 트랜잭션 오류 방지
-     */
-    public Map<String, Object> deleteAndRecollect() {
-        Map<String, Object> result = new HashMap<>();
-
-        // 기존 데이터 삭제 (별도 트랜잭션)
-        long deletedCount = deleteAllFinancialData();
-        result.put("deleted", deletedCount);
-
-        // 재수집 (각 종목별 독립 트랜잭션)
-        Map<String, Integer> collectResult = collectFinancialDataFromTopStocks();
-        result.putAll(collectResult);
-
-        return result;
-    }
-
-    /**
-     * 전체 재무 데이터 삭제 (독립 트랜잭션)
-     */
-    @Transactional
-    public long deleteAllFinancialData() {
-        long count = stockFinancialDataRepository.count();
-        stockFinancialDataRepository.deleteAll();
-        log.info("재무 데이터 {}건 삭제 완료", count);
-        return count;
     }
 
     /**

@@ -13,9 +13,6 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
@@ -112,184 +109,13 @@ public class StockFinancialDataCollector {
     private String appSecret;
 
     /**
-     * 단일 종목 재무 데이터 수집 (독립 트랜잭션)
-     * - REQUIRES_NEW: 항상 새 트랜잭션 시작
-     * - 실패해도 다른 종목에 영향 없음
-     */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean collectStockFinancialData(String stockCode) {
-        try {
-            String token = koreaInvestmentService.getAccessToken();
-            if (token == null) {
-                log.error("토큰 발급 실패");
-                return false;
-            }
-
-            // 재시도 로직 적용된 현재가 조회
-            JsonNode priceData = getStockPriceWithRetry(stockCode);
-            if (priceData == null || !"0".equals(priceData.path("rt_cd").asText())) {
-                log.warn("주식 현재가 조회 실패: {}", stockCode);
-                return false;
-            }
-
-            JsonNode output = priceData.get("output");
-            if (output == null) {
-                return false;
-            }
-
-            String stockName = resolveCollectedName(stockCode,
-                    output.path("hts_kor_isnm").asText(""),
-                    code -> stockMasterService.getNameOrDefault(code, null));
-
-            String market = "KOSPI";
-
-            BigDecimal currentPrice = parseBigDecimal(output.path("stck_prpr").asText());
-            BigDecimal marketCapRaw = parseBigDecimal(output.path("hts_avls").asText());
-            BigDecimal marketCap = marketCapRaw
-                    .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP);
-            BigDecimal per = parseBigDecimal(output.path("per").asText());
-            BigDecimal pbr = parseBigDecimal(output.path("pbr").asText());
-            BigDecimal eps = parseBigDecimal(output.path("eps").asText());
-            BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
-
-            // ★ 네이버 coinfo 페이지에서 정확한 상장주식수 크롤링
-            // KIS lstn_stcn이 유통주식수만 반환하는 경우가 있어 발행주식수와 2배 차이 발생
-            BigDecimal naverShares = fetchNaverListedShares(stockCode);
-            if (naverShares != null && naverShares.compareTo(BigDecimal.ZERO) > 0) {
-                if (lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal shareRatio = naverShares.divide(lstnStcn, 2, RoundingMode.HALF_UP);
-                    log.info("[주식수 검증] {} - KIS lstn_stcn: {}, 네이버 상장주식수: {}, 비율: {}",
-                            stockCode, lstnStcn, naverShares, shareRatio);
-                }
-                lstnStcn = naverShares;
-            }
-
-            // 재무비율 조회
-            Thread.sleep(100);
-            Map<String, BigDecimal> financialRatios = getFinancialRatios(token, stockCode);
-
-            BigDecimal roe = financialRatios.getOrDefault("roe", BigDecimal.ZERO);
-            BigDecimal netMargin = financialRatios.getOrDefault("netMargin", BigDecimal.ZERO);
-            BigDecimal debtRatio = financialRatios.getOrDefault("debtRatio", BigDecimal.ZERO);
-            BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
-            BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
-            BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
-
-            // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 (별도→연결 통일)
-            if (netIncome != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal ttmEps = netIncome
-                        .multiply(new BigDecimal("100000000"))
-                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
-                log.info("[TTM EPS] {} - 별도 EPS: {} → TTM 연결 EPS: {} (순이익: {}억, 주식수: {})",
-                        stockCode, eps, ttmEps, netIncome, lstnStcn);
-                eps = ttmEps;
-
-                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && eps.compareTo(BigDecimal.ZERO) != 0) {
-                    per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
-                }
-            }
-
-            // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
-            BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
-            if ((operatingMargin == null || operatingMargin.compareTo(BigDecimal.ZERO) == 0)
-                    && operatingProfit != null && revenue != null
-                    && revenue.compareTo(BigDecimal.ZERO) > 0) {
-                operatingMargin = operatingProfit.divide(revenue, 6, RoundingMode.HALF_UP)
-                        .multiply(new BigDecimal("100"))
-                        .setScale(2, RoundingMode.HALF_UP);
-            }
-
-            BigDecimal epsGrowth = financialRatios.getOrDefault("epsGrowth", BigDecimal.ZERO);
-            BigDecimal peg = null;
-            if (per != null && per.compareTo(BigDecimal.ZERO) > 0 &&
-                epsGrowth != null && epsGrowth.compareTo(BigDecimal.ZERO) > 0) {
-                peg = per.divide(epsGrowth, 2, RoundingMode.HALF_UP);
-            }
-
-            LocalDate today = LocalDate.now();
-            StockFinancialData financialData = stockFinancialDataRepository
-                    .findByStockCodeAndReportDate(stockCode, today)
-                    .orElse(new StockFinancialData());
-
-            financialData.setStockCode(stockCode);
-            financialData.setStockName(stockName);
-            financialData.setMarket(market);
-            financialData.setReportDate(today);
-            financialData.setCurrentPrice(currentPrice);
-            financialData.setMarketCap(marketCap);
-            financialData.setPer(per);
-            financialData.setPbr(pbr);
-            financialData.setEps(eps);
-            financialData.setRoe(roe);
-            financialData.setOperatingMargin(operatingMargin);
-            financialData.setNetMargin(netMargin);
-            financialData.setDebtRatio(debtRatio);
-            financialData.setEpsGrowth(epsGrowth);
-            financialData.setPeg(peg);
-            financialData.setRevenue(revenue);
-            financialData.setOperatingProfit(operatingProfit);
-            financialData.setNetIncome(netIncome);
-
-            // ★ 재무상태표 데이터 저장
-            BigDecimal totalEquity = financialRatios.getOrDefault("totalEquity", null);
-            BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
-            BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
-            if (totalEquity != null) financialData.setTotalEquity(totalEquity);
-            if (totalAssets != null) financialData.setTotalAssets(totalAssets);
-            if (totalDebt != null) financialData.setTotalDebt(totalDebt);
-
-            // ★ totalEquity 기반 BPS 재계산 (연결 기준)
-            if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
-                    && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal ttmBps = totalEquity
-                        .multiply(new BigDecimal("100000000"))  // 억원 → 원
-                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
-                log.info("[TTM BPS] {} - 별도 BPS → 연결 BPS: {} (자본총계: {}억, 주식수: {})",
-                        stockCode, ttmBps, totalEquity, lstnStcn);
-                financialData.setBps(ttmBps);
-
-                // PBR 재계산
-                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && ttmBps.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal ttmPbr = currentPrice.divide(ttmBps, 2, RoundingMode.HALF_UP);
-                    financialData.setPbr(ttmPbr);
-                }
-            }
-
-            // ★ PBR 일관성 검증: PBR ≈ PER × ROE / 100 (±50% 허용)
-            BigDecimal finalPbr = financialData.getPbr();
-            BigDecimal finalPer = financialData.getPer();
-            BigDecimal finalRoe = financialData.getRoe();
-            if (finalPbr != null && finalPer != null && finalRoe != null
-                    && finalPer.compareTo(BigDecimal.ZERO) > 0
-                    && finalRoe.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal expectedPbr = finalPer.multiply(finalRoe)
-                        .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-                BigDecimal ratio = finalPbr.divide(expectedPbr, 2, RoundingMode.HALF_UP);
-                if (ratio.compareTo(new BigDecimal("2.0")) > 0 || ratio.compareTo(new BigDecimal("0.5")) < 0) {
-                    log.warn("[PBR 보정] {} PBR 불일치 감지: PBR={}, 예상(PER×ROE/100)={}, 비율={} → 보정 적용",
-                            stockCode, finalPbr, expectedPbr, ratio);
-                    financialData.setPbr(expectedPbr);
-                    // BPS도 역산
-                    if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && expectedPbr.compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal correctedBps = currentPrice.divide(expectedPbr, 0, RoundingMode.HALF_UP);
-                        financialData.setBps(correctedBps);
-                    }
-                }
-            }
-
-            stockFinancialDataRepository.save(financialData);
-            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}, EPS(TTM): {}, PER(TTM): {}, 자본총계: {}",
-                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin, eps, per, totalEquity);
-            return true;
-
-        } catch (Exception e) {
-            log.error("재무 데이터 수집 실패 [{}]: {}", stockCode, e.getMessage());
-            return false;
-        }
-    }
-
-    /**
      * 단일 종목 재무 데이터 수집 - 간소화 버전 (독립 트랜잭션)
+     *
+     * <p><b>유일한 수집 경로다</b> — 원버튼 1단계·전 종목 수집·단일 종목 수동 수집이 전부 여기로 온다.
+     * 예전 '완전판'({@code collectStockFinancialData})은 {@code hts_avls}(이미 억원)를 1e8 로 또 나눠
+     * 시총 0 을 썼고, 성장률 배치가 채운 PEG 를 자기 계산값(null)으로 지웠다. 23:00 순매수 상위 재수집이
+     * 그걸로 배치가 쓴 당일 행을 매일 덮어 2026-09-28 은퇴했다 — 두 번째 수집 경로를 되살리지 말 것
+     * ({@code NightlyFinancialRecollectRetiredTest}).
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean collectStockFinancialDataSimple(String stockCode) {
@@ -1176,47 +1002,5 @@ public class StockFinancialDataCollector {
             log.warn("API 호출 최종 실패: {}", lastException.getMessage());
         }
         return null;
-    }
-
-    /**
-     * 네이버 금융 coinfo 페이지에서 정확한 상장주식수 크롤링
-     * KIS API의 lstn_stcn은 유통주식수를 반환하는 경우가 있어 발행주식수와 차이 발생
-     */
-    private BigDecimal fetchNaverListedShares(String stockCode) {
-        try {
-            Document doc = Jsoup.connect("https://finance.naver.com/item/coinfo.naver?code=" + stockCode)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .referrer("https://finance.naver.com/")
-                    .timeout(10000)
-                    .get();
-
-            Element th = doc.selectFirst("th:contains(상장주식수)");
-            if (th != null) {
-                Element td = th.nextElementSibling();
-                if (td != null) {
-                    Element em = td.selectFirst("em");
-                    String text = (em != null) ? em.text() : td.text();
-                    BigDecimal shares = parseNaverNumber(text);
-                    if (shares != null && shares.compareTo(BigDecimal.ZERO) > 0) {
-                        log.info("[재무수집] {} 네이버 상장주식수: {}", stockCode, shares);
-                        return shares;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[재무수집] {} 네이버 상장주식수 크롤링 실패: {}", stockCode, e.getMessage());
-        }
-        return null;
-    }
-
-    private BigDecimal parseNaverNumber(String text) {
-        if (text == null || text.isBlank()) return null;
-        try {
-            String cleaned = text.replaceAll("[^0-9.\\-]", "");
-            if (cleaned.isEmpty()) return null;
-            return new BigDecimal(cleaned);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 }

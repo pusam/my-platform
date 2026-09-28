@@ -26,10 +26,8 @@ class FinancialCollectionUniverseTest {
     private StockFinancialDataService service() {
         return new StockFinancialDataService(
                 financialRepo, masterRepo,
-                mock(KoreaInvestmentService.class),
                 mock(StockFinancialDataCollector.class),
-                mock(SseEmitterService.class),
-                mock(MarketCalendarService.class));
+                mock(SseEmitterService.class));
     }
 
     @Test

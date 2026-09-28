@@ -216,7 +216,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | 19:40 ⭐ | 수동 저널 평가(매수 3거래일 후, 동일 잣대) | `ManualTradeJournalService` |
 | 20:05 / 20:10 | 발굴 5트랙 야간 / 복합신호 | Recommendation/MultiConviction |
 | **일 18:00** | **시그널 주간 예측력 측정**(카테고리×regime×밴드, SchedulerLock fail-open) | `SignalWeeklyReportService` |
-| 23:00 | 재무 영속화 | `StockFinancialDataService` |
+| ~~23:00~~ | ~~재무 재수집(순매수 상위)~~ — **2026-09-28 은퇴**(당일 행 시총 0·PEG 삭제로 덮음). 재무·V55 적재는 08:30·15:38 원버튼 배치 | — |
 | 04:30 / 04:40 | 배치 이력·스냅샷 정리 | `BatchJobCleanupService` |
 
 > ⚠ 위 cron은 매핑 근사. **정확값은 각 서비스 `@Scheduled`가 출처.** 미적용(주석) 2건: 종가봇 매수/매도(`executeClosingBuyLogic`/`SellLogic`, 2026-09 연장장 대비 재설계 필요). ※ 오버나잇은 15:20 정규장 강제청산(2026-06-29)으로 1차 방어, 연장장 청산은 후속(P2-13 → **진단 종결·§19 2026-07-06**).

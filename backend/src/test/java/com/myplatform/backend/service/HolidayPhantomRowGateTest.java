@@ -65,39 +65,6 @@ class HolidayPhantomRowGateTest {
     }
 
     @Nested
-    @DisplayName("재무 23:00 일일 수집(StockFinancialDataService)")
-    class NightlyFinancial {
-
-        private final KoreaInvestmentService kis = mock(KoreaInvestmentService.class);
-        private final StockFinancialDataCollector collector = mock(StockFinancialDataCollector.class);
-        private final MarketCalendarService calendar = mock(MarketCalendarService.class);
-        private final StockFinancialDataService service = new StockFinancialDataService(
-                mock(com.myplatform.backend.repository.StockFinancialDataRepository.class),
-                mock(com.myplatform.backend.repository.StockMasterRepository.class),
-                kis, collector, mock(SseEmitterService.class), calendar);
-
-        @Test
-        @DisplayName("휴장일이면 순매수 상위 조회도 종목 수집도 하지 않는다 — 9/24·25 각 51행이 휴장일 날짜로 남았다")
-        void skipsOnHoliday() {
-            when(calendar.isMarketClosed()).thenReturn(true);
-
-            service.collectDailyFinancialData();
-
-            verifyNoInteractions(kis, collector);
-        }
-
-        @Test
-        @DisplayName("거래일이면 종전대로 순매수 상위부터 조회한다")
-        void proceedsOnTradingDay() {
-            when(calendar.isMarketClosed()).thenReturn(false);
-
-            service.collectDailyFinancialData();
-
-            verify(kis).getForeignNetBuyTop();
-        }
-    }
-
-    @Nested
     @DisplayName("시장 상태(ADR 원천) 수집(MarketTimingService)")
     class MarketDailyStatus {
 

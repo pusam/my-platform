@@ -825,24 +825,10 @@ public class KoreaInvestmentService {
     }
 
     /**
-     * 외국인 순매수 상위 종목 조회 (편의 메서드)
-     */
-    public JsonNode getForeignNetBuyTop() {
-        return getForeignInstitutionTotal("1", true, true);
-    }
-
-    /**
      * 외국인 순매도 상위 종목 조회 (편의 메서드)
      */
     public JsonNode getForeignNetSellTop() {
         return getForeignInstitutionTotal("1", false, true);
-    }
-
-    /**
-     * 기관 순매수 상위 종목 조회 (편의 메서드)
-     */
-    public JsonNode getInstitutionNetBuyTop() {
-        return getForeignInstitutionTotal("2", true, true);
     }
 
     /**
