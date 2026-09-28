@@ -26,22 +26,6 @@
 
 ```yaml
 flags:
-  - id: holiday-phantom-rows-pending-delete
-    severity: warning
-    title: 휴장일 가짜 행 미삭제 — 게이트 표본에 가짜 BUY 8·대조군 1 포함
-    key: signal_outcome 외 4
-    body: >
-      달력 게이트를 안 타던 수집 경로(9/28 수정)와 달력 누락(7/17 제헌절·6/3 선거, 9/28 추가)으로
-      휴장일 날짜 행이 쌓였다 — 2026년 평일 휴장 12일 기준 시그널 282(대부분 SURGE, BUY·대조군 포함),
-      장중 수급 7,920, 투자자 일별 1,896, 시장 상태 40(2025-10 이후 포함), 재무 3,376(일별 스냅샷만,
-      2025-12-31 네이버 연간 행은 제외). ⚠ 신뢰 게이트 교정 표본(d3 OK)에 7/17 BUY 7 + 8/17 BUY 1·
-      CONTROL_RANDOM 1 이 들어 있다 — 빼면 BUY 179→171, 대조군 30→29(표본 기준 30 미달).
-      ADR 은 최근 20행이라 휴장일 행이 창에 섞인다. 백업(/home/dev/backups/phantom-holiday-2026-09-28,
-      행마다 INSERT)과 삭제 SQL 은 준비됐고 드라이런 건수 일치 — 자동 모드 권한이 대량 삭제를 막아
-      사용자 실행 대기. 지우면 이 플래그도 지울 것.
-    recorded_on: 2026-09-28
-    ref: CLAUDE.md §4c 휴장일 달력, HolidayPhantomRowGateTest
-
   - id: misdated-price-bars-2025-12
     severity: info
     title: 휴장일(12/25·12/31·1/1) 일봉 9개 — 3종목, 날짜 밀림 의심
