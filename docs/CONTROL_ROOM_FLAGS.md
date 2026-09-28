@@ -56,20 +56,18 @@ flags:
 
   - id: krx-feeds-dead-remaining
     severity: warning
-    title: 남은 KRX 소비자 2곳도 같은 이유로 죽어 있다 (영향은 제한적)
+    title: 남은 KRX 소비자 1곳(수동 ADR 백필)도 같은 이유로 죽어 있다 (영향은 제한적)
     key: KRX잔여
     body: >
-      상장목록을 고치며 같이 확인한 것. 둘 다 급하지 않지만 "살아있다"고 착각하면 안 된다.
-      ① MarketTimingService.getKrxOtp — 같은 없는 주소를 쓴다. 소비처는 수동 백필
+      상장목록을 고치며 같이 확인한 것. 급하지 않지만 "살아있다"고 착각하면 안 된다.
+      MarketTimingService.getKrxOtp — 같은 없는 주소를 쓴다. 소비처는 수동 백필
       (collectHistoricalMarketData)뿐이고, 일일 ADR 은 네이버 크롤 경로라 무관하다.
       0/0/0 위장 저장은 2026-08-31 수정 — 실패 시 그 날짜를 '실패'로 집계하고 건너뛴다(§4c).
       백필 기능 자체는 여전히 死(살리려면 KRX 아닌 등락 수 소스 필요) — 쓸 일이 생기면 그때 별건.
-      ② InvestorDailyTradeService.collectPensionFromKrx — 단발 getJsonData(LOGOUT)라 死.
-      수급 주 소스는 KIS(KisInvestorDataCollector)라 외국인·기관은 정상이고, 이건 연기금 보충망이다.
-      결과: KIS 가 연기금 빈 응답을 줄 때의 안전망이 없고, **KOSDAQ 연기금은 구조적으로 0건**
-      (KIS 는 KOSPI 만 준다). 수급 점수는 외국인·기관 위주라 즉시 영향은 작다.
+      (두 번째 소비자였던 연기금 KRX 보충은 2026-09-28 은퇴 — 한 번도 행을 만든 적 없이 400 만 남겼고,
+      "KIS 는 KOSPI 만 준다"는 전제도 틀렸다: KIS 순위 API 는 전체 시장이라 연기금 행의 20.6% 가 KOSDAQ.)
     recorded_on: 2026-08-31
-    ref: MarketTimingService.getKrxOtp, InvestorDailyTradeService.collectPensionFromKrx
+    ref: MarketTimingService.getKrxOtp
 
   - id: weekly-report-week-hole-2026-08-16
     severity: warning

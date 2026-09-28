@@ -16,8 +16,8 @@ import static org.mockito.Mockito.mock;
  * 수급 표시값의 "데이터 없음" — 2026-08-27 종목상세 표시층 감사 A-1·A-2 회귀.
  *
  * <h3>고친 결함</h3>
- * 이 데이터의 원천은 KIS <b>순매수 상위 20위</b> API 다({@code InvestorDailyTradeService} 의
- * {@code rank > 20 break}). 그 종목이 그날 상위권에 못 들면 <b>행 자체가 없다.</b>
+ * 이 데이터의 원천은 KIS <b>순매수 상위 순위</b> API 다({@code KisInvestorDataCollector.collectInvestorRanking}
+ * — 상위권만 반환). 그 종목이 그날 상위권에 못 들면 <b>행 자체가 없다.</b>
  * 그런데 백엔드가 그걸 {@code BigDecimal.ZERO} 로 채워 내보내서, 화면이 "순매수 0억"으로 그리고
  * 사용자는 <b>"그날 외국인이 사지도 팔지도 않았다"</b>로 읽었다. 사실은 "데이터가 없다"이다.
  *
@@ -34,7 +34,6 @@ class InvestorSummaryNullTest {
             mock(KisInvestorDataCollector.class),
             mock(KoreaInvestmentService.class),
             mock(RedisCacheService.class),
-            mock(InvestorDailyTradeService.class),
             mock(MarketCalendarService.class),
             mock(org.springframework.beans.factory.ObjectProvider.class));
 

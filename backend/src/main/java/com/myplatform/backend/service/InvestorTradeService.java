@@ -38,7 +38,6 @@ public class InvestorTradeService {
     private final KisInvestorDataCollector kisInvestorDataCollector;
     private final KoreaInvestmentService koreaInvestmentService;
     private final RedisCacheService redisCacheService;
-    private final InvestorDailyTradeService investorDailyTradeService;
     private final MarketCalendarService marketCalendarService;
     /** 자기 자신(프록시) — @Transactional/@CacheEvict 가 붙은 메서드를 내부에서 호출할 때 사용.
      *  같은 클래스 내부 직접 호출은 프록시를 안 거쳐 어노테이션이 통째로 무시된다. */
@@ -271,8 +270,8 @@ public class InvestorTradeService {
     /**
      * 투자자별 매매 요약 — <b>행이 없으면 null</b>(2026-08-27 표시층 감사 A-1).
      *
-     * <p><b>왜 0 이 아니라 null 인가</b>: 이 데이터의 원천은 KIS <b>순매수 상위 20위</b> API 라
-     * ({@code InvestorDailyTradeService:226} 의 {@code rank > 20 break}) 그 종목이 그날 상위권에
+     * <p><b>왜 0 이 아니라 null 인가</b>: 이 데이터의 원천은 KIS <b>순매수 상위 순위</b> API 라
+     * ({@code KisInvestorDataCollector.collectInvestorRanking} — 상위권만 반환) 그 종목이 그날 상위권에
      * 못 들면 <b>행 자체가 없다</b>. 그걸 {@code ZERO} 로 채우면 화면이 "순매수 0억"으로 그리고
      * 사용자는 <b>"그날 외국인이 사지도 팔지도 않았다"</b>로 읽는다 — 사실은 "데이터가 없다"이다.
      * 투자 판단에서 둘은 정반대 의미다.
@@ -392,23 +391,12 @@ public class InvestorTradeService {
 
         Map<String, Integer> result = kisInvestorDataCollector.collectDailyInvestorTrades(tradeDate);
 
-        // [KRX 보충] 연기금 데이터 안전망
-        // - KIS의 fund_ntby_tr_pbmn 추출 경로가 빈 응답을 줄 때 PENSION이 0건이 되는 사고 방지
-        // - 보유 시장: KIS는 KOSPI만, KRX는 KOSPI+KOSDAQ — KOSDAQ은 항상 보충 가치 있음
-        // - 중복 방지: collectPensionFromKrx 내부에서 existsByMarketTypeAndInvestorTypeAndTradeDate 체크 후 스킵
-        try {
-            boolean kisPensionEmpty = !investorTradeRepository
-                    .existsByInvestorTypeAndTradeDate("PENSION", tradeDate);
-            if (kisPensionEmpty) {
-                log.warn("KIS 연기금 수집 결과 0건 — KRX KOSPI 보충 시도: {}", tradeDate);
-                int kospiCount = investorDailyTradeService.collectPensionFromKrx("KOSPI", tradeDate);
-                result.put("KOSPI_PENSION_KRX_FALLBACK", kospiCount);
-            }
-            // KOSDAQ 연기금은 KIS가 커버하지 않으므로 항상 KRX로 보충
-            int kosdaqCount = investorDailyTradeService.collectPensionFromKrx("KOSDAQ", tradeDate);
-            result.put("KOSDAQ_PENSION_KRX", kosdaqCount);
-        } catch (Exception e) {
-            log.warn("KRX 연기금 보충 수집 실패: {} - {}", tradeDate, e.getMessage());
+        // 연기금 단일 출처 = KIS 기관 순위 응답의 fund_ntby_tr_pbmn. 전체 시장(FID_INPUT_ISCD=0000) 조회라 KOSDAQ 도
+        // 들어 있다(2026-09 실측: 연기금 행의 20.6% 가 KOSDAQ 종목). 예전의 "KRX 보충"(KIS 0건이면 KOSPI 폴백 +
+        // "KOSDAQ 은 KIS 가 못 받는다"며 상시 KOSDAQ)은 data.krx.co.kr 이 이 용도로 죽어 400 ERROR 만 남기고 행을 한 번도
+        // 만든 적이 없어 2026-09-28 은퇴했다(KrxInvestorSupplementRetiredTest). 0건이면 0건으로 둔다(§4c, 대체값 금지).
+        if (!investorTradeRepository.existsByInvestorTypeAndTradeDate("PENSION", tradeDate)) {
+            log.warn("KIS 연기금 수집 결과 0건 — 보충 소스 없음(KRX 은퇴), 그날 연기금은 비어 있다: {}", tradeDate);
         }
 
         return result;

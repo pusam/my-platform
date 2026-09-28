@@ -111,7 +111,7 @@ public class MultiConvictionService {
 
             // (구) ">1000 이면 백만원으로 판단 → ÷100" 휴리스틱 제거(2026-07-21).
             // 164ee41(2026-03) 당시 "일부 레코드 변환 누락" 땜질이었는데, 현재는 두 수집기
-            // (KisInvestorDataCollector·InvestorDailyTradeService) 모두 저장 시 억원 변환을 확인했고
+            // (KisInvestorDataCollector — KRX 쪽 InvestorDailyTradeService 는 2026-09-28 은퇴) 저장 시 억원 변환을 확인했고
             // 조회도 당일 단건(findByTradeDate)이라 레거시 행 유입이 없다. 유지하면 대형주의
             // 정상 1000억+ 순매수(예: 삼성전자 외국인 1500억)를 15억으로 100배 축소해
             // 컨빅션 정렬이 가장 큰 수급일에 정확히 왜곡된다.

@@ -196,7 +196,7 @@ public class KisInvestorDataCollector {
 
     /**
      * API 응답을 파싱하고 DB에 저장
-     * InvestorDailyTradeService와 동일한 필드명 사용
+     * foreign-institution-total(FHPTJ04400000) 응답 필드명 사용
      */
     private int parseAndSaveRankingData(JsonNode response, String market, String investorType,
                                         String tradeType, LocalDate tradeDate, int limit) {
@@ -233,7 +233,7 @@ public class KisInvestorDataCollector {
                         log.info(fields.toString());
                     }
 
-                    // foreign-institution-total API 필드명 (InvestorDailyTradeService와 동일)
+                    // foreign-institution-total API 필드명
                     String stockCode = getJsonValue(item, "mksc_shrn_iscd");
                     String stockName = getJsonValue(item, "hts_kor_isnm");
 
