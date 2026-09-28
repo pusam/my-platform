@@ -89,8 +89,10 @@ CREATE TABLE bot_config (
 --     V56 이 처음으로 이 테이블을 건드리면서 스텁 부재가 드러났다(2026-08-28).
 --     V56 이 실제로 갱신하는 6개 금액 컬럼만 넣는다.
 -- V57 은 writer 구분에 report_date·market_cap 을 쓴다(네이버 크롤 행만 되돌리기).
+-- V62 는 KIS 일별 행(market_cap NOT NULL)의 성장률 4종을 백업(stock_code 포함) 후 비운다.
 CREATE TABLE stock_financial_data (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    stock_code VARCHAR(10),
     report_date DATE,
     market_cap DECIMAL(15,2),
     revenue DECIMAL(15,2),
@@ -98,5 +100,9 @@ CREATE TABLE stock_financial_data (
     net_income DECIMAL(15,2),
     total_assets DECIMAL(15,2),
     total_equity DECIMAL(15,2),
-    total_debt DECIMAL(15,2)
+    total_debt DECIMAL(15,2),
+    eps_growth DECIMAL(10,2),
+    profit_growth DECIMAL(10,2),
+    revenue_growth DECIMAL(10,2),
+    peg DECIMAL(10,2)
 );

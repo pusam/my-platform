@@ -41,6 +41,7 @@ public class FinancialDataScheduler {
     private final com.myplatform.backend.service.BatchJobMonitorService batchMonitor;
     private final SchedulerLockService schedulerLockService;
     private final MarketCalendarService marketCalendar;
+    private final com.myplatform.backend.service.StockFinancialDataCollector stockFinancialDataCollector;
 
     /**
      * 매일 08:30 자동 수집 (장 시작 전)
@@ -95,6 +96,8 @@ public class FinancialDataScheduler {
 
     // 최소 데이터 건수 (이보다 적으면 재수집)
     private static final long MIN_DATA_COUNT = 500;
+    // AsyncCrawlerService.collectAllInOneAsync 의 작업 키
+    static final String ALL_IN_ONE_TASK = "collect-all-in-one";
 
     /**
      * 서버 시작 시 데이터가 없으면 1회 자동 수집
@@ -120,8 +123,30 @@ public class FinancialDataScheduler {
             } else {
                 log.info("[배치] 재무 데이터 {}건 존재. 스크리너 사용 가능.", dataCount);
             }
+            catchUpGrowthRates();
         } catch (Exception e) {
             log.error("[배치] 초기 확인 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 성장률 따라잡기(2026-09-29) — 최신 일별 행에 성장률이 하나도 없으면 2단계만 다시 돈다.
+     *
+     * <p>올인원 배치는 메모리 안 비동기라 배포·재시작이 1·2단계 사이를 끊으면 그날 성장률이 비었다(9/17·9/21 실측).
+     * 읽는 쪽은 비면 전날 값으로 떨어지므로 하루는 버티지만, V62 가 옛 값을 비운 직후엔 전날 값도 없다.
+     * 분기 원본(DB)만 읽고 KIS 를 부르지 않아 기동 직후에 돌려도 안전하다.
+     * 올인원 배치가 이미 돌고 있으면 그 2단계가 채우므로 겹쳐 돌지 않는다(같은 행을 두 트랜잭션이 덮지 않게).
+     */
+    void catchUpGrowthRates() {
+        try {
+            if (asyncCrawlerService.isTaskRunning(ALL_IN_ONE_TASK)) return;
+            long measured = stockFinancialDataRepository.countGrowthMeasuredAtLatestDate();
+            if (measured > 0) return;
+            log.info("[배치] 최신 일별 행에 성장률이 없음 — 성장률 계산을 따라잡는다(분기 원본만, KIS 호출 없음)");
+            int updated = stockFinancialDataCollector.calculateAndUpdateGrowthRates();
+            log.info("[배치] 성장률 따라잡기 완료 - {}건", updated);
+        } catch (Exception e) {
+            log.warn("[배치] 성장률 따라잡기 실패(다음 올인원 배치가 채운다): {}", e.getMessage());
         }
     }
 }

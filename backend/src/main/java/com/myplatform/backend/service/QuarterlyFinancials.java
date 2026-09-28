@@ -252,6 +252,67 @@ public final class QuarterlyFinancials {
         };
     }
 
+    /**
+     * {@code end} 월로 끝나는 <b>연속 4분기</b> 합 {@code [매출, 영업이익, 순이익]} — 한 분기라도 없으면 null.
+     * {@link #ttmSum} 이 "가장 최근 4분기"라면 이건 "지정한 분기에서 끝나는 4분기"다(1년 전 TTM 용).
+     */
+    public static BigDecimal[] ttmSumEndingAt(List<Figures> individuals, YearMonth end) {
+        if (individuals == null || end == null) return null;
+        java.util.Map<YearMonth, Figures> byMonth = new java.util.HashMap<>();
+        for (Figures f : individuals) {
+            if (f != null && f.periodEnd() != null) byMonth.putIfAbsent(YearMonth.from(f.periodEnd()), f);
+        }
+        List<Figures> window = new ArrayList<>();
+        for (int i = TTM_QUARTERS - 1; i >= 0; i--) {
+            Figures f = byMonth.get(end.minusMonths((long) QUARTER_MONTHS * i));
+            if (f == null) return null;
+            window.add(f);
+        }
+        return new BigDecimal[]{
+                sumOrNull(window, Figures::revenue),
+                sumOrNull(window, Figures::operatingProfit),
+                sumOrNull(window, Figures::netIncome)
+        };
+    }
+
+    /**
+     * TTM 전년 동기 대비 성장률 — 성장률 배치의 단일 산식(2026-09-29).
+     *
+     * <p>최신 개별 분기로 끝나는 TTM 과 그 12개월 전 분기로 끝나는 TTM 을 비교한다. 같은 길이·같은 계절끼리라
+     * 단일 분기(계절성)나 누적값(YTD)을 섞을 수 없다. 이전 배치는 일별 행(TTM)을 "1년 전 ±30일"의 아무 행과
+     * 비교해 한 분기짜리 행과 섞였고(운영 9/28: 매출 성장률이 채워진 종목의 95%가 ±200% 초과), 1년 전 행이 없으면 30일 전 행을 썼다.
+     *
+     * @return 최신 분기 말일 + 매출·순이익 성장률(%). 두 TTM 중 하나라도 못 만들면 성장률은 null.
+     *         개별 분기가 하나도 없으면 null.
+     */
+    public static TtmGrowth ttmYearOverYear(List<Figures> individuals) {
+        if (individuals == null) return null;
+        Figures latest = null;
+        for (Figures f : individuals) {
+            if (f != null && f.periodEnd() != null && (latest == null || f.periodEnd().isAfter(latest.periodEnd()))) {
+                latest = f;
+            }
+        }
+        if (latest == null) return null;
+        YearMonth end = YearMonth.from(latest.periodEnd());
+        BigDecimal[] now = ttmSumEndingAt(individuals, end);
+        BigDecimal[] ago = ttmSumEndingAt(individuals, end.minusYears(1));
+        if (now == null || ago == null) return new TtmGrowth(latest.periodEnd(), null, null);
+        return new TtmGrowth(latest.periodEnd(), growthPct(now[0], ago[0]), growthPct(now[2], ago[2]));
+    }
+
+    /** @param revenueGrowth 매출 TTM 증가율(%) · @param netIncomeGrowth 순이익 TTM 증가율(%) — 모르면 null */
+    public record TtmGrowth(LocalDate latestPeriodEnd, BigDecimal revenueGrowth, BigDecimal netIncomeGrowth) {}
+
+    /**
+     * (지금 − 기준) / 기준 × 100, 소수 2자리. 기준이 0 이하이거나 결측이면 null —
+     * 적자를 분모로 한 변화율은 성장률이 아니다(§4c, 적자 축소가 +90% 로 뒤집힌다).
+     */
+    public static BigDecimal growthPct(BigDecimal now, BigDecimal base) {
+        if (now == null || base == null || base.signum() <= 0) return null;
+        return now.subtract(base).multiply(BigDecimal.valueOf(100)).divide(base, 2, java.math.RoundingMode.HALF_UP);
+    }
+
     /** 한 분기라도 결측이면 null — 결측을 0 으로 더하면 TTM 이 조용히 축소된다(§4c). */
     private static BigDecimal sumOrNull(List<Figures> rows,
                                         java.util.function.Function<Figures, BigDecimal> getter) {

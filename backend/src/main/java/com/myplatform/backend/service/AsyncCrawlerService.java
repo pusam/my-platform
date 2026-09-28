@@ -89,7 +89,9 @@ public class AsyncCrawlerService {
             sseEmitterService.sendStep(taskType, 2, 2, "2️⃣ 성장률 계산 중 (PEG 스크리너용)...");
             int growthUpdated = stockFinancialDataCollector.calculateAndUpdateGrowthRates();
             result.put("step4_growthRates", Map.of("updatedCount", growthUpdated));
-            // 0건이면 그 자체가 신호다 — 이 배치가 안 돈 날은 eps/매출/순익 성장률과 PEG 가 통째로 0 이 된다.
+            // 반환값은 '값이 바뀐 행 수'다(2026-09-29) — 15:38 회차는 08:30 이 채운 행을 다시 계산해 PER 이 움직인 PEG 정도만
+            // 바뀌므로 적어도 이상이 아니다. 건강 신호는 성장률 계산 로그의 '측정 N · 모름 M' 이다. 이 단계가 안 돈 날은
+            // 그날 행이 비어(null) 있고, 기동 시 따라잡기(FinancialDataScheduler.catchUpGrowthRates)가 메운다.
             log.info("[Async] 2/2 성장률 계산 완료 - {}건 업데이트", growthUpdated);
             sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 성장률 계산: %d건 업데이트", growthUpdated));
 

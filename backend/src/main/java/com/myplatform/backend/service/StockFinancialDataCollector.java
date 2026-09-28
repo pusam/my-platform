@@ -198,8 +198,6 @@ public class StockFinancialDataCollector {
             }
 
             BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
-            BigDecimal profitGrowth = financialRatios.getOrDefault("profitGrowth", null);
-            BigDecimal revenueGrowth = financialRatios.getOrDefault("revenueGrowth", null);
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
@@ -231,12 +229,9 @@ public class StockFinancialDataCollector {
                 }
             }
 
-            BigDecimal epsGrowth = financialRatios.getOrDefault("epsGrowth", null);
-            BigDecimal peg = null;
-            if (per != null && per.compareTo(BigDecimal.ZERO) > 0 &&
-                epsGrowth != null && epsGrowth.compareTo(BigDecimal.ZERO) > 0) {
-                peg = per.divide(epsGrowth, 2, RoundingMode.HALF_UP);
-            }
+            // 성장률 4종(매출·순이익·EPS·PEG)은 여기서 쓰지 않는다 — 2단계 calculateAndUpdateGrowthRates 가 분기 원본으로
+            // 계산해 단독으로 쓴다(2026-09-29). 여기서 읽던 KIS eps_cagr·sls_cagr·ntin_cagr 는 실측 전부 0(죽은 필드)이었고,
+            // 같은 날 15:38 회차가 08:30 회차의 계산값을 0 으로 덮었다. 기존 행을 upsert 할 때도 그 칸은 건드리지 않는다.
 
             // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
             BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
@@ -265,11 +260,7 @@ public class StockFinancialDataCollector {
             financialData.setEps(eps);
             financialData.setBps(bps);
             financialData.setRoe(roe);
-            financialData.setEpsGrowth(epsGrowth);
-            financialData.setPeg(peg);
             financialData.setNetIncome(netIncome);
-            financialData.setProfitGrowth(profitGrowth);
-            financialData.setRevenueGrowth(revenueGrowth);
             financialData.setRevenue(revenue);
             financialData.setOperatingProfit(operatingProfit);
             financialData.setOperatingMargin(operatingMargin);
@@ -359,9 +350,7 @@ public class StockFinancialDataCollector {
                         // ★ 연간 순이익률 백업 (TTM 덮어쓰기 전에 보관 → ROE 추정용)
                         ratios.put("_annualNetMargin", parseBigDecimal(latest.path("ntin_inrt").asText()));
                         ratios.put("debtRatio", parseBigDecimal(latest.path("lblt_rate").asText()));
-                        ratios.put("epsGrowth", parseBigDecimal(latest.path("eps_cagr").asText()));
-                        ratios.put("revenueGrowth", parseBigDecimal(latest.path("sls_cagr").asText()));
-                        ratios.put("profitGrowth", parseBigDecimal(latest.path("ntin_cagr").asText()));
+                        // eps_cagr·sls_cagr·ntin_cagr 는 읽지 않는다 — 실측 전부 0(죽은 필드), 성장률은 2단계 배치 단독(2026-09-29)
                     }
                 }
             }
@@ -781,151 +770,132 @@ public class StockFinancialDataCollector {
         }
     }
 
+    /** 성장률 계산에 쓸 분기 원본 창 — 1년 전 TTM 은 최신 분기 기준 8분기 전까지 필요하고, 누적 환산에 1분기, 공시 지연까지. */
+    static final int GROWTH_LOOKBACK_MONTHS = 36;
+
     /**
-     * 과거 데이터 기반 성장률 계산 및 업데이트
-     * - 전년 동기 대비 성장률 계산 (YoY)
-     * - epsGrowth, profitGrowth, revenueGrowth 계산
-     * - PEG = PER / epsGrowth 계산
+     * PEG 를 만들 성장률 상한 — 이보다 크면 기저효과라 PEG 가 뜻이 없다.
+     * {@code QuantScreenerService.MAX_EPS_GROWTH_FOR_PEG}("최대 EPS 성장률 200% (기저효과 제외)")와 같은 값.
+     */
+    static final BigDecimal PEG_MAX_GROWTH = new BigDecimal("200");
+
+    /** 최신 일별 행에 저장할 성장률 4종 — 모르면 null(0 이 아니다, §4c). */
+    record GrowthFields(BigDecimal revenueGrowth, BigDecimal profitGrowth, BigDecimal epsGrowth, BigDecimal peg) {
+        boolean measured() { return revenueGrowth != null || profitGrowth != null; }
+    }
+
+    /**
+     * 성장률 계산 — <b>분기 원본(V55) TTM 전년 동기 대비</b>(2026-09-29 재작성).
      *
-     * @return 업데이트된 종목 수
+     * <h4>왜 다시 썼나</h4>
+     * 이전 배치는 최신 일별 행(TTM)을 {@code stock_financial_data} 의 "1년 전 ±30일" 아무 행과 비교했다. 그 행이
+     * 한 분기짜리 행이거나 단위 오류 시절 행이면 매출이 +300% 가 됐고, 1년 전 행이 없으면 30일 전 행을 "YoY"로 썼다.
+     * 운영 실측(9/28): 매출 성장률이 채워진 2,156종목 중 <b>2,048종목이 ±200% 초과</b> — "매출고성장" 태그·성장 트랙·
+     * PEG·AI 가치 전략이 전부 그 값을 읽었다(베뉴지 매출 +371% → 실제 +9.3%). 그리고 값이 0 일 때만 채워서
+     * 한 번 들어간 엉터리 값은 그 행에서 고쳐지지 않았다.
+     *
+     * <h4>지금</h4>
+     * {@link QuarterlyFinancials#ttmYearOverYear} — 최근 4분기 합 vs 그 1년 전 4분기 합. 매출·순이익 모두 1년 전 값이
+     * 0 이하면 null(적자 분모), 분기가 모자라거나 최신 분기가 {@link EarningSurpriseService#QUARTER_MAX_AGE_DAYS}일보다
+     * 오래면 null. EPS 성장률은 순이익 성장률로 둔다(주식 수 변화 미반영 — 분기 원본에 주식 수가 없다; KIS 수집기가
+     * 넣던 {@code eps_cagr} 는 실측 전부 0 이라 죽은 필드다). PEG = PER / 순이익 성장률, 성장률 0 초과 200% 이하일 때만.
+     * <b>항상 덮어쓴다</b> — 분기 원본의 결정적 함수라 같은 입력이면 같은 값이고, 모르면 null 로 지운다.
+     *
+     * @return 값이 바뀐 행 수
      */
     @Transactional
     public int calculateAndUpdateGrowthRates() {
-        log.info("성장률 계산 시작...");
-
-        // 최신 데이터가 있는 모든 종목 조회
+        log.info("성장률 계산 시작 (분기 원본 TTM 전년 동기 대비)...");
         LocalDate today = LocalDate.now();
-        LocalDate oneYearAgo = today.minusYears(1);
 
-        // 최근 30일 내 데이터가 있는 종목들
-        List<StockFinancialData> recentStocks = stockFinancialDataRepository
-                .findAllRecentData(today.minusDays(30));
-
-        // 종목별로 그룹화
+        List<StockFinancialData> recentStocks = stockFinancialDataRepository.findAllRecentData(today.minusDays(30));
         Map<String, List<StockFinancialData>> stockDataMap = recentStocks.stream()
                 .collect(java.util.stream.Collectors.groupingBy(StockFinancialData::getStockCode));
+        Map<String, List<QuarterlyFinancials.Figures>> quarters = loadIndividualQuarters(today);
 
-        int updatedCount = 0;
-
+        int updatedCount = 0, measured = 0, unknown = 0;
         for (Map.Entry<String, List<StockFinancialData>> entry : stockDataMap.entrySet()) {
             String stockCode = entry.getKey();
-            // 미래 날짜(추정치 잔여) 행 제외 — 안 하면 342종목의 "최신 행"이 2026-12-31 (E) 행이라 성장률을 거기에
-            // 쓰고, 읽는 쪽(트랙·composite)은 그 행을 거르므로 성장률이 갇힌다(2026-09-03 실측: 성장 후보 2,350→2,020).
-            // 쓰기와 읽기가 같은 규칙(FinancialRowSynthesizer.excludeFutureDated)을 써야 한다. 쿼리도 거르지만 두 겹.
+            // 미래 날짜(추정치 잔여) 행 제외 — 쓰기와 읽기가 같은 규칙(FinancialRowSynthesizer.excludeFutureDated)이어야 한다(2026-09-03).
             List<StockFinancialData> dataList = FinancialRowSynthesizer.excludeFutureDated(entry.getValue(), today);
-
             if (dataList == null || dataList.isEmpty()) continue;
 
-            // 최신 데이터
-            StockFinancialData latest = dataList.get(0);
-
-            // 1년 전 데이터 찾기
-            StockFinancialData yearAgoData = findYearAgoData(stockCode, latest.getReportDate());
-
-            if (yearAgoData == null) {
-                // 1년 전 데이터 없으면 이전 분기 데이터로 대체 (최소 2개 이상 데이터 필요)
-                if (dataList.size() >= 2) {
-                    yearAgoData = dataList.get(dataList.size() - 1);
-                } else {
-                    continue;
-                }
-            }
-
-            boolean updated = false;
-
-            // EPS 성장률 계산
-            if ((latest.getEpsGrowth() == null || latest.getEpsGrowth().compareTo(BigDecimal.ZERO) == 0)
-                    && latest.getEps() != null && yearAgoData.getEps() != null
-                    && yearAgoData.getEps().compareTo(BigDecimal.ZERO) != 0) {
-                BigDecimal epsGrowth = calculateGrowthRate(latest.getEps(), yearAgoData.getEps());
-                if (epsGrowth != null) {
-                    latest.setEpsGrowth(epsGrowth);
-                    updated = true;
-                }
-            }
-
-            // 순이익 성장률 계산
-            if ((latest.getProfitGrowth() == null || latest.getProfitGrowth().compareTo(BigDecimal.ZERO) == 0)
-                    && latest.getNetIncome() != null && yearAgoData.getNetIncome() != null
-                    && yearAgoData.getNetIncome().compareTo(BigDecimal.ZERO) != 0) {
-                BigDecimal profitGrowth = calculateGrowthRate(latest.getNetIncome(), yearAgoData.getNetIncome());
-                if (profitGrowth != null) {
-                    latest.setProfitGrowth(profitGrowth);
-                    updated = true;
-                }
-            }
-
-            // 매출 성장률 계산
-            if ((latest.getRevenueGrowth() == null || latest.getRevenueGrowth().compareTo(BigDecimal.ZERO) == 0)
-                    && latest.getRevenue() != null && yearAgoData.getRevenue() != null
-                    && yearAgoData.getRevenue().compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal revenueGrowth = calculateGrowthRate(latest.getRevenue(), yearAgoData.getRevenue());
-                if (revenueGrowth != null) {
-                    latest.setRevenueGrowth(revenueGrowth);
-                    updated = true;
-                }
-            }
-
-            // PEG 계산 (epsGrowth가 없으면 profitGrowth로 대체)
-            if ((latest.getPeg() == null || latest.getPeg().compareTo(BigDecimal.ZERO) == 0)
-                    && latest.getPer() != null && latest.getPer().compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal growthForPeg = latest.getEpsGrowth();
-                if (growthForPeg == null || growthForPeg.compareTo(BigDecimal.ZERO) <= 0) {
-                    growthForPeg = latest.getProfitGrowth();
-                }
-                if (growthForPeg != null && growthForPeg.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal peg = latest.getPer().divide(growthForPeg, 2, RoundingMode.HALF_UP);
-                    latest.setPeg(peg);
-                    updated = true;
-                }
-            }
-
-            if (updated) {
+            // KIS 일별 행에만 쓴다 — 네이버 분기 행(market_cap NULL)은 writer 가 달라 섞지 않는다(V56→V57 사고).
+            // 네이버 12-31 추정치 행(342종목)은 그날이 지나면 '미래'가 아니게 되어 최신 행 자리에 올라온다.
+            StockFinancialData latest = latestDailyRow(dataList);
+            if (latest == null) continue;
+            GrowthFields g = resolveGrowth(quarters.get(stockCode), latest.getPer(), today);
+            if (g.measured()) measured++; else unknown++;
+            if (applyGrowth(latest, g)) {
                 stockFinancialDataRepository.save(latest);
                 updatedCount++;
-                log.debug("성장률 업데이트: {} - epsGrowth: {}, profitGrowth: {}, peg: {}",
-                        stockCode, latest.getEpsGrowth(), latest.getProfitGrowth(), latest.getPeg());
             }
         }
 
-        log.info("성장률 계산 완료 - 업데이트: {}건", updatedCount);
+        log.info("성장률 계산 완료 - 종목 {}개 중 측정 {} · 모름 {}(분기 부족·노후·적자 분모) · 값 변경 {}건",
+                stockDataMap.size(), measured, unknown, updatedCount);
         return updatedCount;
     }
 
-    /**
-     * 1년 전 데이터 조회
-     */
-    private StockFinancialData findYearAgoData(String stockCode, LocalDate currentDate) {
-        LocalDate targetDate = currentDate.minusYears(1);
-        // 1년 전 ±30일 범위에서 조회
-        LocalDate minDate = targetDate.minusDays(30);
-        LocalDate maxDate = targetDate.plusDays(30);
-
-        List<StockFinancialData> historicalData = stockFinancialDataRepository
-                .findByStockCodeOrderByReportDateDesc(stockCode);
-
-        return historicalData.stream()
-                .filter(d -> !d.getReportDate().isBefore(minDate) && !d.getReportDate().isAfter(maxDate))
-                .findFirst()
-                .orElse(null);
+    /** 최신 KIS 일별 행 — 입력은 report_date 내림차순, market_cap 이 NULL 이 아닌 첫 행(KIS 행은 값 또는 0). 순수. */
+    static StockFinancialData latestDailyRow(List<StockFinancialData> descRows) {
+        for (StockFinancialData r : descRows) {
+            if (r != null && r.getMarketCap() != null) return r;
+        }
+        return null;
     }
 
-    /**
-     * 성장률 계산 (YoY)
-     * @return (current - previous) / |previous| * 100
-     */
-    private BigDecimal calculateGrowthRate(BigDecimal current, BigDecimal previous) {
-        if (current == null || previous == null || previous.compareTo(BigDecimal.ZERO) == 0) {
+    /** 분기 원본을 종목별 개별 분기로 — 누적(YTD)은 환산, 환산 불가 행은 빠진다({@link QuarterlyFinancials#toIndividualQuarters}). */
+    private Map<String, List<QuarterlyFinancials.Figures>> loadIndividualQuarters(LocalDate today) {
+        List<StockQuarterlyFinancial> rows = quarterlyRepository.findAllSince(today.minusMonths(GROWTH_LOOKBACK_MONTHS));
+        Map<String, List<QuarterlyFinancials.Figures>> out = new HashMap<>();
+        if (rows == null) return out;
+        Map<String, List<StockQuarterlyFinancial>> byStock = rows.stream()
+                .collect(java.util.stream.Collectors.groupingBy(StockQuarterlyFinancial::getStockCode));
+        for (Map.Entry<String, List<StockQuarterlyFinancial>> e : byStock.entrySet()) {
+            List<QuarterlyFinancials.Figures> raw = e.getValue().stream()
+                    .map(q -> new QuarterlyFinancials.Figures(q.getFiscalPeriod(), q.getPeriodEnd(),
+                            q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
+                    .collect(java.util.stream.Collectors.toList());
+            out.put(e.getKey(), QuarterlyFinancials.toIndividualQuarters(raw));
+        }
+        return out;
+    }
+
+    /** 순수 — 개별 분기 → 저장할 성장률 4종. 최신 분기가 노후면 모름(수집 끊긴 종목의 옛 실적을 오늘 성장률로 쓰지 않는다). */
+    static GrowthFields resolveGrowth(List<QuarterlyFinancials.Figures> individuals, BigDecimal per, LocalDate today) {
+        QuarterlyFinancials.TtmGrowth t = QuarterlyFinancials.ttmYearOverYear(individuals);
+        if (t == null || t.latestPeriodEnd().isBefore(today.minusDays(EarningSurpriseService.QUARTER_MAX_AGE_DAYS))) {
+            return new GrowthFields(null, null, null, null);
+        }
+        BigDecimal profit = t.netIncomeGrowth();
+        return new GrowthFields(t.revenueGrowth(), profit, profit, pegOf(per, profit));
+    }
+
+    /** PEG = PER / 성장률(%) — PER·성장률이 양수이고 성장률이 기저효과 상한 이하일 때만. 순수. */
+    static BigDecimal pegOf(BigDecimal per, BigDecimal growth) {
+        if (per == null || per.signum() <= 0 || growth == null || growth.signum() <= 0
+                || growth.compareTo(PEG_MAX_GROWTH) > 0) {
             return null;
         }
-        try {
-            return current.subtract(previous)
-                    .divide(previous.abs(), 4, RoundingMode.HALF_UP)
-                    .multiply(new BigDecimal("100"))
-                    .setScale(2, RoundingMode.HALF_UP);
-        } catch (ArithmeticException e) {
-            return null;
-        }
+        return per.divide(growth, 2, RoundingMode.HALF_UP);
+    }
+
+    /** 행에 성장률 4종을 쓴다 — 바뀐 게 있을 때만 true(불필요한 저장을 피한다). */
+    static boolean applyGrowth(StockFinancialData row, GrowthFields g) {
+        boolean changed = !sameValue(row.getRevenueGrowth(), g.revenueGrowth())
+                || !sameValue(row.getProfitGrowth(), g.profitGrowth())
+                || !sameValue(row.getEpsGrowth(), g.epsGrowth())
+                || !sameValue(row.getPeg(), g.peg());
+        row.setRevenueGrowth(g.revenueGrowth());
+        row.setProfitGrowth(g.profitGrowth());
+        row.setEpsGrowth(g.epsGrowth());
+        row.setPeg(g.peg());
+        return changed;
+    }
+
+    private static boolean sameValue(BigDecimal a, BigDecimal b) {
+        return a == null ? b == null : b != null && a.compareTo(b) == 0;
     }
 
     /**

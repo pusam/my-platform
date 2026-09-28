@@ -63,6 +63,8 @@ class FlywayMigrationTest {
     void migratesLegacyBaselineToLatestOnRealMariaDb() throws Exception {
         // Flyway 실행 전 레거시 베이스 스텁을 심어 스키마를 non-empty 로 만든다(baseline-on-migrate 트리거).
         applyLegacyBaseStub();
+        // V62 는 데이터 마이그레이션이다 — 행이 있어야 writer 구분(KIS 만 비우고 네이버는 그대로)을 검증할 수 있다.
+        seedGrowthRowsForV62();
 
         Flyway flyway = Flyway.configure()
                 .dataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword())
@@ -158,6 +160,44 @@ class FlywayMigrationTest {
         // --- 검증 12 (V61 엔티티 ↔ 스키마): 운영은 ddl-auto: validate 라 둘이 어긋나면 배포 뒤 부팅이 실패한다.
         //     스모크 테스트(H2 create-drop)는 엔티티로 스키마를 만들어 이 불일치를 못 잡는다 — 여기서 같은 판정을 한다.
         validateEntitiesAgainstSchema("com.myplatform.backend.youtubeopinion");
+
+        // --- 검증 13 (V62): KIS 일별 행의 성장률 4종만 백업 후 비운다 — 네이버 분기 행(market_cap NULL)은 그대로 ---
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE market_cap IS NOT NULL "
+                + "AND (eps_growth IS NOT NULL OR profit_growth IS NOT NULL OR revenue_growth IS NOT NULL OR peg IS NOT NULL)"))
+                .as("V62 KIS 일별 행 성장률이 전부 NULL — 새 배치가 분기 원본으로 다시 채운다").isZero();
+        assertThat(scalarString("SELECT profit_growth FROM stock_financial_data WHERE market_cap IS NULL AND stock_code = '019010'"))
+                .as("V62 네이버 분기 행은 writer 가 달라 건드리지 않는다(V56→V57 사고)").isEqualTo("55.00");
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_growth_backup_v62"))
+                .as("V62 백업은 값이 있던 KIS 행만 — 전부 NULL 인 행·네이버 행은 제외").isEqualTo(1);
+        assertThat(scalarString("SELECT CONCAT(stock_code, '/', revenue_growth, '/', peg) FROM stock_financial_growth_backup_v62"))
+                .as("V62 백업에 비우기 전 값이 남아 되돌릴 수 있다").isEqualTo("019010/371.00/0.80");
+    }
+
+    /** V62 검증용 행 — KIS 행(값 있음·전부 NULL) 둘과 네이버 분기 행 하나. */
+    private void seedGrowthRowsForV62() throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("INSERT INTO stock_financial_data (stock_code, report_date, market_cap, "
+                    + "eps_growth, profit_growth, revenue_growth, peg) VALUES "
+                    + "('019010', '2026-09-28', 1000.00, 12.00, 12.00, 371.00, 0.80), "
+                    + "('005930', '2026-09-28', 5000.00, NULL, NULL, NULL, NULL), "
+                    + "('019010', '2026-06-30', NULL, NULL, 55.00, NULL, NULL)");
+        }
+    }
+
+    private long scalarLong(String sql) throws Exception {
+        return Long.parseLong(scalarString(sql));
+    }
+
+    private String scalarString(String sql) throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery(sql)) {
+            rs.next();
+            return rs.getString(1);
+        }
     }
 
     /**

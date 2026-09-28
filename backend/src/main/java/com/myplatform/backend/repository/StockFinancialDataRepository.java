@@ -310,5 +310,18 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
 
     @Query("SELECT COUNT(s) FROM StockFinancialData s WHERE s.epsGrowth > 0 OR s.profitGrowth > 0")
     long countWithGrowthData();
+
+    /**
+     * 가장 최근 일별 스냅샷(KIS 행) 날짜에 성장률이 채워진 행 수 — 기동 시 성장률 따라잡기 판정(2026-09-29).
+     *
+     * <p>성장률은 2단계 배치만 쓴다. 0 이면 그날 2단계가 안 돌았거나(배포·재시작이 올인원 배치를 끊음 — 9/17·9/21 실측)
+     * V62 가 옛 값을 비운 직후다. 네이버 분기 행({@code market_cap IS NULL})은 세지 않는다(§4c writer 구분).
+     */
+    @Query(value = "SELECT COUNT(*) FROM stock_financial_data s "
+            + " WHERE s.market_cap IS NOT NULL "
+            + "   AND s.report_date = (SELECT MAX(d.report_date) FROM stock_financial_data d "
+            + "                         WHERE d.report_date <= CURDATE() AND d.market_cap IS NOT NULL) "
+            + "   AND (s.revenue_growth IS NOT NULL OR s.profit_growth IS NOT NULL)", nativeQuery = true)
+    long countGrowthMeasuredAtLatestDate();
 }
 
