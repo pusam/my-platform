@@ -309,6 +309,23 @@ public final class QuarterlyFinancials {
     }
 
     /**
+     * {@code latest} 와 같은 분기의 <b>1년 전</b> 개별 분기(회계기간 말 월이 정확히 12개월 전) — 없으면 null.
+     *
+     * <p>직전 분기 대비는 계절성을 "급증"으로 읽는다(1분기가 매년 약한 회사는 2분기마다 서프라이즈).
+     * 전년 동기는 같은 계절끼리 비교라 그 착시가 없다(2026-09-29, 베뉴지·주성엔지니어링).
+     *
+     * @param individuals {@link #toIndividualQuarters} 결과
+     */
+    public static Figures sameQuarterYearAgo(List<Figures> individuals, Figures latest) {
+        if (individuals == null || latest == null || latest.periodEnd() == null) return null;
+        YearMonth target = YearMonth.from(latest.periodEnd()).minusYears(1);
+        for (Figures f : individuals) {
+            if (f != null && f.periodEnd() != null && YearMonth.from(f.periodEnd()).equals(target)) return f;
+        }
+        return null;
+    }
+
+    /**
      * 개별 분기 목록에서 <b>비교 가능한 최신 인접 2분기</b>를 고른다.
      *
      * <p>가장 최근 것과 그 3개월 전 것이 모두 있어야 한다. 중간 분기가 결측이면

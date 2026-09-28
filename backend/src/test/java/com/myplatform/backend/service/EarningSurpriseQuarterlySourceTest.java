@@ -218,6 +218,97 @@ class EarningSurpriseQuarterlySourceTest {
         assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.POSITIVE);
     }
 
+    // ------------------------------------------------------------------ 전년 동기 확인 (2026-09-29)
+    // 직전 분기 대비만 보면 계절성이 "급증"으로 읽힌다 — 1분기가 매년 약한 회사는 2분기마다 서프라이즈가 된다.
+    // 2026-09-29 매수후보 1·2등(베뉴지·주성엔지니어링)이 둘 다 그 착시로 실적 20점을 받았다.
+
+    @Test
+    @DisplayName("실측 베뉴지 — 직전 분기 대비 +184% 지만 전년 동기(56억)보다 줄었으면(54억) 서프라이즈가 아니다")
+    void realVenueGSeasonalSurgeIsNotASurprise() {
+        // stock_quarterly_financial 019010 누적 원본 그대로(2025-03 ~ 2026-06). 개별 환산: 2025Q2 56 · 2026Q1 19 · 2026Q2 54
+        List<EarningSurpriseDto> out = runWith(
+                q(5, "91", "21", "113", true),
+                q(4, "208", "77", "220", true),
+                q(3, "344", "103", "543", true),
+                q(2, "482", "150", "1011", true),
+                q(1, "104", "19", "579", true),
+                q(0, "230", "73", "2773", true));
+
+        assertThat(out).as("계절성 착시 — 전년 동기 대비 -3.6%").isEmpty();
+    }
+
+    @Test
+    @DisplayName("주성엔지니어링 패턴 — 2분기 연속 적자 뒤 흑자여도 전년 동기(66억)보다 한참 낮으면(14억) 흑자전환 점수가 아니다")
+    void turnaroundBelowYearAgoIsNotASurprise() {
+        List<EarningSurpriseDto> out = runWith(
+                q(4, "12000", "66", "50", false),       // 전년 동기
+                q(2, "9000", "-40", "-30", false),      // prev2 적자
+                q(1, "8000", "-70", "-55", false),      // prev 적자
+                q(0, "10000", "14", "10", false));      // latest 흑자
+
+        assertThat(out).isEmpty();
+    }
+
+    @Test
+    @DisplayName("전년 동기보다도 늘었으면 그대로 서프라이즈 — 변화율은 기존대로 직전 분기 대비")
+    void yearOverYearGrowthKeepsSurprise() {
+        List<EarningSurpriseDto> out = runWith(
+                q(4, "10000", "40", "30", false),       // 전년 동기 40
+                q(1, "9000", "19", "15", false),
+                q(0, "12000", "54", "40", false));      // 54 > 40
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.POSITIVE);
+        assertThat(out.get(0).getOperatingProfitChangeRate()).isEqualByComparingTo("184.2");
+    }
+
+    @Test
+    @DisplayName("전년 동기가 적자였고 지금 흑자면 전년 동기 대비로도 개선 — 흑자전환 유지")
+    void yearAgoLossKeepsTurnaround() {
+        List<EarningSurpriseDto> out = runWith(
+                q(4, "10000", "-30", "-25", false),     // 전년 동기 적자
+                q(2, "10000", "-50", "-40", false),
+                q(1, "11000", "-20", "-15", false),
+                q(0, "12000", "80", "60", false));
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.TURNAROUND);
+    }
+
+    @Test
+    @DisplayName("영업이익이 없어 순이익으로 판정한 경우 전년 동기 확인도 순이익으로")
+    void netIncomeFallbackUsesNetIncomeYearOverYear() {
+        List<EarningSurpriseDto> out = runWith(
+                q(4, "10000", null, "100", false),      // 전년 동기 순이익 100
+                q(1, "10000", null, "50", false),
+                q(0, "10000", null, "90", false));      // 직전 대비 +80%, 전년 동기 대비 -10%
+
+        assertThat(out).isEmpty();
+    }
+
+    @Test
+    @DisplayName("전년 동기 자료가 없으면 판정 보류 = 종전대로(결측은 차단 근거가 아니다) — 상장 1년 미만 등")
+    void missingYearAgoBaseKeepsCurrentBehavior() {
+        List<EarningSurpriseDto> out = runWith(
+                q(1, "11000", "100", "80", false),
+                q(0, "12000", "150", "120", false));
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.POSITIVE);
+    }
+
+    @Test
+    @DisplayName("전년 동기 대비 하락은 NEGATIVE 판정에는 손대지 않는다 — 점수를 주는 쪽만 확인한다")
+    void negativeSurpriseIsUntouched() {
+        List<EarningSurpriseDto> out = runWith(
+                q(4, "10000", "200", "150", false),
+                q(1, "10000", "200", "150", false),
+                q(0, "10000", "100", "80", false));     // 직전 대비 -50%
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.NEGATIVE);
+    }
+
     /** 분기 행을 넣고 detectFromQuarterly 를 돌린다. */
     private List<EarningSurpriseDto> runWith(StockQuarterlyFinancial... rows) {
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(rows));

@@ -22,6 +22,8 @@ import java.util.stream.Collectors;
 
 /**
  * 어닝 서프라이즈 감지 서비스 — 영업이익(없으면 순이익) 전분기 대비 ±20% / 적자→흑자 전환.
+ * 분기 경로에서 점수를 주는 판정(POSITIVE·TURNAROUND)은 <b>전년 동기보다도 좋아졌을 때만</b> 남긴다(2026-09-29,
+ * {@link #improvedYearOverYear} — 직전 분기 대비만 보면 계절성이 "급증"으로 읽힌다).
  *
  * <h3>입력 경로가 둘이다 (AUDIT 2026-08-21 R1)</h3>
  * <ul>
@@ -129,7 +131,7 @@ public class EarningSurpriseService {
         Map<String, List<StockQuarterlyFinancial>> byStock = rows.stream()
                 .collect(Collectors.groupingBy(StockQuarterlyFinancial::getStockCode));
 
-        int stale = 0, notEnough = 0;
+        int stale = 0, notEnough = 0, seasonal = 0, noYearAgo = 0;
         for (Map.Entry<String, List<StockQuarterlyFinancial>> e : byStock.entrySet()) {
             List<QuarterlyFinancials.Figures> raw = e.getValue().stream()
                     .map(q -> new QuarterlyFinancials.Figures(
@@ -154,12 +156,57 @@ public class EarningSurpriseService {
                     toPeriod(code, name, market, pair[0]),
                     toPeriod(code, name, market, pair[1]),
                     prev2Op);
-            if (dto != null) surprises.add(dto);
+            if (dto == null) continue;
+
+            // 점수를 주는 판정은 전년 동기보다도 좋아졌을 때만(2026-09-29) — 직전 분기 대비 급증이 계절성 착시일 수 있다
+            if (awardsPoints(dto)) {
+                Boolean improved = improvedYearOverYear(pair[0],
+                        QuarterlyFinancials.sameQuarterYearAgo(individuals, pair[0]));
+                if (Boolean.FALSE.equals(improved)) { seasonal++; continue; }
+                if (improved == null) noYearAgo++;
+            }
+            surprises.add(dto);
         }
 
-        log.info("[어닝서프라이즈] 분기원본 - 종목 {}개 중 판정 {}건 (인접2분기 미확보 {}, 노후 {})",
-                byStock.size(), surprises.size(), notEnough, stale);
+        log.info("[어닝서프라이즈] 분기원본 - 종목 {}개 중 판정 {}건 (인접2분기 미확보 {}, 노후 {}, "
+                        + "전년 동기보다 나빠 제외 {}, 전년 동기 자료 없어 종전대로 {})",
+                byStock.size(), surprises.size(), notEnough, stale, seasonal, noYearAgo);
         return surprises;
+    }
+
+    /** composite 실적 점수를 받는 판정인가 — 전년 동기 확인은 이 둘에만 건다(NEGATIVE 는 점수와 무관). */
+    static boolean awardsPoints(EarningSurpriseDto dto) {
+        return dto.getSurpriseType() == SurpriseType.POSITIVE || dto.getSurpriseType() == SurpriseType.TURNAROUND;
+    }
+
+    /**
+     * 전년 동기 대비 개선 여부 — 순수 함수(2026-09-29).
+     *
+     * <h4>왜</h4>
+     * 판정은 직전 분기 대비라 <b>계절성</b>이 서프라이즈로 둔갑했다. 2026-09-29 운영 실측: 실적 만점(20점)
+     * 410종목 중 136종목이 전년 동기 대비로는 개선이 아니었고, 그날 매수후보 1·2등이 둘 다 그 경우였다 —
+     * 베뉴지(직전 19억 → 54억 +184%, 전년 동기 56억) · 주성엔지니어링(직전 -70억 → 14억 "흑자전환", 전년 동기 66억).
+     * 두 종목 모두 실적 20점이 빠지면 35점이라 후보가 아니다.
+     *
+     * <p>변화율·임계(±20%)·흑자전환 연속성 규칙은 그대로 두고, <b>전년 동기보다 나빠진 경우만 뺀다</b>
+     * (사용자 결정 2026-09-29: "+20% 이상"보다 느슨한 "증가" 기준 — 계절성 착시만 걸러내는 최소 변경).
+     * 비교 대상은 판정과 같은 지표(영업이익, 둘 다 없으면 순이익).
+     *
+     * @return TRUE 개선(적자→흑자 포함) · FALSE 같거나 악화 · null 판정 불가(전년 동기 분기·지표 결측) —
+     *         null 은 <b>종전대로 둔다</b>: 결측은 차단 근거가 아니다(상장 1년 미만 등, 실측 16종목)
+     */
+    static Boolean improvedYearOverYear(QuarterlyFinancials.Figures latest, QuarterlyFinancials.Figures yearAgo) {
+        if (latest == null || yearAgo == null) return null;
+        BigDecimal now = null, then = null;
+        if (latest.operatingProfit() != null && yearAgo.operatingProfit() != null) {
+            now = latest.operatingProfit();
+            then = yearAgo.operatingProfit();
+        } else if (latest.netIncome() != null && yearAgo.netIncome() != null) {
+            now = latest.netIncome();
+            then = yearAgo.netIncome();
+        }
+        if (now == null) return null;
+        return now.compareTo(then) > 0;
     }
 
     private static Period toPeriod(String code, String name, String market,
@@ -209,8 +256,12 @@ public class EarningSurpriseService {
         return surprises;
     }
 
-    /** 분기 원본을 거슬러 올릴 개월 수 — 누적 환산엔 직전 분기가 필요해 넉넉히 잡는다. */
-    private static final int QUARTER_LOOKBACK_MONTHS = 18;
+    /**
+     * 분기 원본을 거슬러 올릴 개월 수 — 누적 환산엔 직전 분기가 필요해 넉넉히 잡는다.
+     * 전년 동기 확인(2026-09-29)은 "최신 분기 − 12개월"의 개별 값이 필요하고 그 환산엔 다시 3개월 전 누적이
+     * 필요해 최신 분기 기준 15개월 + 공시 지연까지 덮어야 한다 — 18 이면 늦게 공시한 종목이 빠져 24 로 올렸다.
+     */
+    private static final int QUARTER_LOOKBACK_MONTHS = 24;
 
     /**
      * 최신 분기가 이보다 오래면 판정 제외.
