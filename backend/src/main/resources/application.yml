@@ -188,6 +188,17 @@ alert:
   scheduler:
     enabled: ${ALERT_SCHEDULER_ENABLED:false}
 
+# 유튜브 투자 의견(참고 표시·기록 전용, 2026-09-28) — 추천 점수·순위·봇·signal_outcome 미편입.
+# 공개 영상 자막은 YouTube Data API 로 못 받는다(captions.download = 영상 편집 권한 필요) → 관리자 자막 등록만(자동 수집 미연결).
+youtube-opinion:
+  enabled: ${YOUTUBE_OPINION_ENABLED:false}
+  # 등록 허용 채널 — "채널ID=표시이름" 콤마 구분. 비어 있으면 영상 등록 불가(사용자가 고른 채널만).
+  channels: ${YOUTUBE_OPINION_CHANNELS:}
+  window-days: 7              # 집계 창(영상 게시 시각 기준)
+  max-chunks-per-run: 20      # 영상 1건 분석 = Gemini 호출 수 상한(약 3천 자 구간당 1회)
+  daily-call-limit: 60        # 하루 유튜브 분석 호출 상한 — 재료 분석과 전역 Gemini 제한기를 나눠 쓴다
+  quiet-window: "07:20-08:40" # 모닝브리핑(07:30)·재료 워밍(08:00) 보호 — 이 시간엔 분석을 시작하지 않는다
+
 # 종합추천(composite) 산식 — A안(P1-6, 2026-07-06) 수급 역상관 방어 flag.
 # 수급(supplyDemand) 카테고리는 prod 실측(n=88)에서 단조 역상관 확정(0-4=67% → 15+=35%).
 # composite 총점 raw 합산에서만 수급을 min(sd, cap) 으로 상한(표시값·validCount·임계 불변, 가역).

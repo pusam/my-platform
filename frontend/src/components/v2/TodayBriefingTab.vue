@@ -60,36 +60,58 @@
         오늘은 매수 컷(55점)을 넘은 후보가 없습니다 — 관망이 결론입니다.
       </div>
       <div v-else class="candidate-list">
-        <div v-for="(c, i) in buyCandidates" :key="c.stockCode"
-             class="candidate-card" role="button" tabindex="0"
-             @click="$emit('open-stock', c.stockCode)"
-             @keydown.enter="$emit('open-stock', c.stockCode)">
-          <span class="cc-rank">#{{ i + 1 }}</span>
-          <div class="cc-main">
-            <div class="cc-head">
-              <span class="cc-name">{{ c.stockName }}</span>
-              <span class="cc-grade" :class="gradeClass(c.totalScore)">{{ gradeLabel(c.totalScore) }}</span>
-              <span class="cc-score">{{ c.totalScore }}점</span>
+        <div v-for="(c, i) in buyCandidates" :key="c.stockCode" class="candidate-item">
+          <div class="candidate-card" role="button" tabindex="0"
+               @click="$emit('open-stock', c.stockCode)"
+               @keydown.enter="$emit('open-stock', c.stockCode)">
+            <span class="cc-rank">#{{ i + 1 }}</span>
+            <div class="cc-main">
+              <div class="cc-head">
+                <span class="cc-name">{{ c.stockName }}</span>
+                <span class="cc-grade" :class="gradeClass(c.totalScore)">{{ gradeLabel(c.totalScore) }}</span>
+                <span class="cc-score">{{ c.totalScore }}점</span>
+              </div>
+              <div class="cc-tags">
+                <span v-if="catalysts[c.stockCode]" class="cc-catalyst" :class="'cat-' + catalysts[c.stockCode].direction.toLowerCase()">
+                  🔥 재료: {{ catalysts[c.stockCode].typeLabel }}({{ directionLabel(catalysts[c.stockCode].direction) }}){{ catalystAgeLabel(catalysts[c.stockCode]) }}
+                  <!-- 근거 기사 링크 (V53) — 카드 클릭(종목 열기)과 분리(@click.stop). newsLink 없으면 생략(§4c) -->
+                  <a v-if="catalysts[c.stockCode].newsLink" class="cc-cat-link"
+                     :href="catalysts[c.stockCode].newsLink" target="_blank" rel="noopener noreferrer"
+                     :title="catalysts[c.stockCode].headline || '근거 기사 보기'" @click.stop>📰</a>
+                </span>
+                <span v-for="(tag, ti) in displayTags(c)" :key="ti" class="cc-tag" :class="{ 'cc-tag-warn': tag.startsWith('⚠') }">{{ tag }}</span>
+              </div>
             </div>
-            <div class="cc-tags">
-              <span v-if="catalysts[c.stockCode]" class="cc-catalyst" :class="'cat-' + catalysts[c.stockCode].direction.toLowerCase()">
-                🔥 재료: {{ catalysts[c.stockCode].typeLabel }}({{ directionLabel(catalysts[c.stockCode].direction) }}){{ catalystAgeLabel(catalysts[c.stockCode]) }}
-                <!-- 근거 기사 링크 (V53) — 카드 클릭(종목 열기)과 분리(@click.stop). newsLink 없으면 생략(§4c) -->
-                <a v-if="catalysts[c.stockCode].newsLink" class="cc-cat-link"
-                   :href="catalysts[c.stockCode].newsLink" target="_blank" rel="noopener noreferrer"
-                   :title="catalysts[c.stockCode].headline || '근거 기사 보기'" @click.stop>📰</a>
+            <div class="cc-price">
+              <span v-if="c.currentPrice" class="cc-price-num">{{ Number(c.currentPrice).toLocaleString('ko-KR') }}원</span>
+              <span v-if="c.changeRate != null" class="cc-change" :class="changeClass(c.changeRate)">
+                {{ signed(c.changeRate) }}%
               </span>
-              <span v-for="(tag, ti) in displayTags(c)" :key="ti" class="cc-tag" :class="{ 'cc-tag-warn': tag.startsWith('⚠') }">{{ tag }}</span>
             </div>
           </div>
-          <div class="cc-price">
-            <span v-if="c.currentPrice" class="cc-price-num">{{ Number(c.currentPrice).toLocaleString('ko-KR') }}원</span>
-            <span v-if="c.changeRate != null" class="cc-change" :class="changeClass(c.changeRate)">
-              {{ signed(c.changeRate) }}%
+          <!-- 📺 유튜브 참고 의견 — 카드(추천 근거·종목 열기) 밖에 따로 둔다: 점수·순위와 무관한 외부 참고라
+               시각적으로도 분리하고, 버튼 클릭이 종목 열기로 번지지 않게. 의견이 있는 후보만 한 줄. -->
+          <div v-if="ytItem(c.stockCode)" class="cc-yt">
+            <span class="cc-yt-label">📺 유튜브 참고</span>
+            <span class="cc-yt-text">{{ summaryText(ytItem(c.stockCode).summary) }}</span>
+            <span v-if="ytItem(c.stockCode).summary.latestPublishedAt" class="cc-yt-date">
+              최근 {{ formatKst(ytItem(c.stockCode).summary.latestPublishedAt) }}
             </span>
+            <button type="button" class="cc-yt-toggle" :aria-expanded="ytOpen[c.stockCode] ? 'true' : 'false'"
+                    @click.stop="toggleYoutube(c.stockCode)" @keydown.enter.stop>
+              {{ ytOpen[c.stockCode] ? '접기' : '상세' }}
+            </button>
+          </div>
+          <div v-if="ytOpen[c.stockCode]" class="cc-yt-detail">
+            <p v-if="ytDetail[c.stockCode] === 'loading'" class="cc-yt-state">불러오는 중…</p>
+            <p v-else-if="ytDetail[c.stockCode] === 'failed'" class="cc-yt-state">⚠ 상세를 불러오지 못했습니다.</p>
+            <YoutubeOpinionList v-else-if="ytDetail[c.stockCode]" :view="ytDetail[c.stockCode]" compact />
           </div>
         </div>
       </div>
+      <!-- 유튜브 참고 범위 — 목록 전체에 한 줄(후보마다 '없음'을 반복하지 않는다). 조회 실패·분석 영상 없음·
+           언급 없음을 구분해서 말한다(§4c). 기능이 꺼져 있으면 아무것도 안 그린다. -->
+      <p v-if="youtubeNote" class="cc-yt-note" :class="{ 'cc-yt-note-warn': youtubeFailed }">{{ youtubeNote }}</p>
     </div>
 
     <!-- ③ 내 포지션 요약 — 내 돈이 걸린 정보라 후보 바로 다음(위) -->
@@ -170,7 +192,9 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import apiClient, { recommendationAPI, paperTradingAPI } from '../../utils/api';
+import apiClient, { recommendationAPI, paperTradingAPI, youtubeOpinionAPI } from '../../utils/api';
+import YoutubeOpinionList from './YoutubeOpinionList.vue';
+import { summaryText, formatKst, coverageText } from '../../utils/youtubeOpinion';
 
 const props = defineProps({
   marketData: { type: Object, default: null }
@@ -249,6 +273,7 @@ const loadCandidates = async () => {
       .filter(r => Number(r.totalScore) >= BUY_CUT)
       .slice(0, MAX_CANDIDATES);
     loadCatalysts();
+    loadYoutubeSummary();
   } catch (e) {
     // 조회 실패를 '관망'으로 말하면 안 된다(2026-08-05 감사) — '컷 통과 0건'은 시장 판단이고
     // 조회 실패는 판단 불가다. 둘을 같은 문구로 덮으면 장애 중에도 화면이 결론을 단정한다(§4c).
@@ -289,6 +314,74 @@ const loadCatalysts = async () => {
         catalysts.value = { ...catalysts.value, [c.stockCode]: cat };
       }
     } catch (e) { /* 배지 생략 */ }
+  }
+};
+
+// ── 유튜브 참고 의견 — 후보 전체를 한 번에 조회(종목마다 부르지 않는다). 후보 순서·점수는 이 값과 무관하다.
+// 60초 갱신마다 부르지 않게 같은 후보 묶음은 5분 안에 다시 읽지 않는다. 실패해도 후보 표시는 그대로.
+const YT_REFRESH_MS = 5 * 60 * 1000;
+const youtubeSummary = ref(null);    // SummaryViewDto
+const youtubeFailed = ref(false);
+const ytOpen = ref({});              // stockCode → 펼침
+const ytDetail = ref({});            // stockCode → StockViewDto | 'loading' | 'failed'
+let ytLoadedKey = null;
+let ytLoadedAt = 0;
+
+const loadYoutubeSummary = async () => {
+  const codes = buyCandidates.value.map(c => c.stockCode);
+  if (!codes.length) return;
+  const key = codes.join(',');
+  if (key === ytLoadedKey && Date.now() - ytLoadedAt < YT_REFRESH_MS) return;
+  try {
+    const { data } = await youtubeOpinionAPI.getSummary(codes);
+    if (!data?.success) throw new Error('유튜브 의견 요약 미가용');
+    youtubeSummary.value = data.data;
+    youtubeFailed.value = false;
+    ytLoadedKey = key;
+    ytLoadedAt = Date.now();
+  } catch (e) {
+    youtubeSummary.value = null;
+    youtubeFailed.value = true;
+  }
+};
+
+/** 의견이 있는 후보만 요약 한 줄을 받는다(없음·미분석은 목록 한 줄 안내로). */
+const ytItem = (code) => {
+  const s = youtubeSummary.value;
+  if (!s || s.enabled === false || s.dataAvailable === false) return null;
+  const item = s.items?.[code];
+  return item && item.status === 'HAS_OPINIONS' && item.summary ? item : null;
+};
+
+const youtubeNote = computed(() => {
+  if (!buyCandidates.value.length) return null;
+  const s = youtubeSummary.value;
+  if (youtubeFailed.value || (s && s.dataAvailable === false)) {
+    return '📺 유튜브 참고 의견을 불러오지 못했습니다 — 의견이 없는 것이 아니라 확인하지 못한 것입니다(후보 판단과 무관).';
+  }
+  if (!s || s.enabled === false) return null;
+  const head = `📺 유튜브 참고 의견 · ${s.scope || '분석된 영상 기준'} · 최근 ${s.windowDays}일 · 추천 점수·순위와 무관`;
+  const cov = s.coverage;
+  if (!cov || !cov.analyzedVideos) {
+    return `${head} — 분석을 마친 영상이 없습니다${cov ? `(${coverageText(cov)})` : ''}.`;
+  }
+  const withOpinion = buyCandidates.value.filter(c => ytItem(c.stockCode)).length;
+  const without = buyCandidates.value.length - withOpinion;
+  return `${head} — ${coverageText(cov)} · 의견 있는 후보 ${withOpinion} · 언급 없음 ${without}`;
+});
+
+const toggleYoutube = async (code) => {
+  const open = !ytOpen.value[code];
+  ytOpen.value = { ...ytOpen.value, [code]: open };
+  const cached = ytDetail.value[code];
+  if (!open || (cached && cached !== 'failed')) return;
+  ytDetail.value = { ...ytDetail.value, [code]: 'loading' };
+  try {
+    const { data } = await youtubeOpinionAPI.getStock(code);
+    if (!data?.success || data.data?.enabled === false || data.data?.dataAvailable === false) throw new Error('상세 미가용');
+    ytDetail.value = { ...ytDetail.value, [code]: data.data };
+  } catch (e) {
+    ytDetail.value = { ...ytDetail.value, [code]: 'failed' };
   }
 };
 
@@ -487,6 +580,29 @@ onMounted(() => {
   transition: background 0.15s;
 }
 .candidate-card:hover { background: rgba(255, 255, 255, 0.08); }
+/* 📺 유튜브 참고 — 카드 밖 별도 줄. 추천 근거와 섞여 보이지 않게 들여쓰기·보라 테두리로 구분 */
+.candidate-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cc-yt {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+  margin-left: 38px; padding: 5px 10px; border-radius: 8px; min-width: 0;
+  font-size: 12px; color: var(--text-secondary, #aab3bf);
+  border-left: 2px solid var(--primary-start, #8b93ff); background: rgba(139, 147, 255, 0.06);
+}
+.cc-yt-label { font-weight: 700; color: var(--primary-light, #b7bcff); white-space: nowrap; }
+.cc-yt-text { min-width: 0; overflow-wrap: anywhere; }
+.cc-yt-date { font-size: 11px; color: var(--text-muted, #8a95a3); white-space: nowrap; }
+.cc-yt-toggle {
+  margin-left: auto; font-size: 11.5px; font-weight: 600; padding: 2px 10px; border-radius: 6px; cursor: pointer;
+  color: var(--primary-light, #b7bcff); background: transparent; border: 1px solid rgba(139, 147, 255, 0.4);
+}
+.cc-yt-toggle:hover { background: rgba(139, 147, 255, 0.12); }
+.cc-yt-detail { margin-left: 38px; min-width: 0; }
+.cc-yt-state { margin: 4px 0; font-size: 12px; color: var(--text-secondary, #aab3bf); }
+.cc-yt-note { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-muted, #8a95a3); }
+.cc-yt-note-warn { color: var(--warning, #fbbf24); }
+@media (max-width: 480px) {
+  .cc-yt, .cc-yt-detail { margin-left: 0; }
+}
 .cc-rank { font-size: 13px; font-weight: 700; opacity: 0.55; min-width: 26px; }
 .cc-main { flex: 1; min-width: 0; }
 .cc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

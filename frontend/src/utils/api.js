@@ -1124,6 +1124,44 @@ export const recommendationAPI = {
   }
 };
 
+// 유튜브 참고 의견 — 저장된 분석 결과만 읽는다(화면이 자막 수집·분석을 트리거하지 않음). 추천 점수·순위와 무관.
+// 관리자 경로(/admin/**)는 SecurityConfig URL 규칙이 ADMIN 으로 막는다.
+export const youtubeOpinionAPI = {
+  getStock(stockCode) {
+    return apiClient.get(`/youtube-opinions/stocks/${encodeURIComponent(stockCode)}`);
+  },
+  // 여러 종목 한 번에(최대 20) — 목록에서 종목마다 부르지 말 것
+  getSummary(codes) {
+    return apiClient.get('/youtube-opinions/summary', { params: { codes: codes.join(',') } });
+  },
+  getConfig() {
+    return apiClient.get('/admin/youtube-opinions/config');
+  },
+  getVideos() {
+    return apiClient.get('/admin/youtube-opinions/videos');
+  },
+  registerVideo(payload) {
+    return apiClient.post('/admin/youtube-opinions/videos', payload);
+  },
+  uploadTranscript(videoId, format, content) {
+    return apiClient.post(`/admin/youtube-opinions/videos/${encodeURIComponent(videoId)}/transcript`,
+      { format, content }, { timeout: 60000 });
+  },
+  analyze(videoId) {
+    return apiClient.post(`/admin/youtube-opinions/videos/${encodeURIComponent(videoId)}/analyze`);
+  },
+  getRuns(videoId) {
+    return apiClient.get(`/admin/youtube-opinions/videos/${encodeURIComponent(videoId)}/runs`);
+  },
+  getReviewQueue() {
+    return apiClient.get('/admin/youtube-opinions/review');
+  },
+  review(opinionId, decision, stockCode) {
+    return apiClient.post(`/admin/youtube-opinions/opinions/${opinionId}/review`,
+      stockCode ? { decision, stockCode } : { decision });
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

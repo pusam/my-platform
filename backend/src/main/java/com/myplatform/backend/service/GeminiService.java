@@ -1068,6 +1068,17 @@ public class GeminiService {
     }
 
     /**
+     * 구조화 추출용 JSON 호출(유튜브 발언 추출 등) — 새 경로를 만들지 않고 아래 JSON 경로를 그대로 쓴다:
+     * 전역 4.5초 제한기({@link #enforceRateLimit})·429 재시도·타임아웃·일일 사용량 집계·쿼터 창(우회 안 함).
+     * {@link #chat} 은 출력 1,024토큰이라 발언 목록이 잘릴 수 있어 JSON 경로(2,048토큰·responseSchema)를 쓴다.
+     *
+     * @return 모델 텍스트, 실패(키 없음·쿼터 창·오류·빈 응답)는 null — 호출자는 성공으로 캐시하지 말 것
+     */
+    public String generateStructuredJson(String prompt, Map<String, Object> responseSchema) {
+        return callGeminiApiForJson(prompt, responseSchema, false);
+    }
+
+    /**
      * Gemini API 호출 (JSON 응답 전용) - 스키마 없는 버전
      */
     private String callGeminiApiForJson(String prompt) {

@@ -391,6 +391,9 @@
           </div>
         </div>
 
+        <!-- 📺 유튜브 의견 관리 — 영상·자막 등록/분석/검토(관리자 전용, /api/admin/** URL 규칙) -->
+        <YoutubeOpinionAdminPanel />
+
         <!-- 최근 활동 -->
         <div class="recent-activity">
           <h2>📊 최근 활동</h2>
@@ -418,9 +421,11 @@
 import apiClient, { adminAPI, telegramAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
 import { toast } from '../utils/toast';
+import YoutubeOpinionAdminPanel from '../components/admin/YoutubeOpinionAdminPanel.vue';
 
 export default {
   name: 'AdminDashboard',
+  components: { YoutubeOpinionAdminPanel },
   props: {
     embedded: { type: Boolean, default: false }
   },

@@ -147,6 +147,10 @@ services:
       # 복합 조건 알림(10분)만 따로 — 2026-09-04 처음 켠 날 첫 tick 36건·다음 12건이 시그널 채널로 나감(임계 미보정).
       # 임계를 실측으로 다시 잡기 전엔 기본 false. 켜려면 .env 에 ALERT_COMPOSITE_ENABLED=true.
       - ALERT_COMPOSITE_ENABLED=${ALERT_COMPOSITE_ENABLED:-false}
+      # 유튜브 투자 의견(참고 표시 전용, V61) — 기본 꺼짐. 켜면 관리자 자막 등록·Gemini 분석과 화면 섹션이 열린다.
+      # 채널은 "채널ID=표시이름" 콤마 구분으로 사용자가 고른 것만 — 비어 있으면 영상 등록 불가. 부팅 로그가 상태를 알린다.
+      - YOUTUBE_OPINION_ENABLED=${YOUTUBE_OPINION_ENABLED:-false}
+      - YOUTUBE_OPINION_CHANNELS=${YOUTUBE_OPINION_CHANNELS:-}
       # OOM 때 힙 덤프를 남긴다(2026-09-15). 9/11 16:37 OOM 이 Tomcat Acceptor 스레드만 죽이고 JVM 은
       # 살아남아 배치·텔레그램은 정상으로 보인 채 API 가 3.5일간 죽어 있었는데, 이미지에 jmap/jcmd 가
       # 없어 원인을 특정할 증거가 재시작과 함께 사라졌다. 다음 OOM 은 덤프로 잡는다.

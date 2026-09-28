@@ -540,6 +540,10 @@
          조회 실패는 '확인 불가'로 명시(§4c — '공시 없음'과 구분). 자체 fetch(heavy 계열). -->
     <RecentDisclosuresSection v-if="hasData && stockCode" :stock-code="stockCode" :stock-name="stockName" />
 
+    <!-- 📺 유튜브 참고 의견 — 분석된 영상 기준 외부 참고. 결론 카드·추천 점수와 무관해 보조 영역에 둔다.
+         저장된 결과만 읽는다(자체 fetch, 실패해도 이 섹션 안에서 '조회 실패'로 끝남). 기능 꺼짐이면 미렌더. -->
+    <YoutubeOpinionSection v-if="hasData && stockCode" :stock-code="stockCode" />
+
     <!-- 펀더멘털 진단 상세 — 점수·판정은 헤더(중장기 펀더멘털 박스)에 이미 노출, 근거는 접이식(슬림화).
          DetailSection v-show 라 접혀도 마운트 유지(진단 로딩 타이밍 무변). -->
     <DetailSection v-if="hasData && diagnosisData" title="🩺 중장기 펀더멘털 진단 (상세 근거)">
@@ -575,6 +579,7 @@ import DetailSection from '../components/v2/DetailSection.vue';
 import SignalHistorySection from '../components/v2/SignalHistorySection.vue';
 import CatalystHistorySection from '../components/v2/CatalystHistorySection.vue';
 import RecentDisclosuresSection from '../components/v2/RecentDisclosuresSection.vue';
+import YoutubeOpinionSection from '../components/v2/YoutubeOpinionSection.vue';
 import InvestorTrendTab from '../components/v2/InvestorTrendTab.vue';
 import FundamentalDiagnosisPanel from '../components/v2/FundamentalDiagnosisPanel.vue';
 import AIStrategyCard from '../components/v2/AIStrategyCard.vue';

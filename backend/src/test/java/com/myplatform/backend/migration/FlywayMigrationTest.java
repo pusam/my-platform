@@ -9,12 +9,16 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.Map;
 
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.testcontainers.containers.MariaDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -130,6 +134,52 @@ class FlywayMigrationTest {
         assertThat(uniqueConstraintCount("pattern_detection", "uq_pd_code_type_date"))
                 .as("V52 pattern_detection UNIQUE 제약(uq_pd_code_type_date)이 적용되어야 함")
                 .isEqualTo(1);
+
+        // --- 검증 11 (V61 도달 확인): 유튜브 의견 테이블 — 재등록·같은 자막·재분석이 중복을 못 만드는 UNIQUE 들 ---
+        assertThat(uniqueConstraintCount("yt_video", "uq_ytv_video_id"))
+                .as("V61 yt_video UNIQUE(video_id) — 같은 영상 재등록 차단").isEqualTo(1);
+        assertThat(uniqueConstraintCount("yt_person", "uq_ytp_name_key"))
+                .as("V61 yt_person UNIQUE(name_key) — 같은 사람이 여러 명으로 부풀지 않게").isEqualTo(1);
+        assertThat(uniqueConstraintCount("yt_video_participant", "uq_ytvp_video_person"))
+                .as("V61 yt_video_participant UNIQUE(video_id, person_id)").isEqualTo(1);
+        assertThat(uniqueConstraintCount("yt_transcript", "uq_ytt_video_version"))
+                .as("V61 yt_transcript UNIQUE(video_id, version)").isEqualTo(1);
+        assertThat(uniqueConstraintCount("yt_transcript", "uq_ytt_video_hash"))
+                .as("V61 yt_transcript UNIQUE(video_id, content_sha256) — 같은 자막 재등록 차단").isEqualTo(1);
+        assertThat(uniqueConstraintCount("yt_opinion", "uq_yto_run_key"))
+                .as("V61 yt_opinion UNIQUE(run_id, statement_key) — 한 실행 안 중복 발언 차단").isEqualTo(1);
+        assertThat(columnCount("yt_analysis_run", "prompt_version"))
+                .as("V61 yt_analysis_run.prompt_version — 모델·프롬프트 버전 기록").isEqualTo(1);
+        assertThat(isColumnNullable("yt_opinion", "stock_code"))
+                .as("V61 yt_opinion.stock_code NULL 허용 — 종목 미확인 발언은 코드 없이 검토로").isTrue();
+        assertThat(isColumnNullable("yt_opinion", "target_price"))
+                .as("V61 yt_opinion.target_price NULL 허용 — 원문에 없으면 비워 둔다").isTrue();
+
+        // --- 검증 12 (V61 엔티티 ↔ 스키마): 운영은 ddl-auto: validate 라 둘이 어긋나면 배포 뒤 부팅이 실패한다.
+        //     스모크 테스트(H2 create-drop)는 엔티티로 스키마를 만들어 이 불일치를 못 잡는다 — 여기서 같은 판정을 한다.
+        validateEntitiesAgainstSchema("com.myplatform.backend.youtubeopinion");
+    }
+
+    /**
+     * 지정 패키지의 엔티티를 마이그레이션된 실제 스키마에 Hibernate {@code validate} 로 대조한다(운영 설정과 같은 방언·명명 규칙).
+     * 맞지 않으면 {@code afterPropertiesSet} 이 예외를 던진다. 레거시 베이스 테이블은 스텁이라 전 엔티티가 아니라
+     * 마이그레이션이 온전히 만든 패키지만 넘긴다.
+     */
+    private void validateEntitiesAgainstSchema(String... packages) {
+        LocalContainerEntityManagerFactoryBean emf = new LocalContainerEntityManagerFactoryBean();
+        emf.setDataSource(new DriverManagerDataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword()));
+        emf.setPackagesToScan(packages);
+        emf.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+        emf.setJpaPropertyMap(Map.of(
+                "hibernate.hbm2ddl.auto", "validate",
+                "hibernate.dialect", "org.hibernate.dialect.MariaDBDialect",
+                "hibernate.physical_naming_strategy",
+                "org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy"));
+        try {
+            emf.afterPropertiesSet();
+        } finally {
+            emf.destroy();
+        }
     }
 
     /**
