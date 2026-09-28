@@ -107,6 +107,27 @@ class MarketCalendarServiceTest {
             assertThat(svc.isMarketClosed(LocalDate.of(2027, 2, 9))).isTrue();
         }
 
+        /**
+         * 2026-09-28 점검에서 일봉 0건 평일로 드러난 달력 누락 2건. 둘 다 KRX 휴장 공지가 있다.
+         * 누락의 대가: 그날 달력 게이트 잡이 전부 돌아 휴장일 날짜 행을 쌓았고(7/17 가짜 BUY 7건이
+         * 신뢰 게이트 표본에 들어감), 창에 7/17 이 낀 7/14~16 시그널 206건은 봉이 없어 MISSING_BARS 로 빠졌다.
+         */
+        @Test @DisplayName("제헌절(7/17)은 2026년부터 휴장 — 2025년은 평일, 2028년(월)도 휴장")
+        void constitutionDayReinstatedFrom2026() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 7, 17))).isTrue();
+            assertThat(svc.isMarketClosed(LocalDate.of(2025, 7, 17))).isFalse();   // 공휴일 아니던 해
+            assertThat(svc.isMarketClosed(LocalDate.of(2028, 7, 17))).isTrue();
+            // 7/14 기록 시그널의 D+3 = 7/15·7/16·(7/17 휴장·주말)·7/20
+            assertThat(svc.plusTradingDays(LocalDate.of(2026, 7, 14), 3)).isEqualTo(LocalDate.of(2026, 7, 20));
+            assertThat(svc.minusTradingDays(LocalDate.of(2026, 7, 20), 1)).isEqualTo(LocalDate.of(2026, 7, 16));
+        }
+
+        @Test @DisplayName("2026-06-03 지방선거일(수) → 휴장 — 임기만료 선거일은 법정공휴일")
+        void localElectionDay2026() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 6, 3))).isTrue();
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 6, 4))).isFalse();
+        }
+
         @Test @DisplayName("2026-12-31 연말 폐장일(목) → 휴장")
         void yearEndClosure2026() {
             assertThat(svc.isMarketClosed(LocalDate.of(2026, 12, 31))).isTrue();

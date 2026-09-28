@@ -69,6 +69,9 @@ public class MarketCalendarService {
             //       (추석 연휴 9/24~26 은 토요일과만 겹쳐 대체 없음 — 9/28 은 정상 거래일)
             LocalDate.of(2026, 3, 2), LocalDate.of(2026, 5, 25), LocalDate.of(2026, 8, 17),
             LocalDate.of(2026, 10, 5),
+            // 2026 선거일: 지방선거(6/3 수) — 임기만료 선거일은 법정공휴일이지만 날짜가 매번 달라 여기 둔다.
+            //       다음 예정은 2028-04-12(총선) — 연례 갱신 때 KRX 공지로 확인 후 추가(추측으로 넣지 말 것).
+            LocalDate.of(2026, 6, 3),
             // 2027: 설 연휴 일요일 겹침(2/7)→2/9, 광복절(8/15 일)→8/16, 개천절(10/3 일)→10/4,
             //       한글날(10/9 토)→10/11, 성탄절(12/25 토)→12/27
             LocalDate.of(2027, 2, 9), LocalDate.of(2027, 8, 16), LocalDate.of(2027, 10, 4),
@@ -96,7 +99,17 @@ public class MarketCalendarService {
             LocalDate.of(2025, 5, 5),  LocalDate.of(2026, 5, 24), LocalDate.of(2027, 5, 13)
     );
 
-    /** 휴장일 = 주말 또는 (고정 양력 + 음력 유래) 공휴일 */
+    /**
+     * 제헌절(7/17) — 2008년 공휴일에서 빠졌다가 <b>2026년부터 다시 공휴일</b>(18년 만). KRX 도 2026-07-17 휴장했다.
+     * 고정 테이블({@link #KOREA_FIXED_HOLIDAYS})에 넣지 않고 연도 조건을 둔 이유: 그러면 2025년 이전 7/17 까지
+     * 휴장으로 잡힌다. 누락돼 있던 동안(2026-07-17) 그날 잡이 전부 돌아 휴장일 날짜 행을 쌓았다(2026-09-28 발견).
+     * ⚠ 2027-07-17 은 토요일 — 제헌절에 대체공휴일이 적용되는지는 공지로 확인한 뒤
+     * {@link #KOREA_SUBSTITUTE_HOLIDAYS} 에 추가할 것(추측 금지 — 9/28 을 잘못 넣은 사고가 있었다).
+     */
+    private static final MonthDay CONSTITUTION_DAY = MonthDay.of(7, 17);
+    private static final int CONSTITUTION_DAY_HOLIDAY_FROM = 2026;
+
+    /** 휴장일 = 주말 또는 (고정 양력 + 제헌절(2026~) + 음력 유래 + 대체·선거일) 공휴일 */
     public boolean isMarketClosed() {
         return isMarketClosed(LocalDate.now());
     }
@@ -105,6 +118,7 @@ public class MarketCalendarService {
         DayOfWeek dow = date.getDayOfWeek();
         if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return true;
         return KOREA_FIXED_HOLIDAYS.contains(MonthDay.from(date))
+                || (date.getYear() >= CONSTITUTION_DAY_HOLIDAY_FROM && CONSTITUTION_DAY.equals(MonthDay.from(date)))
                 || KOREA_LUNAR_DERIVED_HOLIDAYS.contains(date)
                 || KOREA_SUBSTITUTE_HOLIDAYS.contains(date);
     }
