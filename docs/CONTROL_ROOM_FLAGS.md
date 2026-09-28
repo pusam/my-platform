@@ -190,27 +190,6 @@ flags:
       ⚠ 9월 하순 첫 판정 후 이 항목을 지울 것.
     recorded_on: 2026-08-31
     ref: ControlGroupService, StockPriceHistoryRepository.findActiveStockCodesWithMinHistory
-  - id: vkospi-index-0503-not-volatility
-    severity: critical
-    title: VKOSPI(업종 0503)가 변동성 지수가 아니다 — 매크로 tilt 가 도입 이래 100% RISK_OFF
-    key: MacroTiltService
-    body: >
-      2026-09-22 실측. macro_tilt_snapshot 54행(2026-07-07~09-21) 전부 vkospi>=30 이라
-      classifyMacroRegime 의 "VKOSPI>=30 -> RISK_OFF 공포 강제" 1축 오버라이드가 매번 걸려
-      tilt 가 54/54 RISK_OFF 다. 상수는 데이터가 아니다.
-      근거 — 값 범위 39.33~87.90(평균 65.76)로 변동성 지수 수준이 아니고, 같은 날 KOSPI 종가와
-      일간 변화율 상관이 -0.037(레벨 -0.140)이다. 진짜 변동성 지수면 -0.5~-0.8 이어야 한다.
-      같은 기간 KOSPI 는 5594~7656 으로 37% 출렁였는데 이 계열은 49->47->46->45->44->43 으로
-      매끈하게 흐르고 52일간 10% 이상 일간 점프가 2회뿐이다.
-      기준일 자체는 정상(vkospi_date = snapshot_date, 당일).
-      확인할 것 — 업종코드 0503 이 KIS 지수시세 TR(FHPUP02120000)에서 무엇으로 해석되는지.
-      코드 주석은 지수 마스터(idxcode.mst)의 "00503VKOSPI" 를 근거로 들지만, KIS 는 틀린 요청에도
-      200 을 주는 API 다(§4c 재무 tr_id / 분봉 파라미터 건과 같은 부류) — 마스터 코드 공간과
-      시세 TR 코드 공간이 다를 수 있다. 임의의 지수코드를 조회할 수 있는 경로가 없어 미확정.
-      ⚠ 임계(30) 를 성적에 맞춰 조정하지 말 것 — 입력이 무엇인지 먼저 확정해야 한다.
-    recorded_on: 2026-09-22
-    ref: MacroTiltService.VKOSPI_INDEX_CODE, classifyMacroRegime, macro_tilt_snapshot
-
   - id: growth-batch-step4-silent-skip
     severity: warning
     title: 성장률 배치(올인원 4단계)가 수집일의 27% 에서 조용히 빠진다

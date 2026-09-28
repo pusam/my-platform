@@ -1,11 +1,14 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.entity.MacroTiltSnapshot;
+import com.myplatform.backend.service.KoreaInvestmentService.IndexOhlcvData;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,6 +18,65 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 임계값은 임시값(스냅샷 축적 후 캘리브레이션) — 이 테스트는 현재 규칙의 회귀 가드.
  */
 class MacroTiltServiceTest {
+
+    // ==================== VKOSPI 기준일 (2026-09-28) ====================
+
+    /**
+     * 08:15 스냅샷 시점에 KIS 지수 일봉은 장 시작 전 '오늘' 날짜 봉(값 = 전일 종가)을 준다. 마지막 봉을 그대로 쓰면
+     * 전일 종가에 오늘 날짜가 붙는다 — 운영 실측: 9/4 종가 39.33(아시아경제 보도 수치)이 '9/7' 로 저장됐다.
+     * 이 하루 밀림 때문에 KOSPI 와의 상관이 −0.03 으로 나와 "0503 은 변동성 지수가 아니다"라는 오진을 낳았다
+     * (직전 거래일로 되돌리면 −0.30, 9월 1~17일 평균 44.76 도 보도 수치와 일치).
+     */
+    @Nested
+    @DisplayName("VKOSPI 는 마감 확정된 마지막 봉 — 값과 기준일이 같은 봉을 가리킨다")
+    class SettledVkospiBar {
+
+        private IndexOhlcvData bar(String date, String close) {
+            BigDecimal c = new BigDecimal(close);
+            return new IndexOhlcvData(date, c, c, c, c);
+        }
+
+        @Test
+        @DisplayName("장 시작 전 '오늘' 봉을 빼고 직전 거래일 봉을 쓴다 — 9/4 종가 39.33 이 '9/7' 로 붙던 실측")
+        void dropsPreOpenTodayBar() {
+            List<IndexOhlcvData> series = List.of(
+                    bar("2026-09-03", "42.42"), bar("2026-09-04", "39.33"), bar("2026-09-07", "39.33"));
+            LocalDate settled = new MarketCalendarService().lastClosedTradingDay(LocalDateTime.of(2026, 9, 7, 8, 15));
+
+            IndexOhlcvData last = MacroTiltService.lastSettledBar(series, settled);
+
+            assertThat(last.date()).isEqualTo("2026-09-04");
+            assertThat(last.close()).isEqualByComparingTo("39.33");
+        }
+
+        @Test
+        @DisplayName("연휴를 건너뛴다 — 9/28(월) 08:15 의 확정 거래일은 9/23")
+        void acrossHoliday() {
+            LocalDate settled = new MarketCalendarService().lastClosedTradingDay(LocalDateTime.of(2026, 9, 28, 8, 15));
+            assertThat(settled).isEqualTo(LocalDate.of(2026, 9, 23));
+
+            List<IndexOhlcvData> series = List.of(
+                    bar("2026-09-22", "42.42"), bar("2026-09-23", "42.98"), bar("2026-09-28", "42.98"));
+            assertThat(MacroTiltService.lastSettledBar(series, settled).date()).isEqualTo("2026-09-23");
+        }
+
+        @Test
+        @DisplayName("정규장 마감 뒤엔 오늘 봉이 확정 봉이다")
+        void afterCloseTodayIsSettled() {
+            LocalDate settled = new MarketCalendarService().lastClosedTradingDay(LocalDateTime.of(2026, 9, 28, 16, 0));
+            List<IndexOhlcvData> series = List.of(bar("2026-09-23", "42.98"), bar("2026-09-28", "41.10"));
+
+            assertThat(MacroTiltService.lastSettledBar(series, settled).date()).isEqualTo("2026-09-28");
+        }
+
+        @Test
+        @DisplayName("확정 봉이 없으면 null — 미래 봉만 있거나 비었을 때(§4c, 값을 지어내지 않는다)")
+        void noneSettled() {
+            assertThat(MacroTiltService.lastSettledBar(List.of(bar("2026-09-28", "42.98")), LocalDate.of(2026, 9, 23)))
+                    .isNull();
+            assertThat(MacroTiltService.lastSettledBar(List.of(), LocalDate.of(2026, 9, 23))).isNull();
+        }
+    }
 
     // ==================== classifyMacroRegime ====================
 

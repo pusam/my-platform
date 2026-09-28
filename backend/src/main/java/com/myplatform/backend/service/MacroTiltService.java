@@ -4,6 +4,7 @@ import com.myplatform.backend.entity.MacroTiltSnapshot;
 import com.myplatform.backend.repository.MacroTiltSnapshotRepository;
 import com.myplatform.backend.service.GlobalFuturesService.FuturesQuote;
 import com.myplatform.backend.service.KoreaInvestmentService.IndexOhlcvData;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -41,7 +42,11 @@ import java.util.Map;
 @Slf4j
 public class MacroTiltService {
 
-    /** KIS 지수 마스터(idxcode.mst) 확인 결과 — {@code 00503VKOSPI} → 업종코드 0503 (2026-07-06). */
+    /**
+     * KIS 지수 마스터(idxcode.mst) 확인 결과 — {@code 00503VKOSPI} → 업종코드 0503 (2026-07-06).
+     * <b>2026-09-28 외부 수치로 재확인</b>: 9/4 종가 39.33 · 9월 1~17일 평균 44.76 이 보도 수치와 소수점까지 일치.
+     * 2026-09-22 의 "0503 은 변동성 지수가 아니다" 진단은 기준일 하루 밀림({@link #lastSettledBar})이 만든 오진이었다.
+     */
     static final String VKOSPI_INDEX_CODE = "0503";
     /** 금리 추세 창(거래일) — 임시값. */
     static final int RATE_TREND_LOOKBACK = 20;
@@ -51,6 +56,8 @@ public class MacroTiltService {
     private final EcosClient ecos;
     private final MacroTiltSnapshotRepository snapshotRepo;
     private final ObjectProvider<MarketRegimeClient> regimeProvider;
+    // VKOSPI 기준일 — 마감 확정된 거래일(장 시작 전 '오늘' 봉 제외, 2026-09-28)
+    private final MarketCalendarService marketCalendar;
 
     /** 입력 30분 캐시 — 일 단위 데이터라 실시간 재조회 불필요. 스냅샷 시 강제 갱신(표시=스냅샷 수렴). */
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
@@ -181,15 +188,34 @@ public class MacroTiltService {
         return in;
     }
 
+    /**
+     * 마감 확정된 마지막 일봉 — {@code settledDay} 보다 뒤 날짜의 봉(장 시작 전·장중에 형성 중인 '오늘' 봉)은 뺀다.
+     *
+     * <p>08:15 스냅샷 시점에 KIS 지수 일봉은 '오늘' 날짜 봉을 주는데 값은 전일 종가다. 마지막 봉을 그대로 쓰면
+     * <b>전일 종가에 오늘 날짜가 붙는다</b> — 운영 실측: 9/4 종가 39.33 이 '9/7' 로 저장됐다(2026-09-28 발견,
+     * 저장 57행 중 55행). 값은 맞고 기준일만 하루 밀린 것이라 tilt 판정은 그대로였지만, 같은 날 시장 데이터와
+     * 맞대면 하루씩 어긋나 "변동성 지수가 아니다"라는 오진을 낳았다. 확정 봉이 없으면 null(§4c).
+     *
+     * @param ascending  오래된 → 최신 순 일봉
+     * @param settledDay {@link MarketCalendarService#lastClosedTradingDay} — 판정 단일 출처
+     */
+    static IndexOhlcvData lastSettledBar(List<IndexOhlcvData> ascending, LocalDate settledDay) {
+        for (int i = ascending.size() - 1; i >= 0; i--) {
+            IndexOhlcvData bar = ascending.get(i);
+            if (bar.date() != null && !LocalDate.parse(bar.date()).isAfter(settledDay)) return bar;
+        }
+        return null;
+    }
+
     /** 3축 입력 수집 — 축별 실패는 해당 축 null(§4c), 다른 축 진행. */
     private MacroInputs computeInputs() {
-        // ① VKOSPI — KIS 지수 일봉(업종코드 0503) 최신 종가. 빈 응답 → null.
+        // ① VKOSPI — KIS 지수 일봉(업종코드 0503) 중 마감 확정된 마지막 봉의 종가. 없으면 null.
         Double vkospi = null;
         LocalDate vkospiDate = null;
         try {
             List<IndexOhlcvData> series = kisService.getIndexDailyOhlcv(VKOSPI_INDEX_CODE, 15);
-            if (!series.isEmpty()) {
-                IndexOhlcvData last = series.get(series.size() - 1);
+            IndexOhlcvData last = lastSettledBar(series, marketCalendar.lastClosedTradingDay(DateTimeUtil.kstNow()));
+            if (last != null && last.close() != null) {
                 vkospi = last.close().doubleValue();
                 vkospiDate = LocalDate.parse(last.date());
             }
