@@ -10,8 +10,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockServletContext;
@@ -52,7 +52,13 @@ class YoutubeOpinionSecurityTest {
     static YoutubeOpinionAdminService adminService = mock(YoutubeOpinionAdminService.class);
     static YoutubeOpinionAnalysisService analysis = mock(YoutubeOpinionAnalysisService.class);
 
-    @Configuration
+    /**
+     * ⚠ {@code @Configuration} 이 아니라 {@code @TestConfiguration} 이어야 한다 — 이 패키지는 앱의 컴포넌트 스캔 범위라,
+     * 일반 {@code @Configuration} 이면 {@code ApplicationContextSmokeTest} 가 이 설정(가짜 컨트롤러·UserDetailsService)까지
+     * 집어 들어 앱 부팅이 깨진다(2026-09-28 CI 실발생). 바깥 클래스에 {@code @Test} 가 직접 없어(전부 {@code @Nested})
+     * 스캔 제외 필터가 "테스트 클래스 안의 설정"으로 알아보지 못한다 — {@code @TestConfiguration} 은 이름만으로 제외된다.
+     */
+    @TestConfiguration
     @EnableWebMvc
     @Import(SecurityConfig.class)
     static class Web {
