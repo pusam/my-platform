@@ -30,7 +30,8 @@ import static com.myplatform.backend.youtubeopinion.YoutubeOpinionDtos.*;
  *   <li><b>원자적</b> — 청크 하나라도 실패하면 발언을 하나도 저장하지 않고 실행 FAILED + 원인. 이전 성공 결과(current_run_id)는
  *       그대로 보인다. 실패를 "의견 없음"이나 성공으로 캐시하지 않는다(§4c).</li>
  *   <li>Gemini 호출은 DB 트랜잭션 밖에서, 저장은 짧은 트랜잭션 하나로.</li>
- *   <li>재분석 시 같은 발언 키의 이전 검토 결정(승인·거절)을 이어받는다.</li>
+ *   <li>재분석 시 이전 검토 결정(승인·거절·수동 종목)은 <b>사람이 본 내용이 그대로일 때만</b> 잇는다 — 발언 식별(키)과
+ *       결정 승계(내용 지문)를 나눈 규칙은 {@link ReviewCarryOver} 한 곳에 있다.</li>
  * </ul>
  */
 @Service
@@ -155,13 +156,14 @@ public class YoutubeOpinionAnalysisService {
     /** 실행 본체 — Gemini 는 트랜잭션 밖. 실패 사유는 사람이 읽을 수 있게 남긴다. */
     void execute(long runId) {
         List<OpinionValidator.Validated> accepted = new ArrayList<>();
+        List<TranscriptParser.Cue> cues = null;
         int dropped = 0;
         String error = null;
         try {
             YtAnalysisRun run = runRepo.findById(runId).orElseThrow(() -> new IllegalStateException("실행 기록이 없습니다"));
             YtTranscript transcript = transcriptRepo.findById(run.getTranscriptId())
                     .orElseThrow(() -> new IllegalStateException("자막 기록이 없습니다"));
-            List<TranscriptParser.Cue> cues = TranscriptParser.fromJson(transcript.getCuesJson());
+            cues = TranscriptParser.fromJson(transcript.getCuesJson());
             List<OpinionValidator.ParticipantRef> participants = participants(run.getVideoId());
             List<OpinionPrompt.ParticipantLine> lines = participants.stream()
                     .map(p -> new OpinionPrompt.ParticipantLine(p.displayName(), p.role())).toList();
@@ -191,10 +193,11 @@ public class YoutubeOpinionAnalysisService {
             error = "분석 중 오류: " + e.getClass().getSimpleName() + (e.getMessage() == null ? "" : " — " + e.getMessage());
             log.warn("[유튜브의견] 분석 run={} 오류", runId, e);
         }
-        finish(runId, accepted, dropped, error);
+        finish(runId, accepted, dropped, error, cues);
     }
 
-    private void finish(long runId, List<OpinionValidator.Validated> accepted, int dropped, String error) {
+    private void finish(long runId, List<OpinionValidator.Validated> accepted, int dropped, String error,
+                        List<TranscriptParser.Cue> cues) {
         LocalDateTime now = DateTimeUtil.kstNow();
         try {
             tx.executeWithoutResult(s -> {
@@ -208,11 +211,20 @@ public class YoutubeOpinionAnalysisService {
                     video.setStatus(YtVideo.Status.FAILED);
                     video.setLastError(OpinionValidator.cut(error, 500));
                 } else {
-                    Map<String, YtOpinion> previous = video.getCurrentRunId() == null ? Map.of()
-                            : opinionRepo.findByRunId(video.getCurrentRunId()).stream()
+                    List<YtOpinion> previousRows = video.getCurrentRunId() == null ? List.of()
+                            : opinionRepo.findByRunId(video.getCurrentRunId());
+                    Map<String, YtOpinion> previous = previousRows.stream()
                             .collect(Collectors.toMap(YtOpinion::getStatementKey, Function.identity(), (a, b) -> a));
+                    List<TranscriptParser.Cue> previousCues = previousCues(video.getCurrentRunId(), run.getTranscriptId(), cues);
+                    List<YtOpinion> orphanedDecided = ReviewCarryOver.orphanedDecided(previousRows,
+                            accepted.stream().map(OpinionValidator.Validated::statementKey).collect(Collectors.toSet()));
                     for (OpinionValidator.Validated v : accepted) {
-                        opinionRepo.save(toEntity(v, run, now, previous.get(v.statementKey())));
+                        YtOpinion same = previous.get(v.statementKey());
+                        ReviewCarryOver.Outcome outcome = ReviewCarryOver.decide(v,
+                                ReviewCarryOver.spanText(cues, v.startSec(), v.endSec()), same,
+                                same == null ? null : ReviewCarryOver.spanText(previousCues, same.getStartSec(), same.getEndSec()),
+                                orphanedDecided);
+                        opinionRepo.save(toEntity(v, run, now, outcome));
                     }
                     run.setStatus(YtAnalysisRun.Status.SUCCEEDED);
                     run.setStatementCount(accepted.size());
@@ -250,26 +262,34 @@ public class YoutubeOpinionAnalysisService {
         }
     }
 
-    static YtOpinion toEntity(OpinionValidator.Validated v, YtAnalysisRun run, LocalDateTime now, YtOpinion previous) {
-        YtOpinion.YtOpinionBuilder b = YtOpinion.builder()
+    /** 검증된 발언 + 승계 판정({@link ReviewCarryOver}) → 새 실행의 새 행. 지난 실행의 행은 건드리지 않는다(이력). */
+    static YtOpinion toEntity(OpinionValidator.Validated v, YtAnalysisRun run, LocalDateTime now, ReviewCarryOver.Outcome outcome) {
+        return YtOpinion.builder()
                 .runId(run.getId()).videoId(run.getVideoId()).statementKey(v.statementKey())
                 .speakerLabel(v.speakerLabel()).personId(v.personId()).speakerRole(v.speakerRole())
-                .startSec(v.startSec()).endSec(v.endSec()).stockNameRaw(v.stockNameRaw()).stockCode(v.stockCode())
-                .mappingStatus(v.mappingStatus()).stance(v.stance()).statementType(v.statementType())
+                .startSec(v.startSec()).endSec(v.endSec()).stockNameRaw(v.stockNameRaw()).stockCode(outcome.stockCode())
+                .mappingStatus(outcome.mappingStatus()).stance(v.stance()).statementType(v.statementType())
                 .claimSummary(v.claimSummary()).rationale(v.rationale()).conditions(v.conditions())
                 .horizon(v.horizon()).targetPrice(v.targetPrice()).evidenceQuote(v.evidenceQuote())
-                .reviewStatus(v.reviewStatus()).reviewReasons(v.reviewReasons()).analyzedAt(now);
-        // 같은 발언 키의 사람 검토 결정은 재분석에도 유지한다(다시 검토하게 만들지 않는다)
-        if (previous != null && (previous.getReviewStatus() == YtOpinion.ReviewStatus.APPROVED
-                || previous.getReviewStatus() == YtOpinion.ReviewStatus.REJECTED)) {
-            b.reviewStatus(previous.getReviewStatus()).reviewedBy(previous.getReviewedBy()).reviewedAt(previous.getReviewedAt());
-            if (previous.getMappingStatus() == YtOpinion.MappingStatus.MANUAL && v.stockCode() == null) {
-                b.stockCode(previous.getStockCode()).mappingStatus(YtOpinion.MappingStatus.MANUAL);
-            }
-            String reasons = v.reviewReasons() == null ? "REVIEW_CARRIED" : v.reviewReasons() + ",REVIEW_CARRIED";
-            b.reviewReasons(OpinionValidator.cut(reasons, 300));
+                .reviewStatus(outcome.reviewStatus()).reviewReasons(outcome.reviewReasons())
+                .reviewedBy(outcome.reviewedBy()).reviewedAt(outcome.reviewedAt()).analyzedAt(now).build();
+    }
+
+    /**
+     * 직전 현재 실행이 쓴 자막의 큐 — 같은 자막이면 이번 큐를 그대로 쓴다. 읽지 못하면 null 이고, 그러면 이전 결정을
+     * 잇지 않는다({@link ReviewCarryOver} — 모르는 것을 "같다"로 보지 않는다).
+     */
+    private List<TranscriptParser.Cue> previousCues(Long previousRunId, Long transcriptId, List<TranscriptParser.Cue> cues) {
+        if (previousRunId == null) return null;
+        try {
+            Long previousTranscriptId = runRepo.findById(previousRunId).map(YtAnalysisRun::getTranscriptId).orElse(null);
+            if (previousTranscriptId == null) return null;
+            if (previousTranscriptId.equals(transcriptId)) return cues;
+            return transcriptRepo.findById(previousTranscriptId).map(t -> TranscriptParser.fromJson(t.getCuesJson())).orElse(null);
+        } catch (RuntimeException e) {
+            log.warn("[유튜브의견] 직전 실행 자막을 읽지 못해 이전 검토 결정을 잇지 않는다 run={}: {}", previousRunId, e.getMessage());
+            return null;
         }
-        return b.build();
     }
 
     private List<OpinionValidator.ParticipantRef> participants(String videoId) {

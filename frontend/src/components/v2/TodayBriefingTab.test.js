@@ -355,6 +355,18 @@ describe('TodayBriefingTab — 유튜브 참고 의견', () => {
     expect(w.findAll('.candidate-card')).toHaveLength(2)
     expect(w.find('.cc-yt').exists()).toBe(false)
     expect(w.find('.cc-yt-note').text()).toContain('불러오지 못했습니다')
+    expect(w.find('.cc-yt-note').classes()).toContain('cc-yt-note-warn')
+  })
+
+  it('서버가 조회 실패(dataAvailable=false)로 답해도 같은 경고로 보인다 — 평범한 안내처럼 보이면 안 된다', async () => {
+    stubAll()
+    // 백엔드 조회 실패 경로(YoutubeOpinionQueryService)는 예외 대신 200 + dataAvailable=false 로 답한다
+    youtubeOpinionAPI.getSummary.mockReset().mockResolvedValue({ data: { success: true, data: {
+      enabled: true, dataAvailable: false, scope: '분석된 영상 기준', windowDays: 7, items: {} } } })
+    const w = await mountTab()
+    expect(w.find('.cc-yt').exists()).toBe(false)
+    expect(w.find('.cc-yt-note').text()).toContain('불러오지 못했습니다')
+    expect(w.find('.cc-yt-note').classes()).toContain('cc-yt-note-warn')
   })
 
   it('분석을 마친 영상이 없으면 후보마다 반복하지 않고 목록에 한 줄로 말한다', async () => {

@@ -111,7 +111,7 @@
       </div>
       <!-- 유튜브 참고 범위 — 목록 전체에 한 줄(후보마다 '없음'을 반복하지 않는다). 조회 실패·분석 영상 없음·
            언급 없음을 구분해서 말한다(§4c). 기능이 꺼져 있으면 아무것도 안 그린다. -->
-      <p v-if="youtubeNote" class="cc-yt-note" :class="{ 'cc-yt-note-warn': youtubeFailed }">{{ youtubeNote }}</p>
+      <p v-if="youtubeNote" class="cc-yt-note" :class="{ 'cc-yt-note-warn': youtubeUnavailable }">{{ youtubeNote }}</p>
     </div>
 
     <!-- ③ 내 포지션 요약 — 내 돈이 걸린 정보라 후보 바로 다음(위) -->
@@ -353,10 +353,13 @@ const ytItem = (code) => {
   return item && item.status === 'HAS_OPINIONS' && item.summary ? item : null;
 };
 
+// 조회 실패 — 요청 자체가 실패했거나, 서버가 조회 실패(dataAvailable=false)로 답했거나. 문구와 경고 표시가 같은 판정을 쓴다.
+const youtubeUnavailable = computed(() => youtubeFailed.value || youtubeSummary.value?.dataAvailable === false);
+
 const youtubeNote = computed(() => {
   if (!buyCandidates.value.length) return null;
   const s = youtubeSummary.value;
-  if (youtubeFailed.value || (s && s.dataAvailable === false)) {
+  if (youtubeUnavailable.value) {
     return '📺 유튜브 참고 의견을 불러오지 못했습니다 — 의견이 없는 것이 아니라 확인하지 못한 것입니다(후보 판단과 무관).';
   }
   if (!s || s.enabled === false) return null;

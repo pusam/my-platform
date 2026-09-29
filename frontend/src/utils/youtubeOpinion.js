@@ -31,7 +31,10 @@ const REVIEW_REASON_LABELS = {
   HORIZON_NOT_IN_TRANSCRIPT: '기간이 원문에 없어 삭제',
   SOLE_PARTICIPANT: '단독 출연자로 발언자 지정',
   SPEAKER_UNKNOWN: '발언자 미상',
-  REVIEW_CARRIED: '이전 검토 결정 유지'
+  // 재분석 승계(백엔드 ReviewCarryOver) — 같은 내용일 때만 잇고, 바뀌면 다시 확인하게 한다
+  REVIEW_CARRIED: '이전 검토 결정 유지',
+  REVIEW_NOT_CARRIED: '이전 결정 뒤 내용·검토 사유가 바뀜 — 다시 확인',
+  PREVIOUSLY_REJECTED: '이전에 거절한 발언 — 다시 확인'
 }
 
 const VIDEO_STATUS_LABELS = {
