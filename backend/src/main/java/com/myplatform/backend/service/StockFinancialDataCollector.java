@@ -201,12 +201,15 @@ public class StockFinancialDataCollector {
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
-            // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 (별도→연결 통일)
+            // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 — ⚠ 정의 주의(2026-09-30 실측): KIS 현재가 API 의 eps 는 '별도'가
+            //   아니라 **지배주주 기준 최근 결산 EPS**다(네이버 FY2025 지배주주 EPS 와 16/16 일치). 여기서 덮어쓰는 TTM 연결
+            //   순이익(thtr_ntin)은 **비지배지분 몫까지 포함**이라 지주사·그룹사 PER 이 2~4배 낮게 나온다(다우기술 0.9 vs
+            //   지배 기준 2.1). 최근 4분기(TTM)라는 장점과 맞바꾼 것 — 정식 해법(지배주주 순이익 TTM)은 결정 대기.
             if (netIncome != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal ttmEps = netIncome
                         .multiply(new BigDecimal("100000000"))
                         .divide(lstnStcn, 0, RoundingMode.HALF_UP);
-                log.info("[Simple TTM EPS] {} - 별도 EPS: {} → TTM 연결 EPS: {} (순이익: {}억, 주식수: {})",
+                log.info("[Simple TTM EPS] {} - KIS EPS(지배주주·최근 결산): {} → TTM 연결 EPS(비지배 포함): {} (순이익: {}억, 주식수: {})",
                         stockCode, eps, ttmEps, netIncome, lstnStcn);
                 eps = ttmEps;
 
@@ -345,10 +348,10 @@ public class StockFinancialDataCollector {
                     if (output != null && output.isArray() && output.size() > 0) {
                         JsonNode latest = output.get(0);
                         ratios.put("roe", parseBigDecimal(latest.path("roe_val").asText()));
-                        ratios.put("operatingMargin", parseBigDecimal(latest.path("bsop_prfi_inrt").asText()));
-                        ratios.put("netMargin", parseBigDecimal(latest.path("ntin_inrt").asText()));
-                        // ★ 연간 순이익률 백업 (TTM 덮어쓰기 전에 보관 → ROE 추정용)
-                        ratios.put("_annualNetMargin", parseBigDecimal(latest.path("ntin_inrt").asText()));
+                        // bsop_prfi_inrt·ntin_inrt 는 '영업 이익 증가율'·'순이익 증가율'이다 — 이익률이 아니다(KIS 공식 샘플
+                        // chk_finance_financial_ratio.py COLUMN_MAPPING, 2026-09-30). 예전엔 이 둘을 영업이익률·순이익률로 담아
+                        // TTM 손익이 없는 종목은 증가율이 영업이익률로 저장됐다(운영 108행 — 기도산업 81.65 는 상반기 영업이익
+                        // 증가율, 실제 이익률 약 4.6%). 이익률은 아래 손익계산서 TTM(영업이익÷매출)으로만 만든다 — 없으면 모른다.
                         ratios.put("debtRatio", parseBigDecimal(latest.path("lblt_rate").asText()));
                         // eps_cagr·sls_cagr·ntin_cagr 는 읽지 않는다 — 실측 전부 0(죽은 필드), 성장률은 2단계 배치 단독(2026-09-29)
                     }
@@ -460,39 +463,9 @@ public class StockFinancialDataCollector {
                                     .setScale(2, RoundingMode.HALF_UP));
                         }
 
-                        // ★ TTM ROE 추정: TTM순이익 / 자본총계 직접 계산
-                        // (비율 보정 방식은 흑자전환 기업에서 부호 오류 발생)
-                        BigDecimal annualRoe = ratios.get("roe");
-                        BigDecimal ttmNetIncome = ratios.get("netIncome"); // 억원 단위
-                        BigDecimal ttmNetMargin = ratios.get("netMargin");
-                        if (ttmNetIncome != null && ttmNetIncome.compareTo(BigDecimal.ZERO) != 0) {
-                            // TTM 당기순이익(억원)으로 EPS 산출 후 ROE = EPS/BPS*100
-                            // BPS는 상위 메서드에서 사용하므로 여기서는 순이익률 기반 추정 유지하되
-                            // 부호가 일관되도록: TTM순이익 > 0이면 ROE > 0, 적자면 ROE < 0
-                            BigDecimal annualNetMargin = ratios.get("_annualNetMargin");
-                            if (annualRoe != null && annualNetMargin != null
-                                    && annualNetMargin.compareTo(BigDecimal.ZERO) != 0
-                                    && ttmNetMargin != null) {
-                                BigDecimal ttmRoe = annualRoe.multiply(ttmNetMargin)
-                                        .divide(annualNetMargin, 2, RoundingMode.HALF_UP);
-                                // 부호 검증: TTM 순이익이 양수면 ROE도 양수여야 함
-                                if (ttmNetIncome.compareTo(BigDecimal.ZERO) > 0
-                                        && ttmRoe.compareTo(BigDecimal.ZERO) < 0) {
-                                    ttmRoe = ttmRoe.abs();
-                                    log.info("[재무비율 TTM] {} ROE 부호 보정 (흑자전환): {}% → +{}%",
-                                            stockCode, annualRoe, ttmRoe);
-                                } else if (ttmNetIncome.compareTo(BigDecimal.ZERO) < 0
-                                        && ttmRoe.compareTo(BigDecimal.ZERO) > 0) {
-                                    ttmRoe = ttmRoe.negate();
-                                    log.info("[재무비율 TTM] {} ROE 부호 보정 (적자전환): {}% → {}%",
-                                            stockCode, annualRoe, ttmRoe);
-                                }
-                                ratios.put("roe", ttmRoe);
-                                log.info("[재무비율 TTM] {} ROE 보정: {}% → {}% (순이익률 {}→{}, TTM순이익: {}억)",
-                                        stockCode, annualRoe, ttmRoe, annualNetMargin, ttmNetMargin, ttmNetIncome);
-                            }
-                        }
-                        ratios.remove("_annualNetMargin"); // 임시 키 제거
+                        // ROE 는 여기서 '보정'하지 않는다 — 예전 보정(연간 ROE × TTM 순이익률 ÷ 연간 순이익률)의 '연간 순이익률'이
+                        // 실은 순이익 증가율(ntin_inrt)이었다(2026-09-30). ROE 는 호출부가 TTM 순이익으로 다시 계산한다
+                        // (EPS÷BPS, 자본총계가 있으면 순이익÷자본총계).
                     } else {
                         log.warn("[손익계산서] {} - output이 비어있음", stockCode);
                     }
