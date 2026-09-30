@@ -72,6 +72,14 @@ public class AiStrategySnapshotService {
     private final EarningSurpriseService earningSurpriseService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final StockStatusService stockStatusService;
+
+    /**
+     * 워밍이 거래정지 게이트를 기다리는 한도 — 2초 간격 90회(3분). 2026-09-29 재시작에선 게이트가 기동 63초 뒤에
+     * 채워졌다(비동기 풀 차례 대기 60초 + 동기화 3초). 마스터 동기화가 죽으면 영영 안 채워지므로 한도가 있어야 한다.
+     */
+    static final int GATE_WAIT_POLLS = 90;
+    static final long GATE_POLL_MILLIS = 2000;
 
     // AI 스코어링 후보 수집 수 (Gemini 평가용)
     private static final int CANDIDATE_LIMIT = 10;
@@ -108,6 +116,17 @@ public class AiStrategySnapshotService {
         try {
             // 다른 서비스 초기화 완료 대기 (SectorTrading, InvestorTrade 등)
             Thread.sleep(30000);
+            // 거래정지 게이트가 채워질 때까지(2026-09-30). 안 기다리면 게이트가 빈 채(전부 통과) 스크리너가 돌아
+            // 정지 종목이 스냅샷에 저장되고, 그 스냅샷은 다음 로테이션까지 '오늘' 탭 장전 신호에 뜬다
+            // (2026-09-29 22:54 — 스윙 1·3위가 거래정지 종목, 게이트는 13초 뒤에 채워졌다).
+            long waitStart = System.currentTimeMillis();
+            if (awaitGate(stockStatusService::isHaltGateLoaded, GATE_WAIT_POLLS, GATE_POLL_MILLIS)) {
+                log.info("[Warm-up] 거래정지 게이트 확인 — {}초 대기", (System.currentTimeMillis() - waitStart) / 1000);
+            } else {
+                log.warn("[Warm-up] 거래정지 게이트가 {}초 안에 채워지지 않았다(종목 마스터 동기화 실패?) — 게이트 없이 수집한다. "
+                                + "정지 종목이 스냅샷에 섞일 수 있고, 게이트가 채워진 뒤의 정규 수집에서 다시 걸러진다",
+                        GATE_WAIT_POLLS * GATE_POLL_MILLIS / 1000);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return;
@@ -140,6 +159,19 @@ public class AiStrategySnapshotService {
         }
 
         log.info("[Warm-up] 초기화 완료 - 성공: {}, 실패: {}", successCount, failCount);
+    }
+
+    /**
+     * 게이트가 채워질 때까지 기다린다 — 채워지면 true, {@code maxPolls} 번 기다려도 안 채워지면 false.
+     * 한도 끝에서 한 번 더 확인한다(마지막 대기 중에 채워진 경우).
+     */
+    static boolean awaitGate(java.util.function.BooleanSupplier loaded, int maxPolls, long pollMillis)
+            throws InterruptedException {
+        for (int i = 0; i < maxPolls; i++) {
+            if (loaded.getAsBoolean()) return true;
+            Thread.sleep(pollMillis);
+        }
+        return loaded.getAsBoolean();
     }
 
     // ========== 스케줄러 (Dual Track) ==========

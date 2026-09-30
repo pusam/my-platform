@@ -54,6 +54,29 @@ public class QuantScreenerService {
         }
         return active;
     }
+
+    /**
+     * 이익의 질이 무너진 종목 제외(2026-09-30, {@link EarningsQuality}) — 마법의 공식·PEG 는 PER·ROE·영업이익률의
+     * <b>극단</b>을 1등으로 올린다. 순이익이 영업이익의 2배를 넘거나(영업외 이익) 영업이익이 매출보다 크면 그 극단은
+     * 한 번의 이익이라, 걸러내지 않으면 왜곡이 곧 1등이다(2026-09-29 AI 스윙 2위 베뉴지: 순이익이 영업이익의 24배).
+     * 영업이익·순이익이 없는 종목은 판정할 수 없어 남긴다(§4c). 이 둘은 AI 스윙·가치와 모닝브리핑 TOP 3 의 후보 풀이다.
+     */
+    private List<StockFinancialData> excludeDistortedEarnings(List<StockFinancialData> rows, String screen) {
+        List<StockFinancialData> kept = new ArrayList<>(rows.size());
+        int nonOperating = 0;
+        int exceedsRevenue = 0;
+        for (StockFinancialData s : rows) {
+            EarningsQuality.Verdict v = EarningsQuality.judge(s.getRevenue(), s.getOperatingProfit(), s.getNetIncome());
+            if (v == EarningsQuality.Verdict.NON_OPERATING_DOMINANT) nonOperating++;
+            else if (v == EarningsQuality.Verdict.OPERATING_EXCEEDS_REVENUE) exceedsRevenue++;
+            else kept.add(s);
+        }
+        if (kept.size() != rows.size()) {
+            log.info("{}: 이익의 질 {}건 제외 (순이익이 영업이익의 2배 초과·영업손실 흑자 {}건, 영업이익 > 매출 {}건)",
+                    screen, rows.size() - kept.size(), nonOperating, exceedsRevenue);
+        }
+        return kept;
+    }
     private static final BigDecimal MIN_NET_INCOME = new BigDecimal("30");  // 최소 순이익 30억원
 
     // 데이터 클렌징 상수 (PEG 스크리너용)
@@ -88,6 +111,8 @@ public class QuantScreenerService {
                 // 부채비율 필터: null이면 통과, 있으면 200% 이하만 포함
                 .filter(s -> s.getDebtRatio() == null || s.getDebtRatio().compareTo(MAX_DEBT_RATIO) <= 0)
                 .collect(Collectors.toList());
+        // 순위를 매기기 전에 뺀다 — 뒤에서 빼면 남은 종목의 순위 합이 왜곡 종목 기준으로 매겨진다
+        stocks = excludeDistortedEarnings(stocks, "마법의 공식");
 
         if (stocks.isEmpty()) {
             log.info("마법의 공식 조건에 맞는 종목이 없습니다.");
@@ -239,7 +264,8 @@ public class QuantScreenerService {
         // 2차: 성장률 데이터가 있는 종목으로 PEG 계산
         if (stocks.isEmpty()) {
             log.info("PEG 데이터가 없어 성장률 기반으로 계산합니다.");
-            stocks = stockFinancialDataRepository.findStocksWithGrowthData();
+            // 거래정지 게이트 — 이 경로만 빠져 있었다(1차가 비는 날, 예: 성장률 재계산 직전)
+            stocks = excludeInactive(stockFinancialDataRepository.findStocksWithGrowthData());
             log.info("성장률 데이터 있는 종목: {}건", stocks.size());
         }
 
@@ -248,6 +274,10 @@ public class QuantScreenerService {
             log.info("성장률 데이터 없음 - 분기별 데이터에서 직접 계산합니다.");
             return calculatePegFromQuarterlyData(finalMaxPeg, finalMinGrowth, limit);
         }
+
+        // PEG 의 분자(PER)와 분모(순이익 성장률)가 같은 순이익에서 나온다 — 한 번의 이익이 PER 은 낮추고
+        // 성장률은 올려 PEG 를 0 으로 민다(국보디자인: 순이익이 영업이익의 2.8배, PEG 0.01)
+        stocks = excludeDistortedEarnings(stocks, "PEG");
 
         // ⭐ 데이터 품질 개선: 종목명/시가총액 보완
         enrichStockDataBatch(stocks);

@@ -101,6 +101,9 @@ public class StockStatusService {
 
     private volatile LocalDateTime lastSyncTime = null;
 
+    /** 거래량 정지 감지가 이 프로세스에서 한 번 이상 성공했는가 — {@link #isHaltGateLoaded()}. */
+    private volatile boolean haltGateLoaded = false;
+
     /**
      * 종목이 정상 거래 가능한지 확인
      * - 동기화 전이면 true 반환 (안전 모드)
@@ -128,6 +131,17 @@ public class StockStatusService {
     /** 마스터 동기화 시각 — 표시층의 "언제 기준인가"용. 아직 없으면 null. */
     public LocalDateTime lastSyncAt() {
         return lastSyncTime;
+    }
+
+    /**
+     * 게이트가 채워졌는가 — 거래량 정지 감지가 한 번 이상 끝났다(운영에선 마스터 동기화가 성공한 뒤에만 돈다).
+     * 부팅 직후 소비자가 기다릴 신호다(2026-09-30): 두 목록 다 메모리라 재시작하면 비고, {@link #syncOnStartup} 은
+     * 비동기 풀에서 차례를 기다린다. 그 사이 {@link #isActive} 는 모두 통과(fail-open)라, 그때 스크리너를 돌리면
+     * 정지 종목이 그냥 들어간다 — 2026-09-29 22:54 AI 스윙 1·3위가 거래정지 종목(이오플로우·삼부토건)이었다.
+     * 게이트 동작(극성)은 바꾸지 않는다 — 기다릴지는 소비자가 정한다.
+     */
+    public boolean isHaltGateLoaded() {
+        return haltGateLoaded;
     }
 
     public enum ActiveStatus {
@@ -166,6 +180,7 @@ public class StockStatusService {
             volumeHaltedCodes.addAll(next);
             suspendedStocks.entrySet().removeIf(e -> HALT_REASON.equals(e.getValue()) && !next.contains(e.getKey()));
             next.forEach(c -> suspendedStocks.putIfAbsent(c, HALT_REASON));
+            haltGateLoaded = true;   // 게이트 목록이 채워진 뒤 — 아래 액면변경 감지는 게이트가 아니다
             detectCorporateActions();
         } catch (Exception e) {
             log.warn("[종목상태] 거래량 기반 정지 감지 실패 — 이전 감지 목록({}건) 유지: {}",
