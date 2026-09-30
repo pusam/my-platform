@@ -146,6 +146,16 @@
           이익 {{ pct(trust.avgWin) }} / 손실 {{ pct(trust.avgLoss) }}
           · 최악 {{ pct(trust.worst) }} · 낙폭 {{ pct(trust.avgMaePct) }}
         </div>
+        <!--
+          표본 경계(2026-10-01): 9/29~10/1 입력 수정 뒤 기록분만 현재 산식 표본이다. 이전 산식 성적은 참고로만 —
+          숨기면 "근거 없음"으로, 섞으면 옛 성적이 새 산식 성적으로 읽힌다. 판정에 섞였는지는 백엔드가 정한다.
+        -->
+        <div v-if="trust.sampleSince" class="s trust-sample" :title="trust.noteDetail || ''">
+          표본 {{ trust.sampleSince }}~ (현재 산식)
+          <template v-if="trust.legacy">
+            · 이전 산식 {{ trust.legacy.rows }}건 비용차감 {{ pct(trust.legacy.costAdjustedReturn) }} — 참고만
+          </template>
+        </div>
         <div v-if="trust.note" class="s note" :title="trust.noteDetail || trust.note">
           {{ trust.note }}
         </div>

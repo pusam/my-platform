@@ -300,6 +300,28 @@ describe('ControlRoomKpis ⑦ — "믿고 사도 되나" 게이트', () => {
     expect(c.find('[title]').exists()).toBe(true)
   })
 
+  it('표본 시작일을 밝히고 이전 산식 성적은 참고로만 — 현재 판정 수치와 구분된다(2026-10-01 경계)', () => {
+    const c = trustCard({
+      sampleSince: '2026-10-02',
+      legacy: { from: '2026-06-25', toExclusive: '2026-10-02', rows: 183, distinctDays: 44, controlRows: 35,
+        costAdjustedReturn: -4.33, edgeVsControl: 0.17, state: 'EVALUABLE' }
+    })
+    const line = c.find('.trust-sample').text()
+    expect(line).toContain('표본 2026-10-02~')
+    expect(line).toContain('현재 산식')
+    expect(line).toContain('이전 산식 183건')
+    expect(line).toContain('비용차감 -4.33%')
+    expect(line).toContain('참고만')
+    // 현재 표본 수치(비용차감 -2.03%)는 그대로 — 이전 산식 값이 그 자리를 덮지 않는다
+    expect(c.find('.trust-nums').text()).toContain('비용차감 -2.03%')
+  })
+
+  it('경계 이전 평가 행이 없으면 이전 산식 줄을 만들지 않는다 — 0건으로 위장하지 않는다', () => {
+    const c = trustCard({ sampleSince: '2026-10-02', legacy: null })
+    expect(c.find('.trust-sample').text()).toContain('표본 2026-10-02~')
+    expect(c.find('.trust-sample').text()).not.toContain('이전 산식')
+  })
+
   it('통과해도 실매수 승인이 아니라고 적는다', () => {
     const c = trustCard({
       state: 'CONSIDER_EXPANDING', rows: 40, distinctDays: 12, controlRows: 40,

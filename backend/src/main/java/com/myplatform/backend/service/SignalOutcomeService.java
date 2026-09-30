@@ -671,7 +671,7 @@ public class SignalOutcomeService {
      * 완료일(25d4247, 2026-06-25). 이전 signalDate 는 "추격 점수"라 <b>현재 점수 예측력 측정에서 제외</b>
      * — forward 측정 창의 시작. 이전 표본은 phase 36~38 혼재라 지금 산식 성적이 아님.
      */
-    static final LocalDate PHASE38_CUTOFF = LocalDate.of(2026, 6, 25);
+    public static final LocalDate PHASE38_CUTOFF = LocalDate.of(2026, 6, 25);
 
     /** 보드 종합점수 시그널 타입 — 다른 소스(AI/Composite/Surge)와 점수 스케일이 달라 격리(혼합 집계 방지). */
     static final Set<String> BOARD_SIGNAL_TYPES = Set.of("STRONG_BUY", "BUY");
@@ -709,6 +709,19 @@ public class SignalOutcomeService {
                 from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from),
                 SignalD3Evaluator.Status.OK.name());
         return aggregateTrustGate(all);
+    }
+
+    /**
+     * {@link #trustGate(LocalDate)} 의 구간판 — {@code [from, toExclusive)} 행만 접는다(2026-10-01).
+     * 관제실이 <b>표본 경계 이전(이전 산식) 성적을 참고치로</b> 따로 보여주는 데 쓴다 — 현재 산식 표본과
+     * 한 집계에 섞지 않는다. 같은 측정 위생(dedup·공통 날짜·교정 OK 행만)을 그대로 탄다.
+     */
+    public com.myplatform.backend.controlroom.TrustGateRules.Verdict trustGateBetween(LocalDate from, LocalDate toExclusive) {
+        LocalDate start = from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from);
+        if (toExclusive == null || !toExclusive.isAfter(start)) {
+            return aggregateTrustGate(List.of());
+        }
+        return aggregateTrustGate(repository.findD3OkBetween(start, toExclusive, SignalD3Evaluator.Status.OK.name()));
     }
 
     /**

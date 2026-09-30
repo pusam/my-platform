@@ -67,4 +67,43 @@ class SignalOutcomeTrustGateWiringTest {
         assertThat(v.controlRows()).isEqualTo(1);
         assertThat(v.costAdjustedReturn()).isEqualByComparingTo("-2.18");
     }
+
+    @Test
+    @DisplayName("trustGateBetween — 표본 경계 이전(이전 산식) 행만 구간 쿼리로 접는다, 시작은 컷오프로 클램프, 끝은 제외")
+    void legacyReferenceUsesBetweenQuery() {
+        SignalOutcomeRepository repo = mock(SignalOutcomeRepository.class);
+        when(repo.findD3OkBetween(any(), any(), anyString())).thenReturn(List.of(
+                ok("BUY", "005930"), ok(ControlGroupService.CONTROL_SIGNAL_TYPE, "C1")));
+        SignalOutcomeService svc = new SignalOutcomeService(repo, mock(StockPriceService.class),
+                mock(StockCatalystRepository.class),
+                provider(), provider(), provider(), provider(), provider(), provider(),
+                provider(), provider(), provider(), provider(), provider());
+
+        TrustGateRules.Verdict v = svc.trustGateBetween(LocalDate.of(2020, 1, 1), LocalDate.of(2026, 10, 2));
+
+        ArgumentCaptor<LocalDate> from = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> to = ArgumentCaptor.forClass(LocalDate.class);
+        verify(repo).findD3OkBetween(from.capture(), to.capture(), anyString());
+        assertThat(from.getValue()).isEqualTo(SignalOutcomeService.PHASE38_CUTOFF);
+        assertThat(to.getValue()).isEqualTo(LocalDate.of(2026, 10, 2));
+        verify(repo, never()).findD3OkSince(any(), anyString());
+        assertThat(v.rows()).isEqualTo(1);
+        assertThat(v.costAdjustedReturn()).isEqualByComparingTo("-2.18");
+    }
+
+    @Test
+    @DisplayName("trustGateBetween — 경계가 컷오프 이전이면 구간이 비어 쿼리 없이 빈 판정")
+    void emptyRangeDoesNotQuery() {
+        SignalOutcomeRepository repo = mock(SignalOutcomeRepository.class);
+        SignalOutcomeService svc = new SignalOutcomeService(repo, mock(StockPriceService.class),
+                mock(StockCatalystRepository.class),
+                provider(), provider(), provider(), provider(), provider(), provider(),
+                provider(), provider(), provider(), provider(), provider());
+
+        TrustGateRules.Verdict v = svc.trustGateBetween(LocalDate.of(2020, 1, 1), LocalDate.of(2026, 6, 1));
+
+        verify(repo, never()).findD3OkBetween(any(), any(), anyString());
+        assertThat(v.rows()).isZero();
+        assertThat(v.state()).isEqualTo(TrustGateRules.State.COLLECTING);
+    }
 }

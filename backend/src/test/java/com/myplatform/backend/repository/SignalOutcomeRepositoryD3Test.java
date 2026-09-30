@@ -182,4 +182,21 @@ class SignalOutcomeRepositoryD3Test {
         assertThat(rows).extracting(SignalOutcome::getStockCode)
                 .containsExactlyInAnyOrder(okNoLegacy.getStockCode(), okWithLegacy.getStockCode());
     }
+
+    @Test
+    @DisplayName("findD3OkBetween — [from, toExclusive): 경계일 당일은 현재 산식 표본이라 이전 산식 참고치에서 빠진다")
+    void findD3OkBetween_isHalfOpen() {
+        LocalDate boundary = LocalDate.of(2026, 10, 2);
+        SignalOutcome before = insertGateRow("L1", boundary.minusDays(1), "OK", "-4.0000", true);
+        insertGateRow("L2", boundary, "OK", "1.0000", false);               // 경계 당일 — 현재 표본
+        insertGateRow("L3", boundary.plusDays(3), "OK", "2.0000", false);   // 경계 이후 — 현재 표본
+        insertGateRow("L4", boundary.minusDays(2), "MISSING_BARS", null, true);   // 교정 실패 — 제외
+        insertGateRow("L5", FROM.minusDays(1), "OK", "-3.0000", true);      // 시작일 이전 — 제외
+
+        List<SignalOutcome> legacy = repo.findD3OkBetween(FROM, boundary, "OK");
+        List<SignalOutcome> current = repo.findD3OkSince(boundary, "OK");
+
+        assertThat(legacy).extracting(SignalOutcome::getStockCode).containsExactly(before.getStockCode());
+        assertThat(current).extracting(SignalOutcome::getStockCode).containsExactlyInAnyOrder("L2", "L3");
+    }
 }

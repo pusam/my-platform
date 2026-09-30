@@ -105,6 +105,14 @@ public class ControlRoomSnapshotService {
     @Value("${bot.nxt-liquidation.enabled:false}")
     private boolean nxtLiquidationEnabled;
 
+    /**
+     * 신뢰 게이트(⑦) 표본 시작일(ISO) — 이 날짜 이후 기록된 시그널만 "현재 산식" 표본이다(2026-10-01).
+     * 비우거나 잘못 적으면 {@link #TRUST_GATE_SAMPLE_SINCE_DEFAULT}. 입력 정의를 또 바꾸면 이 값을 옮기고 그 근거를
+     * CLAUDE.md ⑦ 에 적을 것 — 경계를 안 옮기면 옛 성적이 새 산식 성적으로 읽힌다.
+     */
+    @Value("${control-room.trust-gate.sample-since:}")
+    private String trustGateSampleSince;
+
     private final AtomicReference<Cached> cache = new AtomicReference<>();
 
     private record Cached(String month, LocalDateTime builtAt, ControlRoomSnapshotDto dto) {}
@@ -445,8 +453,25 @@ public class ControlRoomSnapshotService {
             if (svc == null) {
                 return unavailableTrustGate("시그널 집계 서비스 미가용");
             }
-            // 집계 시작일은 phase-38 컷오프로 클램프된다(그 이전 표본은 산식이 달라 섞으면 안 된다).
-            var v = svc.trustGate(LocalDate.now(clock).minusDays(TRUST_GATE_WINDOW_DAYS));
+            // 현재 산식 표본 = 표본 시작일 이후 기록분만(2026-10-01). 그 이전 행은 입력 정의가 달라 섞지 않고
+            // 참고치로만 따로 접는다. (시작일이 phase-38 컷오프보다 앞이면 컷오프로 클램프된다.)
+            LocalDate since = resolveSampleSince(trustGateSampleSince);
+            var v = svc.trustGate(since);
+            ControlRoomSnapshotDto.LegacyReference legacy = null;
+            try {
+                LocalDate legacyFrom = LocalDate.now(clock).minusDays(TRUST_GATE_WINDOW_DAYS);
+                var l = svc.trustGateBetween(legacyFrom, since);
+                if (l.rows() > 0 || l.controlRows() > 0) {
+                    legacy = new ControlRoomSnapshotDto.LegacyReference(
+                            legacyFrom.isBefore(com.myplatform.backend.service.SignalOutcomeService.PHASE38_CUTOFF)
+                                    ? com.myplatform.backend.service.SignalOutcomeService.PHASE38_CUTOFF.toString()
+                                    : legacyFrom.toString(),
+                            since.toString(), l.rows(), l.distinctDays(), l.controlRows(),
+                            l.costAdjustedReturn(), l.edgeVsControl(), l.state().name());
+                }
+            } catch (Exception e) {
+                log.debug("[관제실] 신뢰 게이트 이전 산식 참고치 집계 실패(현재 표본 판정은 유효): {}", e.getMessage());
+            }
             var shape = v.shape();
             return new ControlRoomSnapshotDto.TrustGate(
                     true, v.state().name(), v.rows(), v.distinctDays(), v.controlRows(),
@@ -454,7 +479,8 @@ public class ControlRoomSnapshotService {
                     v.edgeExceedsUncertainty(),
                     shape.avgWin(), shape.avgLoss(), shape.worst(), shape.avgMaePct(),
                     v.excludedDays(), v.blockers(), v.headline(),
-                    TRUST_GATE_MEASUREMENT_CAVEAT + v.detail());
+                    TRUST_GATE_MEASUREMENT_CAVEAT + sampleBoundaryCaveat(since, legacy) + v.detail(),
+                    since.toString(), legacy);
         } catch (Exception e) {
             log.warn("[관제실] 신뢰 게이트 집계 실패: {}", e.getMessage());
             return unavailableTrustGate("집계 실패 (" + e.getClass().getSimpleName() + ")");
@@ -465,7 +491,53 @@ public class ControlRoomSnapshotService {
     private static ControlRoomSnapshotDto.TrustGate unavailableTrustGate(String why) {
         return new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
                 null, null, null, false, null, null, null, null, 0, List.of(), why,
-                "신뢰 게이트를 집계하지 못했다. 표본이 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.");
+                "신뢰 게이트를 집계하지 못했다. 표본이 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.",
+                null, null);
+    }
+
+    /**
+     * 표본 시작일 기본값 — 2026-10-02. 근거: 9/29 19:12(실적 전년동기 가드·성장률 재정의) → 9/30 09:17(AI 전략 이익의 질·
+     * 재무비율 오독) → 9/30 11:12(지배주주 PER·PBR, V63·V64) → 10/1(결산월 V65) 순으로 추천 입력이 바뀌었고, 마지막
+     * 수정이 재무 수집(08:30/15:38)·추천 스냅샷(11:30/14:00/17:00/20:05)까지 통과한 뒤의 <b>첫 온전한 거래일</b>이
+     * 10/2 다(10/1 은 오전 스냅샷이 결산월 수정 전 행으로 만들어져 섞인 날). 시그널은 signal_date 단위라 날짜로 자른다.
+     */
+    static final LocalDate TRUST_GATE_SAMPLE_SINCE_DEFAULT = LocalDate.of(2026, 10, 2);
+
+    /** 설정값 파싱 — 비었거나 날짜가 아니면 기본값(경계를 없애는 값은 없다). 순수 함수(테스트 대상). */
+    static LocalDate resolveSampleSince(String configured) {
+        if (configured == null || configured.isBlank()) return TRUST_GATE_SAMPLE_SINCE_DEFAULT;
+        try {
+            return LocalDate.parse(configured.trim());
+        } catch (java.time.format.DateTimeParseException e) {
+            return TRUST_GATE_SAMPLE_SINCE_DEFAULT;
+        }
+    }
+
+    /**
+     * 툴팁·크루용 표본 경계 설명 — "왜 이 날짜부터인가"와 "이전 성적은 참고일 뿐"을 같이 적는다. 순수 함수(테스트 대상).
+     * 이전 성적을 숨기면 "아직 근거가 없다"로 읽히고, 섞으면 옛 산식 성적이 새 산식 성적으로 읽힌다 — 둘 다 아니다.
+     */
+    static String sampleBoundaryCaveat(LocalDate since, ControlRoomSnapshotDto.LegacyReference legacy) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("표본은 ").append(since).append(" 이후 기록분(현재 산식)만 — 9/29~10/1 추천 입력 수정(실적 전년동기 가드·")
+          .append("성장률 재정의·거래정지 게이트·영업이익률 오독·지배주주 PER·결산월) 뒤 첫 온전한 거래일. ");
+        if (legacy == null) {
+            sb.append("경계 이전 평가 행 없음. ");
+        } else {
+            sb.append("이전 산식(").append(legacy.from()).append("~").append(legacy.toExclusive()).append(" 전) ")
+              .append(legacy.rows()).append("건/고유 ").append(legacy.distinctDays()).append("일·대조군 ")
+              .append(legacy.controlRows()).append("건: 비용차감 ").append(pctText(legacy.costAdjustedReturn()))
+              .append(" · 대조군比 ").append(pctText(legacy.edgeVsControl()))
+              .append(" — 참고치이며 현재 판정에 섞지 않는다. ");
+        }
+        sb.append("표본 30건·고유 10일을 채워도 통과가 아니다 — 비용 차감 수익(+)·대조군 우위 > 불확실성·평균 낙폭 한도를 ")
+          .append("기존 규칙대로 본다. 비용 0.18% 에 슬리피지는 빠져 있다(낙관 쪽 하한). ");
+        return sb.toString();
+    }
+
+    private static String pctText(java.math.BigDecimal v) {
+        if (v == null) return "미상";
+        return (v.signum() > 0 ? "+" : "") + v.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString() + "%";
     }
 
     /**

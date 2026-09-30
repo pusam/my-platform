@@ -292,6 +292,11 @@ control-room:
   # 비우면 jar 안 classpath:control-room/ 을 쓴다 — 운영 기본값(재배포로만 갱신).
   # 서버에서 재배포 없이 문서를 고쳐야 할 때만 볼륨을 마운트하고 이 값을 지정한다.
   docs-dir: ${CONTROL_ROOM_DOCS_DIR:}
+  trust-gate:
+    # ⑦ "믿고 사도 되나" 표본 시작일(ISO) — 이 날짜 이후 기록된 시그널만 현재 산식 표본. 비우면 코드 기본값(2026-10-02:
+    # 9/29~10/1 추천 입력 수정이 재무 수집·추천 스냅샷까지 통과한 뒤 첫 온전한 거래일). 그 이전 성적은 참고치로만 따로 보인다.
+    # 추천 입력 정의를 또 바꾸면 여기(또는 코드 기본값)를 옮기고 근거를 CLAUDE.md ⑦ 에 적을 것.
+    sample-since: ${CONTROL_ROOM_TRUST_GATE_SAMPLE_SINCE:}
   crew:
     # 모델 ID — 하드코딩 금지. 기동 시 GET /v1/models 로 실재 확인하고, 없으면 크루만 DISABLED.
     model: ${CONTROL_ROOM_CREW_MODEL:claude-opus-5}

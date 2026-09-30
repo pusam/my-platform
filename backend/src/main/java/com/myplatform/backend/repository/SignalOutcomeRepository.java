@@ -189,6 +189,20 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
     List<SignalOutcome> findD3OkSince(@Param("from") LocalDate from, @Param("ok") String ok);
 
     /**
+     * {@link #findD3OkSince} 의 구간판 — {@code [from, toExclusive)}. 신뢰 게이트(⑦)의 <b>이전 산식 참고치</b>용
+     * (2026-10-01): 표본 경계 이전 행을 현재 산식 표본과 섞지 않고 따로 접는다.
+     */
+    @Query("""
+        SELECT s FROM SignalOutcome s
+         WHERE s.d3Status = :ok
+           AND s.d3PctChange IS NOT NULL
+           AND s.signalDate >= :from
+           AND s.signalDate < :toExclusive
+        """)
+    List<SignalOutcome> findD3OkBetween(@Param("from") LocalDate from, @Param("toExclusive") LocalDate toExclusive,
+                                        @Param("ok") String ok);
+
+    /**
      * 평가 완료된 시그널 — signalDate 가 [from, to] 닫힌 구간. 주간 측정(P1-6 상설화) 입력.
      * 서비스에서 순수 함수(regime 파티션별 카테고리/밴드)로 집계.
      */

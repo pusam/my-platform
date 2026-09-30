@@ -75,7 +75,27 @@ public record ControlRoomSnapshotDto(
             int excludedDays,
             List<String> blockers,
             String note,
-            String noteDetail
+            String noteDetail,
+            String sampleSince,
+            LegacyReference legacy
+    ) {}
+
+    /**
+     * 표본 경계 <b>이전</b>(이전 산식) 성적 — 참고치(2026-10-01). 현재 판정({@link TrustGate#state})에는 섞이지 않는다.
+     * 9/29~10/1 입력 수정 전 추천의 성적은 지금 산식의 성적이 아니라서, 현재 표본이 차는 동안 "그때는 이랬다"만
+     * 보여준다. null = 경계 이전 평가 행이 없다.
+     *
+     * @param from/toExclusive 집계 구간(ISO 날짜, 끝은 제외)
+     */
+    public record LegacyReference(
+            String from,
+            String toExclusive,
+            int rows,
+            int distinctDays,
+            int controlRows,
+            java.math.BigDecimal costAdjustedReturn,
+            java.math.BigDecimal edgeVsControl,
+            String state
     ) {}
 
     /**
