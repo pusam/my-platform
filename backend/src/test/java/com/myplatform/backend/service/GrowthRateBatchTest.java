@@ -43,7 +43,8 @@ class GrowthRateBatchTest {
         quarterlyRepo = mock(StockQuarterlyFinancialRepository.class);
         kis = mock(KoreaInvestmentService.class);
         collector = new StockFinancialDataCollector(dailyRepo, quarterlyRepo, kis,
-                mock(RestTemplate.class), new ObjectMapper(), mock(StockMasterService.class));
+                mock(RestTemplate.class), new ObjectMapper(), mock(StockMasterService.class),
+                mock(com.myplatform.backend.dartfinancial.DartControllingFinancialRepository.class));
         when(dailyRepo.findByStockCodeOrderByReportDateDesc(anyString())).thenReturn(List.of());
     }
 

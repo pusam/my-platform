@@ -138,6 +138,14 @@ public class StockFinancialData {
     @Column(precision = 15, scale = 2)
     private BigDecimal totalDebt; // 부채총계
 
+    /**
+     * PER·EPS 를 만든 순이익의 정의(V64, 2026-09-30) — {@code CTRL}: DART 지배주주 순이익 최근 4분기 ·
+     * {@code CONSOL}: KIS 연결 순이익 최근 4분기(비지배 포함 — 지주사 PER 과소) · {@code KIS}: KIS 현재가 API 값
+     * (지배주주 기준 최근 결산 연간). KIS 일별 행만 채운다 — null 은 그 이전 행이거나 다른 writer 의 행.
+     */
+    @Column(length = 10)
+    private String perBasis;
+
     // 메타 정보
     @Column(length = 20)
     private String sector; // 업종

@@ -98,6 +98,7 @@ CREATE TABLE stock_financial_data (
     revenue DECIMAL(15,2),
     operating_profit DECIMAL(15,2),
     net_income DECIMAL(15,2),
+    operating_margin DECIMAL(10,2),
     total_assets DECIMAL(15,2),
     total_equity DECIMAL(15,2),
     total_debt DECIMAL(15,2),

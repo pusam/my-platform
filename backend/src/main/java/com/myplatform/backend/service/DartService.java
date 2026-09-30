@@ -216,6 +216,11 @@ public class DartService {
         return corpCodeByStockCode.get(stockCode.trim());
     }
 
+    /** corpCode 목록이 메모리에 올라왔는가 — 부팅 직후(20초 지연 로드 전) 소비자가 기다릴 신호. */
+    public boolean isCorpCodeLoaded() {
+        return !corpCodeByStockCode.isEmpty();
+    }
+
     /**
      * 기업코드로 최근 3개월 공시 조회
      *

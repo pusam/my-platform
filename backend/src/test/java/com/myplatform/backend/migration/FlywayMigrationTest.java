@@ -65,6 +65,8 @@ class FlywayMigrationTest {
         applyLegacyBaseStub();
         // V62 는 데이터 마이그레이션이다 — 행이 있어야 writer 구분(KIS 만 비우고 네이버는 그대로)을 검증할 수 있다.
         seedGrowthRowsForV62();
+        // V63 도 데이터 마이그레이션 — 오독 행(TTM 매출 없음)만 비우고 TTM 행·네이버 행은 그대로인지 본다.
+        seedOperatingMarginRowsForV63();
 
         Flyway flyway = Flyway.configure()
                 .dataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword())
@@ -171,6 +173,39 @@ class FlywayMigrationTest {
                 .as("V62 백업은 값이 있던 KIS 행만 — 전부 NULL 인 행·네이버 행은 제외").isEqualTo(1);
         assertThat(scalarString("SELECT CONCAT(stock_code, '/', revenue_growth, '/', peg) FROM stock_financial_growth_backup_v62"))
                 .as("V62 백업에 비우기 전 값이 남아 되돌릴 수 있다").isEqualTo("019010/371.00/0.80");
+
+        // --- 검증 14 (V63): TTM 매출 없는 KIS 행의 영업이익률(재무비율 API 오독 — 실은 영업이익 증가율)만 백업 후 비운다 ---
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE market_cap IS NOT NULL "
+                + "AND revenue IS NULL AND operating_margin IS NOT NULL"))
+                .as("V63 TTM 매출 없는 KIS 행의 영업이익률이 전부 NULL(0 도 파싱 실패라 같이)").isZero();
+        assertThat(scalarString("SELECT operating_margin FROM stock_financial_data WHERE stock_code = '019180'"))
+                .as("V63 TTM 매출이 있는 행의 영업이익률(영업이익÷매출)은 그대로").isEqualTo("6.98");
+        assertThat(scalarString("SELECT operating_margin FROM stock_financial_data WHERE market_cap IS NULL AND stock_code = '282620'"))
+                .as("V63 네이버 분기 행은 writer 가 달라 건드리지 않는다").isEqualTo("9.29");
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_opm_backup_v63"))
+                .as("V63 백업은 비운 행만(증가율 81.65 와 파싱 실패 0)").isEqualTo(2);
+        assertThat(scalarString("SELECT operating_margin FROM stock_financial_opm_backup_v63 WHERE stock_code = '282620'"))
+                .as("V63 백업에 비우기 전 값이 남아 되돌릴 수 있다").isEqualTo("81.65");
+
+        // --- 검증 15 (V64): DART 지배주주 표 — 보고서 한 건 한 행(재수집이 중복을 못 만든다) + PER 정의 칸 ---
+        assertThat(uniqueConstraintCount("dart_controlling_financial", "uq_dcf_stock_report"))
+                .as("V64 dart_controlling_financial UNIQUE(stock_code, bsns_year, reprt_code)").isEqualTo(1);
+        assertThat(columnCount("stock_financial_data", "per_basis"))
+                .as("V64 stock_financial_data.per_basis 컬럼").isEqualTo(1);
+        validateEntitiesAgainstSchema("com.myplatform.backend.dartfinancial");
+    }
+
+    /** V63 검증용 행 — 오독 행(증가율·파싱 실패 0), TTM 행, 네이버 분기 행. */
+    private void seedOperatingMarginRowsForV63() throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("INSERT INTO stock_financial_data (stock_code, report_date, market_cap, revenue, operating_margin) VALUES "
+                    + "('282620', '2026-09-29', 718.00, NULL, 81.65), "
+                    + "('007370', '2026-09-29', 565.00, NULL, 0.00), "
+                    + "('019180', '2026-09-29', 896.00, 11302.00, 6.98), "
+                    + "('282620', '2026-06-30', NULL, NULL, 9.29)");
+        }
     }
 
     /** V62 검증용 행 — KIS 행(값 있음·전부 NULL) 둘과 네이버 분기 행 하나. */

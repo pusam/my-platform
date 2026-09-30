@@ -2,6 +2,9 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.dartfinancial.ControllingEarnings;
+import com.myplatform.backend.dartfinancial.DartControllingFinancial;
+import com.myplatform.backend.dartfinancial.DartControllingFinancialRepository;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.entity.StockQuarterlyFinancial;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
@@ -66,6 +69,7 @@ public class StockFinancialDataCollector {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final StockMasterService stockMasterService;
+    private final DartControllingFinancialRepository dartControllingRepository;
 
     /**
      * 수집 시점의 표시용 종목명 — 순수 함수(회귀 {@code FinancialCollectorNameFallbackTest}).
@@ -96,6 +100,23 @@ public class StockFinancialDataCollector {
             }
         }
         return stockCode;
+    }
+
+    /**
+     * DART 지배주주 순이익 최근 4분기·지배지분 자본({@link ControllingEarnings#ttm}) — 표가 비었거나(수집 전·DART 에 없는 종목)
+     * 조회가 실패하면 null 이고, 호출부는 KIS 값(종전 정의)으로 남는다.
+     */
+    ControllingEarnings.Ttm controllingTtm(String stockCode, LocalDate today) {
+        try {
+            List<ControllingEarnings.Report> reports = dartControllingRepository
+                    .findByStockCodeAndStatus(stockCode, DartControllingFinancial.STATUS_OK).stream()
+                    .map(DartControllingFinancial::toReport)
+                    .toList();
+            return ControllingEarnings.ttm(reports, today);
+        } catch (Exception e) {
+            log.debug("[지배주주 TTM] {} 조회 실패 — 종전 정의로: {}", stockCode, e.getMessage());
+            return null;
+        }
     }
 
 
@@ -299,12 +320,51 @@ public class StockFinancialDataCollector {
                 }
             }
 
+            // ★ 지배주주 기준(2026-09-30): DART 지배주주 순이익 최근 4분기·지배지분 자본이 있으면 PER·EPS·BPS·PBR·ROE 를
+            //   그것으로 만든다. 위의 KIS 연결 순이익·자본총계는 비지배지분 몫까지 포함이라 지주사·그룹사를 2~4배 싸 보이게
+            //   했다(다우기술 PER 0.9·PBR 0.20 → 지배 기준 2.1·0.41). DART 값이 없으면 위 값 그대로 — 어느 정의인지는
+            //   per_basis 로 남긴다(CTRL·CONSOL·KIS). 추정 비중을 곱해 지배 기준 '비슷한' 값을 만들지 않는다(§4c).
+            String perBasis = netIncome != null ? "CONSOL" : "KIS";
+            ControllingEarnings.Ttm ctrl = controllingTtm(stockCode, today);
+            if (ctrl != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0 && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
+                if (ctrl.netIncome() != null) {
+                    BigDecimal ctrlEps = ctrl.netIncome()
+                            .multiply(new BigDecimal("100000000"))  // 억원 → 원
+                            .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                    if (ctrlEps.signum() != 0) {
+                        eps = ctrlEps;
+                        per = currentPrice.divide(ctrlEps, 1, RoundingMode.HALF_UP);
+                        financialData.setEps(eps);
+                        financialData.setPer(per);
+                        perBasis = "CTRL";
+                    }
+                }
+                if (ctrl.equity() != null && ctrl.equity().signum() > 0) {
+                    BigDecimal ctrlBps = ctrl.equity()
+                            .multiply(new BigDecimal("100000000"))
+                            .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                    if (ctrlBps.signum() > 0) {
+                        bps = ctrlBps;
+                        pbr = currentPrice.divide(ctrlBps, 2, RoundingMode.HALF_UP);
+                        financialData.setBps(bps);
+                        financialData.setPbr(pbr);
+                        if ("CTRL".equals(perBasis)) {
+                            roe = ctrl.netIncome().divide(ctrl.equity(), 6, RoundingMode.HALF_UP)
+                                    .multiply(new BigDecimal("100"))
+                                    .setScale(2, RoundingMode.HALF_UP);
+                            financialData.setRoe(roe);
+                        }
+                    }
+                }
+            }
+            financialData.setPerBasis(perBasis);
+
             stockFinancialDataRepository.save(financialData);
 
             // 손익계산서 데이터 저장 여부 로깅
             if (operatingProfit != null || netIncome != null || revenue != null) {
-                log.info("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}, EPS(TTM): {}, PER(TTM): {}",
-                        stockName, stockCode, revenue, operatingProfit, netIncome, eps, per);
+                log.info("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}, EPS(TTM): {}, PER(TTM): {} [{}]",
+                        stockName, stockCode, revenue, operatingProfit, netIncome, eps, per, perBasis);
             } else {
                 log.warn("[Simple저장] {} ({}) - 손익계산서 데이터 없음 (영업이익률: {})",
                         stockName, stockCode, operatingMargin);
