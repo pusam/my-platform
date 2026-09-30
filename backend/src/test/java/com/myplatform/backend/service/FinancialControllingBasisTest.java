@@ -1,6 +1,8 @@
 package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.dartfinancial.DartCompany;
+import com.myplatform.backend.dartfinancial.DartCompanyRepository;
 import com.myplatform.backend.dartfinancial.DartControllingFinancial;
 import com.myplatform.backend.dartfinancial.DartControllingFinancialRepository;
 import com.myplatform.backend.entity.StockFinancialData;
@@ -38,6 +40,7 @@ class FinancialControllingBasisTest {
 
     private StockFinancialDataRepository dailyRepo;
     private DartControllingFinancialRepository dartRepo;
+    private DartCompanyRepository companyRepo;
     private KoreaInvestmentService kis;
     private StockFinancialDataCollector collector;
     private StockFinancialData today;
@@ -46,10 +49,11 @@ class FinancialControllingBasisTest {
     void setUp() throws Exception {
         dailyRepo = mock(StockFinancialDataRepository.class);
         dartRepo = mock(DartControllingFinancialRepository.class);
+        companyRepo = mock(DartCompanyRepository.class);
         kis = mock(KoreaInvestmentService.class);
         StockFinancialDataCollector real = new StockFinancialDataCollector(dailyRepo,
                 mock(StockQuarterlyFinancialRepository.class), kis, mock(RestTemplate.class), new ObjectMapper(),
-                mock(StockMasterService.class), dartRepo);
+                mock(StockMasterService.class), dartRepo, companyRepo);
         collector = spy(real);
 
         today = new StockFinancialData();
@@ -86,7 +90,13 @@ class FinancialControllingBasisTest {
     }
 
     /** 다우기술 2026 반기 + 2025 사업보고서 — 접수일은 오늘 기준 상대값(테스트가 날짜와 함께 썩지 않게). */
+    private void fiscalMonth(String month) {
+        when(companyRepo.findById("023590")).thenReturn(Optional.of(DartCompany.builder().stockCode("023590")
+                .corpCode("00176914").fiscalMonth(month).collectedAt(LocalDateTime.now()).build()));
+    }
+
     private void dartReports(boolean withPriorAnnual) {
+        fiscalMonth("12");
         LocalDate now = LocalDate.now();
         DartControllingFinancial h1 = report(2026, "11012", "4923.83", "2487.45", "38832.82", now.minusDays(47));
         DartControllingFinancial fy = report(2025, "11011", "5051.82", "3558.35", "34464.35", now.minusDays(196));
@@ -151,6 +161,20 @@ class FinancialControllingBasisTest {
         assertThat(today.getPbr()).isEqualByComparingTo("0.41");
         assertThat(today.getRoe()).as("순이익 정의가 연결이면 ROE 도 연결 기준 그대로(분자·분모를 섞지 않는다)")
                 .isEqualByComparingTo("20.90");
+    }
+
+    @Test
+    @DisplayName("12월 결산이 아니면 순이익은 DART 로 만들지 않는다 — PER 은 종전(CONSOL), PBR 만 지배지분 자본으로")
+    void nonDecemberFiscalYearKeepsConsolidatedPer() {
+        kisTtm(true);
+        dartReports(true);
+        fiscalMonth("03");   // 동원모빌리티처럼 3월 결산이면 12월 기준 짝이 어긋난다
+
+        assertThat(collector.collectStockFinancialDataSimple("023590")).isTrue();
+
+        assertThat(today.getPer()).isEqualByComparingTo("0.9");
+        assertThat(today.getPerBasis()).isEqualTo("CONSOL");
+        assertThat(today.getPbr()).as("지배지분 자본은 시점 값이라 결산월과 무관").isEqualByComparingTo("0.41");
     }
 
     @Test

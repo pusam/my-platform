@@ -192,6 +192,10 @@ class FlywayMigrationTest {
                 .as("V64 dart_controlling_financial UNIQUE(stock_code, bsns_year, reprt_code)").isEqualTo(1);
         assertThat(columnCount("stock_financial_data", "per_basis"))
                 .as("V64 stock_financial_data.per_basis 컬럼").isEqualTo(1);
+        // --- 검증 16 (V65): 결산월 표 — 지배주주 TTM 은 12월 결산만(동원모빌리티 3월 결산 오계산) ---
+        assertThat(columnCount("dart_company", "fiscal_month"))
+                .as("V65 dart_company.fiscal_month 컬럼").isEqualTo(1);
+        // 엔티티 ↔ 스키마(dart_controlling_financial·dart_company) — 운영은 ddl-auto: validate
         validateEntitiesAgainstSchema("com.myplatform.backend.dartfinancial");
     }
 

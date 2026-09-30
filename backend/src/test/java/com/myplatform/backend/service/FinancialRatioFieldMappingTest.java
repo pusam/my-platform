@@ -43,7 +43,8 @@ class FinancialRatioFieldMappingTest {
         collector = new StockFinancialDataCollector(mock(StockFinancialDataRepository.class),
                 mock(StockQuarterlyFinancialRepository.class), mock(KoreaInvestmentService.class),
                 restTemplate, new ObjectMapper(), mock(StockMasterService.class),
-                mock(com.myplatform.backend.dartfinancial.DartControllingFinancialRepository.class));
+                mock(com.myplatform.backend.dartfinancial.DartControllingFinancialRepository.class),
+                mock(com.myplatform.backend.dartfinancial.DartCompanyRepository.class));
     }
 
     private void respond(String path, String body) {

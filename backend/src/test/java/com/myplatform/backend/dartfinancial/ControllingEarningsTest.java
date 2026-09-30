@@ -163,7 +163,7 @@ class ControllingEarningsTest {
         @Test
         @DisplayName("다우기술 — 4,923.83 + 5,051.82 − 2,487.45 = 7,488.20억(네이버 분기 지배주주순이익 4개 합과 같다)")
         void daou() {
-            Ttm t = ControllingEarnings.ttm(List.of(daouFy(), daouH1()), today);
+            Ttm t = ControllingEarnings.ttm(List.of(daouFy(), daouH1()), "12", today);
             assertThat(t.netIncome()).isEqualByComparingTo("7488.20");
             assertThat(t.equity()).as("최신 보고서의 지배지분 자본").isEqualByComparingTo("38832.82");
             assertThat(t.basedOn()).isEqualTo(h1);
@@ -172,14 +172,14 @@ class ControllingEarningsTest {
         @Test
         @DisplayName("최신이 사업보고서면 그 연간값이 TTM")
         void annualIsTtm() {
-            Ttm t = ControllingEarnings.ttm(List.of(daouFy()), LocalDate.of(2026, 4, 10));
+            Ttm t = ControllingEarnings.ttm(List.of(daouFy()), "12", LocalDate.of(2026, 4, 10));
             assertThat(t.netIncome()).isEqualByComparingTo("5051.82");
         }
 
         @Test
         @DisplayName("직전 사업보고서가 없으면 순이익은 모른다 — 자본은 최신 보고서 것으로 안다")
         void missingPriorAnnual() {
-            Ttm t = ControllingEarnings.ttm(List.of(daouH1()), today);
+            Ttm t = ControllingEarnings.ttm(List.of(daouH1()), "12", today);
             assertThat(t.netIncome()).isNull();
             assertThat(t.equity()).isEqualByComparingTo("38832.82");
         }
@@ -189,13 +189,13 @@ class ControllingEarningsTest {
         void mixedStatementKindsAreUnknown() {
             Report fyOfs = new Report(fy, "OFS", new BigDecimal("5051.82"), new BigDecimal("3558.35"),
                     null, LocalDate.of(2026, 3, 18));
-            assertThat(ControllingEarnings.ttm(List.of(fyOfs, daouH1()), today).netIncome()).isNull();
+            assertThat(ControllingEarnings.ttm(List.of(fyOfs, daouH1()), "12", today).netIncome()).isNull();
         }
 
         @Test
         @DisplayName("최신 보고서가 200일 넘게 묵었으면 모른다")
         void staleLatestIsUnknown() {
-            assertThat(ControllingEarnings.ttm(List.of(daouFy(), daouH1()), LocalDate.of(2027, 3, 10))).isNull();
+            assertThat(ControllingEarnings.ttm(List.of(daouFy(), daouH1()), "12", LocalDate.of(2027, 3, 10))).isNull();
         }
 
         @Test
@@ -204,13 +204,39 @@ class ControllingEarningsTest {
             Report lossH1 = new Report(h1, "CFS", new BigDecimal("-120.00"), new BigDecimal("30.00"),
                     new BigDecimal("500.00"), LocalDate.of(2026, 8, 14));
             Report lossFy = new Report(fy, "CFS", new BigDecimal("-40.00"), null, null, LocalDate.of(2026, 3, 18));
-            assertThat(ControllingEarnings.ttm(List.of(lossFy, lossH1), today).netIncome()).isEqualByComparingTo("-190.00");
+            assertThat(ControllingEarnings.ttm(List.of(lossFy, lossH1), "12", today).netIncome()).isEqualByComparingTo("-190.00");
         }
 
         @Test
         @DisplayName("보고서가 없으면 null")
         void nothing() {
-            assertThat(ControllingEarnings.ttm(List.of(), today)).isNull();
+            assertThat(ControllingEarnings.ttm(List.of(), "12", today)).isNull();
+        }
+
+        @Test
+        @DisplayName("3월 결산(동원모빌리티 실측) — 짝이 어긋나 296억이 나오던 것을 모름으로. 자본은 시점 값이라 쓴다")
+        void nonDecemberFiscalYearIsUnknown() {
+            // 2026-09-30 운영 저장값: '2026 1분기'(4~6월, 8/14 접수)와 '2025 사업보고서'(2025년 3월 결산, 2025-06-18 접수).
+            // 12월 결산 짝(직전 연도 사업보고서)을 그대로 쓰면 139.22 + 211.64 − 54.71 = 296.15 — 실제 최근 4분기
+            // 지배주주 순이익은 475억(네이버)이라 PER 1.3 이 2.1 로 틀렸다. 필요한 2026년 3월 결산 보고서는 12월 기준
+            // 조회 계획에서 아예 빠진다.
+            Report q1 = new Report(new ReportKey(2026, ReportCode.Q1), "CFS", new BigDecimal("139.22"),
+                    new BigDecimal("54.71"), new BigDecimal("1947.90"), LocalDate.of(2026, 8, 14));
+            Report fyMar2025 = new Report(new ReportKey(2025, ReportCode.FY), "CFS", new BigDecimal("211.64"),
+                    new BigDecimal("182.81"), new BigDecimal("1329.62"), LocalDate.of(2025, 6, 18));
+
+            Ttm t = ControllingEarnings.ttm(List.of(fyMar2025, q1), "03", today);
+
+            assertThat(t.netIncome()).isNull();
+            assertThat(t.equity()).as("최신 보고서 기준 지배지분 자본은 결산월과 무관").isEqualByComparingTo("1947.90");
+        }
+
+        @Test
+        @DisplayName("결산월을 모르면 순이익도 모른다 — 12월로 가정하지 않는다")
+        void unknownFiscalMonthIsUnknown() {
+            Ttm t = ControllingEarnings.ttm(List.of(daouFy(), daouH1()), null, today);
+            assertThat(t.netIncome()).isNull();
+            assertThat(t.equity()).isEqualByComparingTo("38832.82");
         }
     }
 

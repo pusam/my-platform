@@ -44,6 +44,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class DartControllingFinancialService {
 
     static final String BASE_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json";
+    /** 기업개황 — 결산월(acc_mt). 12월 결산이 아니면 지배주주 TTM 을 만들지 않는다(ControllingEarnings.ttm). */
+    static final String COMPANY_URL = "https://opendart.fss.or.kr/api/company.json";
     static final int CANDIDATE_COUNT = 4;
     /** 최신 보고서를 찾으려 종목당 한 회차에 거슬러 올라가는 최대 보고서 수. */
     static final int MAX_LATEST_FETCHES_PER_STOCK = 2;
@@ -54,6 +56,7 @@ public class DartControllingFinancialService {
     static final int CORP_CODE_WAIT_POLLS = 150;
 
     private final DartControllingFinancialRepository repository;
+    private final DartCompanyRepository companyRepository;
     private final DartService dartService;
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final RestTemplate restTemplate;
@@ -88,7 +91,8 @@ public class DartControllingFinancialService {
     @Async
     public void catchUpOnStartup() {
         try {
-            if (repository.count() > 0) return;
+            // 보고서 표나 결산월 표가 비었으면(첫 배포·V65 직후) 한 번 채운다 — 결산월이 없으면 순이익을 못 만든다
+            if (repository.count() > 0 && companyRepository.count() > 0) return;
             for (int i = 0; i < CORP_CODE_WAIT_POLLS && !dartService.isCorpCodeLoaded(); i++) {
                 Thread.sleep(corpCodePollMillis);
             }
@@ -130,6 +134,9 @@ public class DartControllingFinancialService {
             stored.computeIfAbsent(row.getStockCode(), k -> new HashMap<>()).put(row.key(), row);
         }
 
+        Map<String, DartCompany> companies = new HashMap<>();
+        for (DartCompany c : companyRepository.findAll()) companies.put(c.getStockCode(), c);
+
         Run run = new Run(today);
         for (String code : new LinkedHashSet<>(stockFinancialDataRepository.findAllStockCodes())) {
             if (run.abortReason != null) break;
@@ -143,6 +150,10 @@ public class DartControllingFinancialService {
                 continue;
             }
             run.stocks++;
+            DartCompany company = companies.get(code);
+            if (company == null || (company.getFiscalMonth() == null && companyRetryDue(company, run.today))) {
+                if (fetchCompany(run, code, corpCode, company, companies) == Outcome.ABORT) break;
+            }
             collectStock(run, code, corpCode, stored.getOrDefault(code, new HashMap<>()), candidates);
         }
 
@@ -258,18 +269,53 @@ public class DartControllingFinancialService {
         return Outcome.NO_DATA;
     }
 
+    static boolean companyRetryDue(DartCompany company, LocalDate today) {
+        return !company.getCollectedAt().toLocalDate().plusDays(NO_DATA_RETRY_DAYS).isAfter(today);
+    }
+
+    /** 기업개황에서 결산월을 받아 둔다 — 종목당 한 번(결산월은 거의 바뀌지 않는다). 실패하면 저장하지 않고 다음 회차에. */
+    private Outcome fetchCompany(Run run, String code, String corpCode, DartCompany existing,
+                                 Map<String, DartCompany> companies) {
+        if (run.calls >= MAX_CALLS_PER_RUN) {
+            run.abortReason = "CALL_BUDGET";
+            return Outcome.ABORT;
+        }
+        JsonNode root = get(run, UriComponentsBuilder.fromUriString(COMPANY_URL)
+                .queryParam("crtfc_key", dartApiKey).queryParam("corp_code", corpCode).build().toUri());
+        if (root == null) {
+            run.failed++;
+            return Outcome.FAILED;
+        }
+        String status = root.path("status").asText();
+        if (!"000".equals(status) && !"013".equals(status)) {
+            run.abortReason = "DART status " + status + " " + root.path("message").asText();
+            return Outcome.ABORT;
+        }
+        String accMt = root.path("acc_mt").asText(null);
+        DartCompany company = existing != null ? existing : new DartCompany();
+        company.setStockCode(code);
+        company.setCorpCode(corpCode);
+        company.setFiscalMonth(accMt != null && accMt.matches("\\d{2}") ? accMt : null);
+        company.setCollectedAt(LocalDateTime.now(clock));
+        companies.put(code, companyRepository.save(company));
+        return company.getFiscalMonth() != null ? Outcome.OK : Outcome.NO_DATA;
+    }
+
     /** DART 한 건 조회 — 실패는 null(로그는 DEBUG, 키가 든 URL 은 남기지 않는다). */
     private JsonNode call(Run run, String corpCode, ReportKey key, String fsDiv) {
+        return get(run, UriComponentsBuilder.fromUriString(BASE_URL)
+                .queryParam("crtfc_key", dartApiKey)
+                .queryParam("corp_code", corpCode)
+                .queryParam("bsns_year", key.year())
+                .queryParam("reprt_code", key.code().code)
+                .queryParam("fs_div", fsDiv)
+                .build().toUri());
+    }
+
+    private JsonNode get(Run run, URI uri) {
         run.calls++;
         try {
             if (callIntervalMillis > 0) Thread.sleep(callIntervalMillis);
-            URI uri = UriComponentsBuilder.fromUriString(BASE_URL)
-                    .queryParam("crtfc_key", dartApiKey)
-                    .queryParam("corp_code", corpCode)
-                    .queryParam("bsns_year", key.year())
-                    .queryParam("reprt_code", key.code().code)
-                    .queryParam("fs_div", fsDiv)
-                    .build().toUri();
             String body = restTemplate.getForObject(uri, String.class);
             return body == null ? null : objectMapper.readTree(body);
         } catch (InterruptedException e) {
@@ -277,7 +323,7 @@ public class DartControllingFinancialService {
             run.abortReason = "INTERRUPTED";
             return null;
         } catch (Exception e) {
-            log.debug("[DART 지배주주] {} {}/{} {} 조회 실패: {}", corpCode, key.year(), key.code(), fsDiv, e.getMessage());
+            log.debug("[DART 지배주주] {} 조회 실패: {}", uri.getPath(), e.getMessage());
             return null;
         }
     }

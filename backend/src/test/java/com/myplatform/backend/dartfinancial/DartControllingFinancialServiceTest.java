@@ -37,6 +37,7 @@ class DartControllingFinancialServiceTest {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private DartControllingFinancialRepository repo;
+    private DartCompanyRepository companyRepo;
     private DartService dart;
     private StockFinancialDataRepository financialRepo;
     private RestTemplate rest;
@@ -44,21 +45,29 @@ class DartControllingFinancialServiceTest {
 
     /** 저장된 행(가짜 저장소) · 응답표(키 = corp/year/reprt/fs) · 호출 기록. */
     private final List<DartControllingFinancial> saved = new ArrayList<>();
+    private final List<DartCompany> companies = new ArrayList<>();
     private final Map<String, String> responses = new HashMap<>();
     private final List<String> calls = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
         repo = mock(DartControllingFinancialRepository.class);
+        companyRepo = mock(DartCompanyRepository.class);
         dart = mock(DartService.class);
         financialRepo = mock(StockFinancialDataRepository.class);
         rest = mock(RestTemplate.class);
         Clock clock = Clock.fixed(LocalDate.of(2026, 9, 30).atTime(21, 30).atZone(KST).toInstant(), KST);
-        service = new DartControllingFinancialService(repo, dart, financialRepo, rest, new ObjectMapper(), clock);
+        service = new DartControllingFinancialService(repo, companyRepo, dart, financialRepo, rest, new ObjectMapper(), clock);
         ReflectionTestUtils.setField(service, "dartApiKey", "test-key");
         service.callIntervalMillis = 0;
 
         when(repo.findAll()).thenAnswer(inv -> new ArrayList<>(saved));
+        when(companyRepo.findAll()).thenAnswer(inv -> new ArrayList<>(companies));
+        when(companyRepo.save(any(DartCompany.class))).thenAnswer(inv -> {
+            DartCompany c = inv.getArgument(0);
+            if (!companies.contains(c)) companies.add(c);
+            return c;
+        });
         when(repo.save(any(DartControllingFinancial.class))).thenAnswer(inv -> {
             DartControllingFinancial row = inv.getArgument(0);
             if (!saved.contains(row)) saved.add(row);
@@ -67,9 +76,16 @@ class DartControllingFinancialServiceTest {
         when(rest.getForObject(any(URI.class), eq(String.class))).thenAnswer(inv -> {
             URI uri = inv.getArgument(0);
             Map<String, List<String>> q = UriComponentsBuilder.fromUri(uri).build().getQueryParams();
+            assertThat(q.get("crtfc_key")).containsExactly("test-key");
+            if (uri.getPath().endsWith("/company.json")) {
+                String key = "company/" + q.get("corp_code").get(0);
+                calls.add(key);
+                String body = responses.get(key);
+                if ("THROW".equals(body)) throw new ResourceAccessException("timeout");
+                return body != null ? body : DECEMBER_COMPANY;
+            }
             String key = q.get("corp_code").get(0) + "/" + q.get("bsns_year").get(0) + "/"
                     + q.get("reprt_code").get(0) + "/" + q.get("fs_div").get(0);
-            assertThat(q.get("crtfc_key")).containsExactly("test-key");
             calls.add(key);
             String body = responses.get(key);
             if ("THROW".equals(body)) throw new ResourceAccessException("timeout");
@@ -78,6 +94,8 @@ class DartControllingFinancialServiceTest {
     }
 
     private static final String NO_DATA = "{\"status\":\"013\",\"message\":\"조회된 데이타가 없습니다.\"}";
+    /** 기업개황 기본 응답 — 12월 결산. */
+    private static final String DECEMBER_COMPANY = "{\"status\":\"000\",\"acc_mt\":\"12\"}";
 
     private static String ok(String rcept, String sj, String ctrlId, String cum, String prevCum, String equityId, String equity) {
         return "{\"status\":\"000\",\"message\":\"정상\",\"list\":["
@@ -114,6 +132,11 @@ class DartControllingFinancialServiceTest {
         return row;
     }
 
+    private void storedCompany(String stock, String month) {
+        companies.add(DartCompany.builder().stockCode(stock).corpCode("C" + stock).fiscalMonth(month)
+                .collectedAt(LocalDateTime.of(2026, 9, 1, 21, 30)).build());
+    }
+
     private DartControllingFinancial savedRow(int year, String reprt) {
         return saved.stream().filter(r -> r.getBsnsYear() == year && r.getReprtCode().equals(reprt)).findFirst().orElseThrow();
     }
@@ -128,7 +151,8 @@ class DartControllingFinancialServiceTest {
 
         DartControllingFinancialService.Summary s = service.collect();
 
-        assertThat(calls).containsExactly("00176914/2026/11012/CFS", "00176914/2025/11011/CFS");
+        assertThat(calls).containsExactly("company/00176914", "00176914/2026/11012/CFS", "00176914/2025/11011/CFS");
+        assertThat(companies).extracting(DartCompany::getFiscalMonth).containsExactly("12");
         assertThat(savedRow(2026, "11012").getCtrlNetIncome()).isEqualByComparingTo("4923.83");
         assertThat(savedRow(2026, "11012").getCtrlEquity()).isEqualByComparingTo("38832.82");
         assertThat(savedRow(2026, "11012").getFiledOn()).isEqualTo(LocalDate.of(2026, 8, 14));
@@ -137,7 +161,7 @@ class DartControllingFinancialServiceTest {
         assertThat(s.abortReason()).isNull();
         // 저장된 두 건으로 TTM 이 나온다
         assertThat(ControllingEarnings.ttm(saved.stream().map(DartControllingFinancial::toReport).toList(),
-                LocalDate.of(2026, 9, 30)).netIncome()).isEqualByComparingTo("7488.20");
+                "12", LocalDate.of(2026, 9, 30)).netIncome()).isEqualByComparingTo("7488.20");
     }
 
     @Test
@@ -150,7 +174,8 @@ class DartControllingFinancialServiceTest {
 
         service.collect();
 
-        assertThat(calls).containsExactly("00150536/2026/11012/CFS", "00150536/2026/11012/OFS", "00150536/2025/11011/OFS");
+        assertThat(calls).containsExactly("company/00150536",
+                "00150536/2026/11012/CFS", "00150536/2026/11012/OFS", "00150536/2025/11011/OFS");
         assertThat(savedRow(2026, "11012").getFsDiv()).isEqualTo("OFS");
         assertThat(savedRow(2026, "11012").getCtrlNetIncome()).as("별도는 당기순이익이 곧 지배주주").isEqualByComparingTo("45.00");
     }
@@ -165,7 +190,7 @@ class DartControllingFinancialServiceTest {
 
         DartControllingFinancialService.Summary s = service.collect();
 
-        assertThat(calls).containsExactly("C111111/2026/11012/CFS", "C111111/2026/11012/OFS",
+        assertThat(calls).containsExactly("company/C111111", "C111111/2026/11012/CFS", "C111111/2026/11012/OFS",
                 "C111111/2026/11013/CFS", "C111111/2025/11011/CFS");
         assertThat(savedRow(2026, "11012").getStatus()).isEqualTo(DartControllingFinancial.STATUS_NO_DATA);
         assertThat(savedRow(2026, "11013").getStatus()).isEqualTo(DartControllingFinancial.STATUS_OK);
@@ -179,6 +204,7 @@ class DartControllingFinancialServiceTest {
         corp("023590", "00176914");
         stored("023590", 2026, "11012", DartControllingFinancial.STATUS_OK, LocalDate.of(2026, 8, 20));
         stored("023590", 2025, "11011", DartControllingFinancial.STATUS_OK, LocalDate.of(2026, 4, 1));
+        storedCompany("023590", "12");
 
         DartControllingFinancialService.Summary s = service.collect();
 
@@ -194,6 +220,7 @@ class DartControllingFinancialServiceTest {
         DartControllingFinancial h1 = stored("111111", 2026, "11012", DartControllingFinancial.STATUS_NO_DATA, LocalDate.of(2026, 9, 27));
         stored("111111", 2026, "11013", DartControllingFinancial.STATUS_OK, LocalDate.of(2026, 5, 20));
         stored("111111", 2025, "11011", DartControllingFinancial.STATUS_OK, LocalDate.of(2026, 4, 1));
+        storedCompany("111111", "12");
 
         service.collect();
         assertThat(calls).as("3일 전 NO_DATA — 아직 안 묻는다").isEmpty();
@@ -216,7 +243,7 @@ class DartControllingFinancialServiceTest {
 
         DartControllingFinancialService.Summary s = service.collect();
 
-        assertThat(calls).containsExactly("00176914/2026/11012/CFS");
+        assertThat(calls).containsExactly("company/00176914", "00176914/2026/11012/CFS");
         assertThat(s.abortReason()).contains("020");
         assertThat(saved).isEmpty();
     }
@@ -236,6 +263,35 @@ class DartControllingFinancialServiceTest {
         assertThat(saved).extracting(DartControllingFinancial::getStockCode).containsOnly("005930");
         assertThat(s.failed()).isEqualTo(1);
         assertThat(s.ok()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("결산월은 한 번 받아 둔다 — 3월 결산(동원모빌리티)도 그대로 적고, 순이익 판단은 계산 쪽이 한다")
+    void fiscalMonthStored() {
+        universe("018500");
+        corp("018500", "00118008");
+        responses.put("company/00118008", "{\"status\":\"000\",\"acc_mt\":\"03\"}");
+
+        service.collect();
+        service.collect();
+
+        assertThat(companies).extracting(DartCompany::getFiscalMonth).containsExactly("03");
+        assertThat(calls.stream().filter(c -> c.startsWith("company/"))).as("두 번째 회차엔 다시 묻지 않는다").hasSize(1);
+    }
+
+    @Test
+    @DisplayName("기업개황이 한도 초과(020)면 회차를 멈춘다 — 보고서도 부르지 않는다")
+    void companyRateLimitAborts() {
+        universe("023590", "005930");
+        corp("023590", "00176914");
+        corp("005930", "00126380");
+        responses.put("company/00176914", "{\"status\":\"020\",\"message\":\"요청 제한을 초과하였습니다.\"}");
+
+        DartControllingFinancialService.Summary s = service.collect();
+
+        assertThat(calls).containsExactly("company/00176914");
+        assertThat(s.abortReason()).contains("020");
+        assertThat(companies).isEmpty();
     }
 
     @Test
@@ -266,7 +322,8 @@ class DartControllingFinancialServiceTest {
         responses.put("00176914/2026/11012/CFS", cfs("20260814003900", "492382928525", "248744902085", "3883281985289"));
         responses.put("00176914/2025/11011/CFS", cfs("20260318001606", "505182368263", "355835455442", "3446435267021"));
         service.collect();
-        assertThat(calls).hasSize(2);
+        assertThat(calls).hasSize(3);
         assertThat(saved).hasSize(2);
+        assertThat(companies).hasSize(1);
     }
 }

@@ -3,6 +3,8 @@ package com.myplatform.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dartfinancial.ControllingEarnings;
+import com.myplatform.backend.dartfinancial.DartCompany;
+import com.myplatform.backend.dartfinancial.DartCompanyRepository;
 import com.myplatform.backend.dartfinancial.DartControllingFinancial;
 import com.myplatform.backend.dartfinancial.DartControllingFinancialRepository;
 import com.myplatform.backend.entity.StockFinancialData;
@@ -70,6 +72,7 @@ public class StockFinancialDataCollector {
     private final ObjectMapper objectMapper;
     private final StockMasterService stockMasterService;
     private final DartControllingFinancialRepository dartControllingRepository;
+    private final DartCompanyRepository dartCompanyRepository;
 
     /**
      * 수집 시점의 표시용 종목명 — 순수 함수(회귀 {@code FinancialCollectorNameFallbackTest}).
@@ -112,7 +115,9 @@ public class StockFinancialDataCollector {
                     .findByStockCodeAndStatus(stockCode, DartControllingFinancial.STATUS_OK).stream()
                     .map(DartControllingFinancial::toReport)
                     .toList();
-            return ControllingEarnings.ttm(reports, today);
+            // 결산월(DART 기업개황) — 12월 결산이 아니거나 모르면 순이익은 만들지 않는다(짝 맞추기가 12월 기준)
+            String fiscalMonth = dartCompanyRepository.findById(stockCode).map(DartCompany::getFiscalMonth).orElse(null);
+            return ControllingEarnings.ttm(reports, fiscalMonth, today);
         } catch (Exception e) {
             log.debug("[지배주주 TTM] {} 조회 실패 — 종전 정의로: {}", stockCode, e.getMessage());
             return null;

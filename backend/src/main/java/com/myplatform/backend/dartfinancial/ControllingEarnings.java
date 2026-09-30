@@ -187,18 +187,27 @@ public final class ControllingEarnings {
 
     // ==================== TTM ====================
 
+    /** 짝 맞추기가 성립하는 결산월 — DART 기업개황 acc_mt. */
+    public static final String DECEMBER = "12";
+
     /**
      * 저장된 보고서 → 최근 4분기 지배주주 순이익·최신 지배지분 자본. 알 수 없으면 null.
      * 최신 보고서가 분·반기면 직전 사업보고서가 있어야 하고, 둘의 연결/별도 구분이 같아야 한다(섞으면 정의가 갈린다).
+     * 순이익은 <b>12월 결산일 때만</b> 만든다({@code fiscalMonth} = DART acc_mt, 모르면 null) — 자본은 최신 보고서의
+     * 시점 값이라 결산월과 무관하게 쓴다.
      */
-    public static Ttm ttm(List<Report> reports, LocalDate today) {
+    public static Ttm ttm(List<Report> reports, String fiscalMonth, LocalDate today) {
         if (reports == null || reports.isEmpty()) return null;
         Report latest = reports.stream().max(Comparator.comparing(Report::key)).orElseThrow();
         if (latest.filedOn() == null || latest.filedOn().isBefore(today.minusDays(MAX_REPORT_AGE_DAYS))) {
             return null;
         }
-        BigDecimal netIncome;
-        if (latest.key().code().annual()) {
+        BigDecimal netIncome = null;
+        if (!DECEMBER.equals(fiscalMonth)) {
+            // 짝 맞추기(직전 연도 사업보고서)와 조회 계획이 12월 결산 기준이다 — 결산월이 다르면 어긋난 짝으로
+            // 틀린 값을 만든다(동원모빌리티 3월 결산: 296억 vs 실제 475억). 결산월을 모를 때도 12월로 가정하지 않는다.
+            netIncome = null;
+        } else if (latest.key().code().annual()) {
             netIncome = latest.ctrlNetIncome();
         } else {
             ReportKey priorKey = latest.key().priorAnnual();
