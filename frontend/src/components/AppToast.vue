@@ -9,7 +9,7 @@
       >
         <span class="toast-icon">{{ icons[t.type] || icons.info }}</span>
         <span class="toast-msg">{{ t.message }}</span>
-        <button class="toast-dismiss" @click="dismiss(t.id)">&times;</button>
+        <button type="button" class="toast-dismiss" aria-label="닫기" @click="dismiss(t.id)">&times;</button>
       </div>
     </TransitionGroup>
   </Teleport>
@@ -70,20 +70,21 @@ defineExpose({ show })
   color: #fff;
 }
 
+/* 흰 글자 대비 — 밝은 500 계열 90% 는 2.2(경고)~3.9(오류)였다. 한 단계 어두운 700 계열로 5.4~7.1 (2026-10-01) */
 .app-toast.success {
-  background: rgba(34,197,94,0.9);
+  background: rgba(21,128,61,0.95);
   border: 1px solid rgba(34,197,94,0.5);
 }
 .app-toast.error {
-  background: rgba(239,68,68,0.9);
+  background: rgba(185,28,28,0.95);
   border: 1px solid rgba(239,68,68,0.5);
 }
 .app-toast.warning {
-  background: rgba(245,158,11,0.9);
+  background: rgba(180,83,9,0.95);
   border: 1px solid rgba(245,158,11,0.5);
 }
 .app-toast.info {
-  background: rgba(59,130,246,0.9);
+  background: rgba(29,78,216,0.95);
   border: 1px solid rgba(59,130,246,0.5);
 }
 
@@ -108,12 +109,18 @@ defineExpose({ show })
 .toast-dismiss {
   background: none;
   border: none;
-  color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.85);
   font-size: 18px;
   cursor: pointer;
   padding: 0 2px;
   flex-shrink: 0;
   transition: color 0.15s;
+  /* 누르는 영역 24px 이상(WCAG 2.5.8) */
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .toast-dismiss:hover { color: #fff; }
 

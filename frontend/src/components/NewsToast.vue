@@ -13,9 +13,14 @@
             <span class="toast-badge">&#x26A1; &#xAE34;&#xAE09;</span>
             <span v-if="toast.sourceName" class="toast-source">{{ toast.sourceName }}</span>
           </div>
-          <div class="toast-title">{{ toast.title }}</div>
+          <!-- 제목이 키보드 경로 — 토스트 click 은 마우스용으로 그대로, 링크 click 은 전파를 막고 토스트만 닫는다 -->
+          <div class="toast-title">
+            <a v-if="safeNewsUrl(toast.sourceUrl)" class="toast-link" :href="safeNewsUrl(toast.sourceUrl)"
+               target="_blank" rel="noopener noreferrer" @click.stop="dismiss(toast.id)">{{ toast.title }}</a>
+            <template v-else>{{ toast.title }}</template>
+          </div>
         </div>
-        <button class="toast-close" @click.stop="dismiss(toast.id)">&times;</button>
+        <button type="button" class="toast-close" aria-label="닫기" @click.stop="dismiss(toast.id)">&times;</button>
       </div>
     </TransitionGroup>
   </Teleport>
@@ -68,10 +73,13 @@ const dismiss = (id) => {
   }
 }
 
+// URL 스킴 가드 — http/https 만(javascript: 인젝션 차단). 토스트 click 과 제목 링크가 같은 판정을 쓴다.
+const safeNewsUrl = (url) => (url && /^https?:\/\//i.test(url) ? url : null)
+
 const openNews = (toast) => {
-  // URL 스킴 가드(javascript: 인젝션 차단) + noopener,noreferrer (tabnabbing 방지)
-  const url = toast.sourceUrl
-  if (url && /^https?:\/\//i.test(url)) {
+  const url = safeNewsUrl(toast.sourceUrl)
+  // noopener,noreferrer — tabnabbing 방지
+  if (url) {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
   dismiss(toast.id)
@@ -156,8 +164,11 @@ onUnmounted(() => {
 }
 .toast-source {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.7);   /* 0.5 는 그라데이션 끝(#312E81) 위 4.07 */
 }
+
+.toast-link { color: inherit; text-decoration: none; }
+.toast-link:hover { text-decoration: underline; }
 
 .toast-title {
   font-size: 13px;
@@ -182,6 +193,12 @@ onUnmounted(() => {
   line-height: 1;
   flex-shrink: 0;
   transition: color 0.2s;
+  /* 누르는 영역 24px 이상(WCAG 2.5.8) — 글자만큼(20×18)이었다 */
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .toast-close:hover { color: white; }
 
