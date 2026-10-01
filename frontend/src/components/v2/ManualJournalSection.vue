@@ -307,7 +307,7 @@ const regimeLabel = (r) => ({ BULL: '상승장', BEAR: '하락장', SIDEWAYS: '�
 .mj-error { color: #fca5a5; font-size: 12px; margin: 6px 0 0; }
 .mj-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .mj-btn { border: none; border-radius: 8px; cursor: pointer; padding: 8px 16px; font-size: 13px; font-weight: 600; }
-.mj-btn.primary { background: #3b82f6; color: #fff; }
+.mj-btn.primary { background: #2563eb; color: #fff; }   /* #3b82f6 위 흰 글자는 3.68 */
 .mj-btn.primary:disabled { opacity: 0.6; }
 .mj-btn.ghost { background: rgba(255,255,255,0.08); color: #fff; }
 </style>

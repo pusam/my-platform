@@ -155,7 +155,7 @@
       <div class="ts-title-row">
         <h2>🪝 차트 타이밍 관찰</h2>
         <span class="badge-unverified ts-beta ts-poor">예측력 미검증</span>
-        <button class="btn-ghost ts-toggle" @click="timingExpanded = !timingExpanded">
+        <button class="btn-ghost ts-toggle" :aria-expanded="timingExpanded ? 'true' : 'false'" @click="timingExpanded = !timingExpanded">
           {{ timingExpanded ? '접기' : '펼치기' }}
         </button>
       </div>

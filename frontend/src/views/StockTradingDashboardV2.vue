@@ -64,7 +64,7 @@
             <div class="watchlist-summary section-card" v-if="watchlistItems.length">
               <div class="section-title-row">
                 <h2><span class="section-icon">⭐</span> 관심종목 {{ watchlistItems.length }}</h2>
-                <button class="more-link" @click="watchlistExpanded = !watchlistExpanded">
+                <button class="more-link" :aria-expanded="watchlistExpanded ? 'true' : 'false'" @click="watchlistExpanded = !watchlistExpanded">
                   {{ watchlistExpanded ? '접기' : '펼치기' }}
                 </button>
               </div>
@@ -476,7 +476,7 @@
         <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && chartSignals.length">
           <div class="section-title-row">
             <h2><span class="section-icon">📐</span> 차트 패턴 {{ chartSignals.length }}</h2>
-            <button class="more-link" @click="chartSignalsExpanded = !chartSignalsExpanded">
+            <button class="more-link" :aria-expanded="chartSignalsExpanded ? 'true' : 'false'" @click="chartSignalsExpanded = !chartSignalsExpanded">
               {{ chartSignalsExpanded ? '접기' : '펼치기' }}
             </button>
           </div>

@@ -2186,14 +2186,15 @@ onUnmounted(() => {
   color: #fff;
 }
 
+/* 흰 글자 대비 — #e53e3e 4.13 · #3182ce 4.03 이라 한 단계 어둡게(매수 빨강·매도 파랑 관례는 그대로) */
 .trade-type-buttons button:first-child.active {
-  background: #e53e3e;
-  border-color: #e53e3e;
+  background: #c53030;
+  border-color: #c53030;
 }
 
 .trade-type-buttons button:last-child.active {
-  background: #3182ce;
-  border-color: #3182ce;
+  background: #2b6cb0;
+  border-color: #2b6cb0;
 }
 
 .sell-info {
@@ -2247,24 +2248,34 @@ onUnmounted(() => {
   background: #38a169;
 }
 
+/* 빨간 실행 버튼은 흰 글자 + 한 단계 어두운 빨강 — .submit-btn 의 어두운 글자(밝은 녹색용)가 남으면
+   #c53030(hover·그라데이션 끝) 위 3.53, 흰 글자 + #e53e3e 는 4.13 이었다(2026-10-01) */
 .submit-btn.sell {
-  background: #e53e3e;
+  background: #c53030;
+  color: #fff;
 }
 
 .submit-btn.sell:hover:not(:disabled) {
-  background: #c53030;
+  background: #9b2c2c;
 }
 
 .submit-btn.real-submit {
-  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
+  color: #fff;
+}
+
+/* 기본 hover(밝은 녹색)가 실전 버튼까지 덮어 흰 글자가 녹색 위에 남지 않게 */
+.submit-btn.real-submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #9b2c2c 0%, #822727 100%);
 }
 
 .submit-btn.danger {
-  background: #e53e3e;
+  background: #c53030;
+  color: #fff;
 }
 
 .submit-btn.danger:hover:not(:disabled) {
-  background: #c53030;
+  background: #9b2c2c;
 }
 
 .submit-btn:disabled {

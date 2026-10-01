@@ -616,12 +616,13 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
+/* 등락색은 토큰 단일 출처 — #EF4444 는 행 배경 위 4.09 였다(2026-10-01) */
 .stock-change.positive {
-  color: #EF4444;
+  color: var(--stock-up, #f87171);
 }
 
 .stock-change.negative {
-  color: #3B82F6;
+  color: var(--stock-down, #60a5fa);
 }
 
 .stock-trading {

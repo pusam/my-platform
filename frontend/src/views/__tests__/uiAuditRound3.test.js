@@ -74,6 +74,15 @@ describe('매매 탭 — 빨간·초록 버튼', () => {
     expect(rulesOf(css, '.real-trade-btn')).toMatch(/color:\s*(#fff\b|#ffffff|white)/i)
   })
 
+  it('거래·매도·초기화 창 버튼도 같은 규칙 — 어두운 글자는 #c53030(hover·그라데이션 끝) 위 3.53, 흰 글자는 #e53e3e 4.13 · #3182ce 4.03', () => {
+    for (const sel of ['.submit-btn.sell', '.submit-btn.danger', '.submit-btn.real-submit']) {
+      expect(rulesOf(css, sel), sel).not.toMatch(/#e53e3e/i)
+      expect(rulesOf(css, sel), sel).toMatch(/color:\s*(#fff\b|#ffffff|white)/i)
+    }
+    expect(rulesOf(css, '.trade-type-buttons button:first-child.active')).not.toMatch(/#e53e3e/i)
+    expect(rulesOf(css, '.trade-type-buttons button:last-child.active')).not.toMatch(/#3182ce/i)
+  })
+
   it('비상 정지는 흰 글자에 밝은 빨강(#ef4444, 3.76)으로 시작하지 않는다', () => {
     expect(rulesOf(safety, '.btn-kill')).not.toMatch(/#ef4444/i)
   })
@@ -84,8 +93,14 @@ describe('매매 탭 — 빨간·초록 버튼', () => {
 })
 
 describe('매매 탭 — 수동 매매 표', () => {
+  const css = styleOf(read('components/v2/ManualJournalSection.vue'))
+
   it('표 머리를 투명도로 흐리지 않는다(보조 글자색 × 0.6 = 3.74)', () => {
-    expect(rulesOf(styleOf(read('components/v2/ManualJournalSection.vue')), '.mj-table th')).not.toMatch(/opacity/)
+    expect(rulesOf(css, '.mj-table th')).not.toMatch(/opacity/)
+  })
+
+  it('매도 기록 창의 "확정" 버튼은 흰 글자에 밝은 파랑(#3b82f6, 3.68)이 아니다', () => {
+    expect(rulesOf(css, '.mj-btn.primary')).not.toMatch(/#3b82f6/i)
   })
 })
 
@@ -159,6 +174,30 @@ describe('시장 탭 — 글로벌', () => {
 
   it('자동 갱신 체크박스 라벨은 24px 이상이다(20px 였다)', () => {
     expect(rulesOf(css, '.auto-toggle')).toMatch(MIN24)
+  })
+})
+
+describe('시장 탭 — 수급(섹터 펼침)', () => {
+  it('펼친 섹터의 종목 등락은 등락 토큰을 쓴다(#EF4444 는 행 배경 위 4.09)', () => {
+    const css = styleOf(read('views/SectorTradingPage.vue'))
+    expect(rulesOf(css, '.stock-change.positive')).toMatch(/var\(--stock-up/)
+    expect(rulesOf(css, '.stock-change.negative')).toMatch(/var\(--stock-down/)
+  })
+})
+
+describe('펼치기·접기 버튼은 상태를 알린다(aria-expanded)', () => {
+  // 같은 화면의 유튜브 '상세'·수급 '더 보기'는 이미 알린다 — 이 셋만 빠져 있었다
+  it('오늘 탭 차트 타이밍 관찰', () => {
+    const btn = (templateOf(read('components/v2/TodayBriefingTab.vue')).match(/<button[^>]*class="btn-ghost ts-toggle"[^>]*>/) || [''])[0]
+    expect(btn).toMatch(/:aria-expanded="timingExpanded/)
+  })
+
+  it('허브 관심종목·차트 패턴', () => {
+    const template = templateOf(read('views/StockTradingDashboardV2.vue'))
+    const wl = (template.match(/<button[^>]*@click="watchlistExpanded = !watchlistExpanded"[^>]*>/) || [''])[0]
+    const cs = (template.match(/<button[^>]*@click="chartSignalsExpanded = !chartSignalsExpanded"[^>]*>/) || [''])[0]
+    expect(wl).toMatch(/:aria-expanded="watchlistExpanded/)
+    expect(cs).toMatch(/:aria-expanded="chartSignalsExpanded/)
   })
 })
 
