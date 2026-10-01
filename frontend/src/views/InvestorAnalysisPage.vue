@@ -130,9 +130,13 @@
           </div>
 
           <div v-if="currentConsecStocks.length > 0" class="stocks-grid">
+            <!-- 키보드로도 연다(2026-10-01 — 마우스로만 열렸다). 안에 다른 버튼이 없어 카드 자체가 버튼이다 -->
             <div v-for="stock in currentConsecStocks" :key="stock.stockCode"
                  :class="['stock-card', { 'common-card': consecInvestor === 'COMMON' }]"
-                 @click="goToStock(stock.stockCode)">
+                 role="button" tabindex="0" :aria-label="`${stock.stockName} ${stock.consecutiveDays}일 연속 매수 — 종목 보기`"
+                 @click="goToStock(stock.stockCode)"
+                 @keydown.enter.self="goToStock(stock.stockCode)"
+                 @keydown.space.self.prevent="goToStock(stock.stockCode)">
               <div class="stock-header">
                 <div class="stock-info">
                   <span class="card-stock-name">{{ stock.stockName }}</span>
@@ -227,7 +231,8 @@
               </thead>
               <tbody>
                 <tr v-for="(s, i) in shortStocks" :key="s.stockCode + s.tradeDate"
-                    @click="goStock(s.stockCode)" class="short-row">
+                    @click="goStock(s.stockCode)" class="short-row" tabindex="0"
+                    @keydown.enter.self="goStock(s.stockCode)" @keydown.space.self.prevent="goStock(s.stockCode)">
                   <td class="rank-col">{{ i + 1 }}</td>
                   <td>
                     <div class="stock-cell">
@@ -899,9 +904,10 @@ td {
 .card-stock-name { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.9); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 .card-stock-code { font-size: 12px; color: rgba(255,255,255,0.6); font-family: monospace; }
 
+/* 흰 글자 + 밝은 보라 그라데이션은 2.72 — 테마 액센트 위 어두운 글자 규약 */
 .consecutive-badge {
-  background: linear-gradient(135deg, var(--primary-start), #764ba2);
-  color: white;
+  background: var(--primary-start, #8b93ff);
+  color: var(--text-on-accent, #0b0e13);
   padding: 4px 12px;
   border-radius: 20px;
   font-weight: 700;
@@ -952,7 +958,7 @@ td {
 }
 
 .no-data p { font-size: 15px; margin-bottom: 8px; }
-.no-data .hint { font-size: 13px; color: rgba(255,255,255,0.25); }
+.no-data .hint { font-size: 13px; color: var(--text-muted, #8a95a3); }   /* 흰색 0.25 는 2.25 */
 
 .data-status-box {
   margin-top: 16px;
@@ -1007,9 +1013,9 @@ td {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  color: var(--text-muted, #7878a0);
-  background: #f8f9fa;
-  border-bottom: 1px solid rgba(0,0,0,0.08);
+  color: var(--text-secondary, #aab3bf);
+  background: var(--surface-panel-strong, #202936);   /* 밝은 테마 잔재(#f8f9fa) — 보조 글자 2.88 이었다 */
+  border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 .short-table th.right, .short-table td.right { text-align: right; }
 .short-table .rank-col { width: 36px; text-align: center; color: #aaa; font-weight: 600; }
@@ -1020,7 +1026,7 @@ td {
 .short-row:hover { background: rgba(102,126,234,0.04); }
 .short-row td {
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(0,0,0,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 .short-table .stock-cell { display: flex; flex-direction: column; gap: 2px; }
 .short-table .stock-cell .name { font-weight: 600; color: var(--text-primary, #f0f0f5); font-size: 13px; }

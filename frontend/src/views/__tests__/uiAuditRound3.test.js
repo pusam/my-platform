@@ -175,6 +175,18 @@ describe('시장 탭 — 글로벌', () => {
   it('자동 갱신 체크박스 라벨은 24px 이상이다(20px 였다)', () => {
     expect(rulesOf(css, '.auto-toggle')).toMatch(MIN24)
   })
+
+  it('원유 시세는 금·은 시세처럼 다크 테마다 — 흰 카드 위 밝은 글자(기준일 1.0·제목 1.14)였다', () => {
+    const oilSrc = read('views/OilPricePage.vue')
+    const oil = styleOf(oilSrc)
+    expect(rulesOf(oil, '.oil-price-widget')).not.toMatch(/#ffffff|#eaf2f8/i)
+    for (const sel of ['.range-item', '.chart-section', '.info-section']) {
+      expect(rulesOf(oil, sel), sel).not.toMatch(/background:\s*white/i)
+    }
+    expect(oil).not.toMatch(/color:\s*#2c3e50/i)
+    // 차트 글자(범례·눈금)도 어두운 바탕용 — Chart.js 기본 회색(#666)은 어두운 카드에서 안 보인다
+    expect(templateOf(oilSrc) + oilSrc.slice(oilSrc.indexOf('<script'), oilSrc.indexOf('<style'))).toMatch(/ticks:\s*\{[^}]*color:/)
+  })
 })
 
 describe('시장 탭 — 수급(섹터 펼침)', () => {
@@ -182,6 +194,38 @@ describe('시장 탭 — 수급(섹터 펼침)', () => {
     const css = styleOf(read('views/SectorTradingPage.vue'))
     expect(rulesOf(css, '.stock-change.positive')).toMatch(/var\(--stock-up/)
     expect(rulesOf(css, '.stock-change.negative')).toMatch(/var\(--stock-down/)
+  })
+})
+
+describe('시장 탭 — 수급 안의 메인 탭(연속 매수·공매도)', () => {
+  // 버튼 클래스(.main-tab-btn)가 달라 앞 회차 측정에서 빠져 있던 화면
+  const src = read('views/InvestorAnalysisPage.vue')
+  const css = styleOf(src)
+  const template = templateOf(src)
+
+  it('연속 매수 카드는 키보드로 연다 — 마우스로만 열렸다', () => {
+    const card = (template.match(/<div v-for="stock in currentConsecStocks"[^>]*>/) || [''])[0]
+    expect(card).toMatch(/role="button"/)
+    expect(card).toMatch(/tabindex="0"/)
+    expect(card).toMatch(/@keydown\.enter/)
+    expect(card).toMatch(/@keydown\.space/)
+  })
+
+  it('공매도 행도 키보드로 연다(데이터가 들어오면 보일 행)', () => {
+    const row = (template.match(/<tr v-for="\(s, i\) in shortStocks"[^>]*>/) || [''])[0]
+    expect(row).toMatch(/tabindex="0"/)
+    expect(row).toMatch(/@keydown\.enter/)
+    expect(row).toMatch(/@keydown\.space/)
+  })
+
+  it('연속 일수 배지는 흰 글자 + 밝은 보라 그라데이션이 아니다(2.72)', () => {
+    expect(rulesOf(css, '.consecutive-badge')).not.toMatch(/linear-gradient/)
+    expect(rulesOf(css, '.consecutive-badge')).toMatch(/--text-on-accent/)
+  })
+
+  it('빈 상태 안내는 흰색 0.25 가 아니다(2.25), 공매도 표 머리는 밝은 배경이 아니다', () => {
+    expect(rulesOf(css, '.no-data .hint')).not.toMatch(/rgba\(255,\s*255,\s*255,\s*0\.25\)/)
+    expect(rulesOf(css, '.short-table thead th')).not.toMatch(/#f8f9fa/i)
   })
 })
 

@@ -208,6 +208,7 @@ const createChartFromData = (historyData) => {
           display: true,
           position: 'top',
           labels: {
+            color: '#b0b0c8',   // 어두운 카드 위 범례(금·은 시세와 같은 값)
             font: { size: 14, family: "'Noto Sans KR', sans-serif" },
             padding: 15
           }
@@ -228,13 +229,14 @@ const createChartFromData = (historyData) => {
         y: {
           beginAtZero: false,
           ticks: {
+            color: '#b0b0c8',
             callback: function(value) { return '$' + value.toFixed(1) },
             font: { size: 12 }
           },
-          grid: { color: 'rgba(0, 0, 0, 0.05)' }
+          grid: { color: 'rgba(255, 255, 255, 0.06)' }
         },
         x: {
-          ticks: { font: { size: 12 } },
+          ticks: { color: '#b0b0c8', font: { size: 12 } },
           grid: { display: false }
         }
       }
@@ -290,12 +292,17 @@ onUnmounted(() => {
 <style scoped>
 @import '../assets/css/common.css';
 
+/* oil-theme 은 금·은 시세처럼 다크 테마 기본 + 파란 액센트로만 작동한다(2026-10-01).
+   이 화면만 밝은 테마 잔재(흰 카드·#2c3e50 글자)로 남아 시장 탭 '글로벌 → 원유 시세'에서 기준일 값이
+   대비 1.0, 제목이 1.14 였다 — 금 시세(GoldPricePage)와 같은 구조로 옮겼다. */
 .oil-theme {
-  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+  --oil-primary: #60a5fa;
+  --oil-secondary: #93c5fd;
+  --oil-light: rgba(59, 130, 246, 0.08);
 }
 
 .oil-theme .common-header h1 {
-  background: linear-gradient(135deg, #2980b9 0%, #3498db 100%);
+  background: linear-gradient(135deg, var(--oil-primary) 0%, var(--oil-secondary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -309,23 +316,23 @@ onUnmounted(() => {
 }
 
 .oil-price-widget {
-  background: linear-gradient(135deg, #eaf2f8 0%, #ffffff 100%);
-  border: 2px solid #2980b9;
-  border-radius: 10px;
-  padding: 30px;
-  margin-bottom: 30px;
+  background: var(--card-bg);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  margin-bottom: var(--spacing-lg);
   position: relative;
   min-height: 200px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--card-shadow);
 }
 
 .widget-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--spacing-md);
   padding-bottom: 16px;
-  border-bottom: 2px solid #aed6f1;
+  border-bottom: 1px solid rgba(96, 165, 250, 0.2);
 }
 
 .widget-title {
@@ -340,35 +347,36 @@ onUnmounted(() => {
 
 .widget-header h2 {
   margin: 0;
-  color: #2c3e50;
-  font-size: 24px;
+  color: var(--oil-primary);
+  font-size: var(--header-title-size);
+  font-weight: var(--header-title-weight);
 }
 
 .update-time {
   font-size: 13px;
-  color: var(--text-muted, #9494bd);
+  color: var(--text-muted);
 }
 
 .price-main {
   text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .price-label {
   font-size: 16px;
-  color: var(--text-muted, #9494bd);
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
 .price-value {
   font-size: 48px;
   font-weight: bold;
-  color: #2c3e50;
+  color: var(--oil-secondary);
 }
 
 .price-krw {
   font-size: 18px;
-  color: #7f8c8d;
+  color: var(--text-secondary);
   margin-top: 4px;
 }
 
@@ -376,10 +384,11 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-md);
   padding: 16px;
-  background: rgba(41, 128, 185, 0.08);
-  border-radius: 10px;
+  background: var(--oil-light);
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  border-radius: 12px;
 }
 
 .detail-item {
@@ -390,29 +399,29 @@ onUnmounted(() => {
 
 .detail-item .label {
   font-size: 13px;
-  color: var(--text-muted, #9494bd);
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .detail-item .value {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-primary, #f0f0f5);
+  color: var(--text-primary);
 }
 
 .detail-item .value.positive {
-  color: #e74c3c;
+  color: var(--stock-up);
 }
 
 .detail-item .value.negative {
-  color: #3498db;
+  color: var(--stock-down);
 }
 
 .price-range {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-md);
 }
 
 .range-item {
@@ -420,28 +429,29 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   padding: 12px;
-  background: white;
+  background: var(--bg-surface);
   border-radius: 8px;
-  border: 1px solid #eee;
+  border: 1px solid var(--border-light);
 }
 
 .range-item .label {
   font-size: 12px;
-  color: var(--text-muted, #9494bd);
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .range-item .value {
   font-size: 14px;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .range-item .value.high {
-  color: #e74c3c;
+  color: var(--stock-up);
 }
 
 .range-item .value.low {
-  color: #3498db;
+  color: var(--stock-down);
 }
 
 .extra-info {
@@ -458,13 +468,13 @@ onUnmounted(() => {
 
 .info-item .label {
   font-size: 13px;
-  color: var(--text-muted, #9494bd);
+  color: var(--text-muted);
 }
 
 .info-item .value {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary, #f0f0f5);
+  color: var(--text-primary);
 }
 
 .widget-footer {
@@ -472,47 +482,49 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding-top: 16px;
-  border-top: 1px solid #aed6f1;
+  border-top: 1px solid rgba(96, 165, 250, 0.2);
 }
 
 .next-update {
   font-size: 13px;
-  color: var(--text-muted, #9494bd);
+  color: var(--text-muted);
 }
 
 .error {
   text-align: center;
   padding: 60px 20px;
-  color: var(--text-muted, #9494bd);
+  color: var(--text-muted);
 }
 
 .retry-btn {
   margin-top: 16px;
-  background: linear-gradient(135deg, #2980b9, #3498db);
-  color: white;
+  background: var(--oil-primary);
+  color: var(--text-on-accent, #1a1a2e);
   border: none;
   padding: 12px 24px;
-  border-radius: 5px;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .chart-section {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
+  margin-bottom: var(--spacing-md);
 }
 
 .chart-header {
-  margin-bottom: 25px;
+  margin-bottom: var(--spacing-md);
 }
 
 .chart-header h2 {
   margin: 0;
-  color: var(--text-primary, #f0f0f5);
-  font-size: 22px;
+  color: var(--text-white);
+  font-size: var(--header-title-size);
   font-weight: 600;
 }
 
@@ -528,22 +540,24 @@ onUnmounted(() => {
 }
 
 .info-section {
-  background: white;
-  padding: 25px;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
 }
 
 .info-section h3 {
-  margin: 0 0 20px 0;
-  color: var(--text-primary, #f0f0f5);
+  margin: 0 0 var(--spacing-md) 0;
+  color: var(--text-white);
   font-size: 20px;
+  font-weight: 700;
 }
 
 .info-section ul {
   margin: 0;
   padding-left: 20px;
-  color: var(--text-muted, #9494bd);
+  color: var(--text-secondary);
 }
 
 .info-section li {
