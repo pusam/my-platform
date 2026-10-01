@@ -629,7 +629,10 @@ onMounted(() => {
 .cc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cc-name { font-size: 14px; font-weight: 700; }
 /* 종목명 버튼 — 글자 그대로 보이게 버튼 모양만 지운다(포커스 테두리는 전역 :focus-visible) */
-.cc-open { background: none; border: 0; padding: 0; margin: 0; color: inherit; cursor: pointer; text-align: left; }
+.cc-open {
+  background: none; border: 0; padding: 0; margin: 0; color: inherit; cursor: pointer; text-align: left;
+  min-height: 24px; display: inline-flex; align-items: center;   /* WCAG 2.5.8 — 글자 높이 22px 였다 */
+}
 .cc-open:hover { text-decoration: underline; }
 .cc-grade {
   font-size: 11px;

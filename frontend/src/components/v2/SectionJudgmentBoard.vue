@@ -346,7 +346,7 @@ onMounted(load);
   border-left: 2px solid rgba(251, 191, 36, 0.5); padding-left: 8px;
 }
 .jb-filters { display: flex; gap: 16px; align-items: center; font-size: 12px; margin-bottom: 8px; flex-wrap: wrap; }
-.jb-filters label { cursor: pointer; opacity: 0.85; }
+.jb-filters label { cursor: pointer; opacity: 0.85; display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
 .jb-count { margin-left: auto; opacity: 0.6; }
 .jb-scope-btn {
   font-size: 12px; font-weight: 600; color: #7dd3fc; cursor: pointer;
@@ -387,7 +387,7 @@ onMounted(load);
 .g-ref { color: #cbd5e1; background: rgba(148, 163, 184, 0.08); }
 .g-caution { color: #fca5a5; background: rgba(248, 113, 113, 0.08); }
 .th-price { color: #fcd34d; }
-.th-price small { font-size: 11px; opacity: 0.6; font-weight: 400; }
+.th-price small { font-size: 11px; color: var(--text-secondary, #aab3bf); font-weight: 400; }   /* 투명도 0.6 은 3.99 였다 */
 .jb-table thead tr:nth-child(2) th { border-bottom: 1px solid rgba(255, 255, 255, 0.12); opacity: 0.85; }
 .th-sort { cursor: pointer; user-select: none; }
 .th-sort:hover { color: #fff; }
@@ -407,7 +407,7 @@ onMounted(load);
 .jb-row:hover { background: rgba(255, 255, 255, 0.05); }
 .td-name { text-align: left; }
 .rn { font-weight: 600; }
-.rc { font-size: 11px; opacity: 0.45; margin-left: 5px; }
+.rc { font-size: 11px; color: var(--text-secondary, #aab3bf); margin-left: 5px; }   /* 투명도 0.45 는 대비 4.1 이었다 */
 .src-tag {
   font-size: 11px; margin-left: 5px; padding: 1px 5px; border-radius: 3px;
   background: rgba(56, 189, 248, 0.14); color: #7dd3fc;
@@ -447,9 +447,10 @@ onMounted(load);
 .td-unv { color: #94a3b8; }
 /* 이력 컬럼(② 참고) — 실측이지만 표본 작음. n<3 은 muted(표본부족 톤). */
 .td-track { color: #94a3b8; cursor: help; }
-.td-track.track-insufficient { color: #64748b; opacity: 0.7; }
+/* 표본부족은 기울임으로 구분 — #64748b × 투명도 0.7 은 계산상 대비 미달이었다(2026-10-01) */
+.td-track.track-insufficient { color: var(--text-muted, #8a95a3); font-style: italic; }
 .unv-badge {
-  display: inline-block; margin-left: 3px; font-size: 11px; color: #94a3b8;
+  display: inline-block; margin-left: 3px; font-size: 11px; color: #cbd5e1;   /* 자기 색 틴트 위 #94a3b8 은 4.21 */
   background: rgba(148, 163, 184, 0.14); padding: 0 4px; border-radius: 3px;
 }
 .td-poor { color: #b08a8a; cursor: help; }   /* 차트타이밍 셀 — td-unv(청회색)와 구분되는 muted 적색-회색 */
