@@ -48,6 +48,29 @@ async function mountPanel() {
 describe('YoutubeOpinionAdminPanel — 관리자 등록·분석·검토', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('Claude 분석기면 로컬 작업자가 돌아야 진행된다고 밝히고, 대기 실행은 사유·재시도 시각과 함께 보인다(2026-10-01)', async () => {
+    stub({ cfg: config({ analyzer: 'CLAUDE', claudeModel: 'sonnet' }) })
+    youtubeOpinionAPI.getRuns.mockResolvedValue({ data: { success: true, data: [
+      { id: 12, status: 'WAITING', analyzer: 'CLAUDE', attempts: 1, waitReason: 'QUOTA', nextAttemptAt: '2026-10-02T15:00:00',
+        current: false, chunkCount: 1, statementCount: 0, droppedCount: 0, startedAt: '2026-10-02T10:00:00', finishedAt: null,
+        model: 'sonnet', promptVersion: 'yt-opinion-v1/cs1', requestedBy: 'admin', error: '대기: Claude 사용량 한도 — 15:00 이후 다시 시도' },
+      { id: 11, status: 'FAILED', analyzer: 'CLAUDE', attempts: 1, current: false, chunkCount: 1, statementCount: 0, droppedCount: 0,
+        startedAt: '2026-10-01T10:00:00', finishedAt: '2026-10-01T10:01:00', model: 'claude-sonnet-5', promptVersion: 'yt-opinion-v1/cs1',
+        requestedBy: 'admin', error: '구간 1/1: 응답을 JSON 배열로 읽지 못함' }
+    ] } })
+    const w = await mountPanel()
+    expect(w.text()).toContain('Claude(로컬 작업자 — 작업자가 돌아야 진행)')
+    expect(w.text()).toContain('요청 모델 sonnet')
+    const runsBtn = w.findAll('button').find(b => b.text() === '실행 이력')
+    await runsBtn.trigger('click')
+    await flushPromises()
+    const runs = w.find('.yoa-runs').text()
+    expect(runs).toContain('대기(사용량 한도)')
+    expect(runs).toContain('10/2 15:00 이후 재시도')
+    expect(runs).toContain('실패')
+    expect(runs).toContain('JSON 배열로 읽지 못함')
+  })
+
   it('자동 수집이 연결되지 않았음을 밝히고, 한도·보호 시간대를 보여 준다', async () => {
     stub()
     const w = await mountPanel()

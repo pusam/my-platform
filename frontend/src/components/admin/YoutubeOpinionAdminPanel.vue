@@ -17,6 +17,7 @@
         <li v-if="!config.enabled" class="yoa-warn">기능이 꺼져 있습니다 — 서버 .env 에 YOUTUBE_OPINION_ENABLED=true 를 넣고 backend 를 재생성하세요.</li>
         <li>등록 허용 채널: <span v-if="config.channels && config.channels.length">{{ config.channels.map(c => c.name + ' (' + c.id + ')').join(', ') }}</span>
           <span v-else class="yoa-warn">없음 — YOUTUBE_OPINION_CHANNELS 에 '채널ID=이름' 으로 직접 고른 채널만 넣습니다.</span></li>
+        <li>분석기 {{ analyzerLabel(config.analyzer) }}<template v-if="config.analyzer === 'CLAUDE'"> · 요청 모델 {{ config.claudeModel }}</template></li>
         <li>Gemini {{ config.geminiConfigured ? '설정됨' : '미설정(분석 불가)' }} · 모델 {{ config.model }} · 프롬프트 {{ config.promptVersion }}</li>
         <li>오늘 분석 호출 {{ config.dailyCallsUsed }} / {{ config.dailyCallLimit }} · 1회 최대 {{ config.maxChunksPerRun }}구간 ·
           재료 보호 시간대 {{ config.quietWindow || '없음' }} · 자막 최대 {{ config.maxTranscriptKb }}KB · 집계 창 {{ config.windowDays }}일</li>
@@ -107,7 +108,10 @@
             <ul v-if="runs[v.videoId]" class="yoa-runs">
               <li v-if="!runs[v.videoId].length" class="yoa-muted">실행 이력 없음</li>
               <li v-for="r in runs[v.videoId]" :key="r.id" :class="{ current: r.current }">
-                #{{ r.id }} {{ r.status }}{{ r.current ? ' (화면 표시 중)' : '' }} · {{ r.chunkCount }}구간 · 발언 {{ r.statementCount }} ·
+                #{{ r.id }} {{ runStatusLabel(r) }}{{ r.current ? ' (화면 표시 중)' : '' }} · {{ r.analyzer === 'CLAUDE' ? 'Claude' : 'Gemini' }}<template
+                  v-if="r.analyzer === 'CLAUDE'"> 시도 {{ r.attempts }}</template><template
+                  v-if="r.status === 'WAITING' && r.nextAttemptAt"> · {{ formatKst(r.nextAttemptAt) }} 이후 재시도</template> ·
+                {{ r.chunkCount }}구간 · 발언 {{ r.statementCount }} ·
                 형식 불량 {{ r.droppedCount }} · {{ formatKst(r.startedAt) }} → {{ formatKst(r.finishedAt) || '진행 중' }} ·
                 {{ r.model }}/{{ r.promptVersion }} · {{ r.requestedBy }}
                 <div v-if="r.error" class="yoa-error">{{ r.error }}</div>
@@ -149,7 +153,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { youtubeOpinionAPI } from '../../utils/api'
 import {
-  formatKst, stanceLabel, reviewReasonText, videoStatusLabel, safeYoutubeUrl
+  formatKst, stanceLabel, reviewReasonText, videoStatusLabel, safeYoutubeUrl, runStatusLabel, analyzerLabel
 } from '../../utils/youtubeOpinion'
 
 const config = ref(null)

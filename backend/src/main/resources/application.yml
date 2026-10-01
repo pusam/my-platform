@@ -198,6 +198,15 @@ youtube-opinion:
   max-chunks-per-run: 20      # 영상 1건 분석 = Gemini 호출 수 상한(약 3천 자 구간당 1회)
   daily-call-limit: 60        # 하루 유튜브 분석 호출 상한 — 재료 분석과 전역 Gemini 제한기를 나눠 쓴다
   quiet-window: "07:20-08:40" # 모닝브리핑(07:30)·재료 워밍(08:00) 보호 — 이 시간엔 분석을 시작하지 않는다
+  # 분석기(2026-10-01) — GEMINI(기본: 서버가 직접 호출) 또는 CLAUDE(서버는 대기열에만 올리고, 구독 로그인이 된 로컬 PC 의
+  # tools/youtube-claude-worker 가 임대해 실행). 명시적으로 CLAUDE 를 넣기 전까지 운영 동작은 그대로다. 해석·검증은 같은 경로.
+  analyzer: ${YOUTUBE_OPINION_ANALYZER:GEMINI}
+  claude:
+    model: ${YOUTUBE_OPINION_CLAUDE_MODEL:sonnet}   # 요청 모델(별칭 가능) — 실제 응답 모델이 다르면 실행 FAILED(자동 전환 금지)
+    lease-minutes: 30         # 작업자 임대 — 구간마다 연장, 지나면 다시 대기열
+    max-attempts: 3           # 시간 초과·CLI 오류·중단 재시도 상한(사용량 한도·로그인 대기는 세지 않는다)
+    max-concurrent: 1         # 동시에 돌 수 있는 Claude 작업
+    max-wait-hours: 72        # 사용량 한도·로그인 대기가 이보다 길면 FAILED(다시 요청)
 
 # 종합추천(composite) 산식 — A안(P1-6, 2026-07-06) 수급 역상관 방어 flag.
 # 수급(supplyDemand) 카테고리는 prod 실측(n=88)에서 단조 역상관 확정(0-4=67% → 15+=35%).

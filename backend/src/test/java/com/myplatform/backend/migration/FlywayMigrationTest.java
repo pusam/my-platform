@@ -9,6 +9,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Map;
 
 import org.flywaydb.core.Flyway;
@@ -197,6 +198,14 @@ class FlywayMigrationTest {
                 .as("V65 dart_company.fiscal_month 컬럼").isEqualTo(1);
         // 엔티티 ↔ 스키마(dart_controlling_financial·dart_company) — 운영은 ddl-auto: validate
         validateEntitiesAgainstSchema("com.myplatform.backend.dartfinancial");
+
+        // --- 검증 17 (V66): 유튜브 의견 분석기 선택 + Claude 로컬 작업자 상태 — 기존 실행은 GEMINI, 시도 0 ---
+        for (String col : List.of("analyzer", "requested_model", "lease_token", "lease_until", "attempts",
+                "next_attempt_at", "wait_reason", "worker_id")) {
+            assertThat(columnCount("yt_analysis_run", col)).as("V66 yt_analysis_run." + col + " 컬럼").isEqualTo(1);
+        }
+        // 엔티티 ↔ 스키마(새 컬럼 포함) — 운영은 ddl-auto: validate
+        validateEntitiesAgainstSchema("com.myplatform.backend.youtubeopinion");
     }
 
     /** V63 검증용 행 — 오독 행(증가율·파싱 실패 0), TTM 행, 네이버 분기 행. */

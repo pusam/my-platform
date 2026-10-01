@@ -174,7 +174,9 @@ public class YoutubeOpinionAdminService {
         return runRepo.findTop20ByVideoIdOrderByStartedAtDesc(videoId).stream()
                 .map(r -> new RunDto(r.getId(), r.getTranscriptId(), r.getModel(), r.getPromptVersion(), r.getStatus().name(),
                         r.getChunkCount(), r.getStatementCount(), r.getDroppedCount(), r.getError(), r.getRequestedBy(),
-                        r.getStartedAt(), r.getFinishedAt(), Objects.equals(r.getId(), video.getCurrentRunId())))
+                        r.getStartedAt(), r.getFinishedAt(), Objects.equals(r.getId(), video.getCurrentRunId()),
+                        r.getAnalyzer(), r.getRequestedModel(), r.getAttempts() == null ? 0 : r.getAttempts(),
+                        r.getWaitReason(), r.getNextAttemptAt()))
                 .toList();
     }
 
@@ -183,7 +185,20 @@ public class YoutubeOpinionAdminService {
         long used = settings.isEnabled() ? runRepo.sumChunksSince(DateTimeUtil.kstNow().toLocalDate().atStartOfDay()) : 0;
         return new ConfigDto(settings.isEnabled(), false, settings.getChannels(), gemini != null && gemini.isAvailable(),
                 settings.getWindowDays(), settings.getMaxChunksPerRun(), settings.getDailyCallLimit(), used,
-                settings.quietWindowLabel(), TranscriptParser.MAX_BYTES / 1024, settings.getModel(), OpinionPrompt.VERSION);
+                settings.quietWindowLabel(), TranscriptParser.MAX_BYTES / 1024, settings.getModel(), OpinionPrompt.VERSION,
+                analyzer().analyzer().name(), analyzer().claudeModel());
+    }
+
+    /** 분석기 설정 — 선택 주입(테스트에서 없으면 기본 GEMINI). 생성자를 바꾸지 않으려고 setter 로 받는다. */
+    private OpinionAnalyzerSettings analyzerSettings;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAnalyzerSettings(OpinionAnalyzerSettings analyzerSettings) {
+        this.analyzerSettings = analyzerSettings;
+    }
+
+    private OpinionAnalyzerSettings analyzer() {
+        return analyzerSettings == null ? OpinionAnalyzerSettings.gemini() : analyzerSettings;
     }
 
     // ------------------------------------------------------------------ 검토

@@ -67,6 +67,30 @@ export function videoStatusLabel(status) {
 }
 
 /**
+ * 분석 실행 상태 — Claude 작업자 경로(2026-10-01)의 대기열·대기도 '진행 중'이지 실패나 '의견 없음'이 아니다.
+ * 대기 사유를 붙여 사람이 무엇을 해야 하는지(로그인·한도 해제 대기) 보이게 한다.
+ */
+export function runStatusLabel(run) {
+  if (!run) return '-'
+  switch (run.status) {
+    case 'QUEUED': return '대기열(작업자 대기)'
+    case 'RUNNING': return '실행 중'
+    case 'WAITING':
+      if (run.waitReason === 'QUOTA') return '대기(사용량 한도)'
+      if (run.waitReason === 'LOGIN') return '대기(Claude 로그인 필요)'
+      return '대기'
+    case 'SUCCEEDED': return '성공'
+    case 'FAILED': return '실패'
+    default: return run.status || '-'
+  }
+}
+
+/** 분석기 표시 — CLAUDE 는 로컬 작업자가 돌아야 진행된다는 것까지 말한다. */
+export function analyzerLabel(analyzer) {
+  return analyzer === 'CLAUDE' ? 'Claude(로컬 작업자 — 작업자가 돌아야 진행)' : 'Gemini(서버)'
+}
+
+/**
  * 백엔드 LocalDateTime(KST, 오프셋 없음) → '9/27 20:00'. Date 로 파싱하지 않는다 —
  * 브라우저 시간대가 KST 가 아니면 시각이 밀린다.
  */

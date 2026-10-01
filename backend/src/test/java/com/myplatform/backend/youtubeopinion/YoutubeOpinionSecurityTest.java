@@ -51,6 +51,7 @@ class YoutubeOpinionSecurityTest {
     static YoutubeOpinionQueryService query = mock(YoutubeOpinionQueryService.class);
     static YoutubeOpinionAdminService adminService = mock(YoutubeOpinionAdminService.class);
     static YoutubeOpinionAnalysisService analysis = mock(YoutubeOpinionAnalysisService.class);
+    static YoutubeOpinionWorkerService worker = mock(YoutubeOpinionWorkerService.class);
 
     /**
      * ⚠ {@code @Configuration} 이 아니라 {@code @TestConfiguration} 이어야 한다 — 이 패키지는 앱의 컴포넌트 스캔 범위라,
@@ -88,6 +89,11 @@ class YoutubeOpinionSecurityTest {
         @Bean
         YoutubeOpinionAdminController youtubeOpinionAdminController() {
             return new YoutubeOpinionAdminController(adminService, analysis);
+        }
+
+        @Bean
+        YoutubeOpinionWorkerController youtubeOpinionWorkerController() {
+            return new YoutubeOpinionWorkerController(worker);
         }
     }
 
@@ -151,6 +157,25 @@ class YoutubeOpinionSecurityTest {
             mvc.perform(as(post("/api/admin/youtube-opinions/opinions/1/review"), USER)
                     .contentType(MediaType.APPLICATION_JSON).content("{\"decision\":\"APPROVE\"}")).andExpect(status().isForbidden());
             verifyNoInteractions(adminService, analysis);
+        }
+
+        @Test
+        @DisplayName("Claude 작업자 경로도 같은 규칙 — 토큰 없음 401 · 일반 사용자 403 · 관리자 통과(2026-10-01)")
+        void workerPaths() throws Exception {
+            reset(worker);
+            when(worker.claim(any())).thenReturn(java.util.Optional.empty());
+            String lease = "{\"leaseToken\":\"t\"}";
+            mvc.perform(post("/api/admin/youtube-opinions/worker/claim").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isUnauthorized());
+            mvc.perform(post("/api/admin/youtube-opinions/worker/runs/1/complete").contentType(MediaType.APPLICATION_JSON)
+                    .content(lease)).andExpect(status().isUnauthorized());
+            mvc.perform(as(post("/api/admin/youtube-opinions/worker/claim"), USER).contentType(MediaType.APPLICATION_JSON)
+                    .content("{}")).andExpect(status().isForbidden());
+            mvc.perform(as(post("/api/admin/youtube-opinions/worker/runs/1/fail"), USER).contentType(MediaType.APPLICATION_JSON)
+                    .content(lease)).andExpect(status().isForbidden());
+            verifyNoInteractions(worker);
+            mvc.perform(as(post("/api/admin/youtube-opinions/worker/claim"), ADMIN).contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"workerId\":\"pc-1\"}")).andExpect(status().isOk());
         }
 
         @Test

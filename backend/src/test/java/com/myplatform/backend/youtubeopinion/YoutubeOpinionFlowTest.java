@@ -177,7 +177,7 @@ class YoutubeOpinionFlowTest {
         admin = new YoutubeOpinionAdminService(s, videoRepo, personRepo, participantRepo, transcriptRepo, runRepo,
                 opinionRepo, master, geminiProvider);
         analysis = new YoutubeOpinionAnalysisService(s, videoRepo, transcriptRepo, participantRepo, personRepo, runRepo,
-                opinionRepo, geminiProvider, master, transactionManager);
+                opinionRepo, geminiProvider, master, transactionManager, OpinionAnalyzerSettings.gemini());
         analysis.useExecutor(Runnable::run);   // 동기 실행 — start() 가 돌아오면 분석이 끝나 있다
         query = new YoutubeOpinionQueryService(s, videoRepo, opinionRepo, personRepo, runRepo);
     }

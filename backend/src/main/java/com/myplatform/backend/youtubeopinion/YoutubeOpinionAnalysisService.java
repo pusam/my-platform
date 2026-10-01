@@ -5,6 +5,7 @@ import com.myplatform.backend.service.StockMasterService;
 import com.myplatform.core.util.DateTimeUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -32,6 +33,10 @@ import static com.myplatform.backend.youtubeopinion.YoutubeOpinionDtos.*;
  *   <li>Gemini 호출은 DB 트랜잭션 밖에서, 저장은 짧은 트랜잭션 하나로.</li>
  *   <li>재분석 시 이전 검토 결정(승인·거절·수동 종목)은 <b>사람이 본 내용이 그대로일 때만</b> 잇는다 — 발언 식별(키)과
  *       결정 승계(내용 지문)를 나눈 규칙은 {@link ReviewCarryOver} 한 곳에 있다.</li>
+ *   <li><b>분석기 선택(2026-10-01)</b> — {@link OpinionAnalyzerSettings} 가 CLAUDE 면 서버는 모델을 부르지 않고 실행 기록을
+ *       대기열(QUEUED)에 올린다. 로컬 작업자가 같은 프롬프트로 Claude 를 돌려 응답 원문만 돌려주면 {@link #completeFromWorker}
+ *       가 Gemini 와 <b>같은 해석·검증·저장 경로</b>({@link #analyzeAndFinish} → {@link #finish})로 처리한다. LLM 은 발언 후보만
+ *       내고, 채택·집계는 결정적 규칙이 한다 — 점수·순위에 닿는 경로는 없다(§4e).</li>
  * </ul>
  */
 @Service
@@ -51,7 +56,13 @@ public class YoutubeOpinionAnalysisService {
     private final StockMasterService stockMasterService;
     private final TransactionTemplate tx;
     private final HourlyThroughputLimit requestLimit;
+    private final OpinionAnalyzerSettings analyzerSettings;
+    /** 진행 중으로 보는 상태 — 같은 영상에 두 실행이 겹치지 않게 한다. */
+    static final Set<YtAnalysisRun.Status> ACTIVE = EnumSet.of(
+            YtAnalysisRun.Status.QUEUED, YtAnalysisRun.Status.RUNNING, YtAnalysisRun.Status.WAITING);
     private final Object startLock = new Object();
+    /** 만료된 Claude 임대 정리(작업자 서비스가 단일 출처) — 작업자 서비스가 이 서비스를 쓰므로 생성 시점이 아니라 호출 시점에 찾는다. */
+    private ObjectProvider<YoutubeOpinionWorkerService> workerServiceProvider;
     private volatile Executor executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "yt-opinion-analysis");
         t.setDaemon(true);
@@ -62,7 +73,8 @@ public class YoutubeOpinionAnalysisService {
                                          YtTranscriptRepository transcriptRepo, YtVideoParticipantRepository participantRepo,
                                          YtPersonRepository personRepo, YtAnalysisRunRepository runRepo,
                                          YtOpinionRepository opinionRepo, ObjectProvider<GeminiService> geminiProvider,
-                                         StockMasterService stockMasterService, PlatformTransactionManager transactionManager) {
+                                         StockMasterService stockMasterService, PlatformTransactionManager transactionManager,
+                                         OpinionAnalyzerSettings analyzerSettings) {
         this.settings = settings;
         this.videoRepo = videoRepo;
         this.transcriptRepo = transcriptRepo;
@@ -74,6 +86,7 @@ public class YoutubeOpinionAnalysisService {
         this.stockMasterService = stockMasterService;
         this.tx = new TransactionTemplate(transactionManager);
         this.requestLimit = new HourlyThroughputLimit(MAX_ANALYSIS_REQUESTS_PER_HOUR, Clock.systemUTC());
+        this.analyzerSettings = analyzerSettings == null ? OpinionAnalyzerSettings.gemini() : analyzerSettings;
     }
 
     /** 테스트용 — 동기 실행({@code Runnable::run}) 등. */
@@ -81,19 +94,24 @@ public class YoutubeOpinionAnalysisService {
         this.executor = executor;
     }
 
-    /** 부팅 시 RUNNING 으로 남은 실행 정리 — 재시작으로 끊긴 분석을 '분석 중'으로 영원히 두지 않는다. */
+    /**
+     * 부팅 시 RUNNING 으로 남은 <b>Gemini</b> 실행 정리 — 재시작으로 끊긴 분석을 '분석 중'으로 영원히 두지 않는다.
+     * CLAUDE 실행은 서버 밖 작업자가 돌리므로 건드리지 않는다 — 임대(lease)가 만료되면 작업자 대기열이 다시 집거나
+     * 시도 상한에서 FAILED 로 닫는다({@link YoutubeOpinionWorkerService}).
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void recoverInterrupted() {
         try {
             LocalDateTime now = DateTimeUtil.kstNow();
             tx.executeWithoutResult(s -> {
-                for (YtAnalysisRun r : runRepo.findByStatus(YtAnalysisRun.Status.RUNNING)) {
+                for (YtAnalysisRun r : runRepo.findByAnalyzerAndStatus(YtAnalysisRun.ANALYZER_GEMINI, YtAnalysisRun.Status.RUNNING)) {
                     r.setStatus(YtAnalysisRun.Status.FAILED);
                     r.setError("서버 재시작으로 중단된 분석");
                     r.setFinishedAt(now);
                     runRepo.save(r);
                 }
                 for (YtVideo v : videoRepo.findByStatus(YtVideo.Status.ANALYZING)) {
+                    if (runRepo.existsByVideoIdAndStatusIn(v.getVideoId(), ACTIVE)) continue;   // Claude 작업 대기·진행 중
                     v.setStatus(YtVideo.Status.FAILED);
                     v.setLastError("서버 재시작으로 분석이 중단됐습니다 — 다시 분석하세요.");
                     videoRepo.save(v);
@@ -104,19 +122,45 @@ public class YoutubeOpinionAnalysisService {
         }
     }
 
+    @Autowired(required = false)
+    void setWorkerServiceProvider(ObjectProvider<YoutubeOpinionWorkerService> workerServiceProvider) {
+        this.workerServiceProvider = workerServiceProvider;
+    }
+
+    /** 죽은 작업자의 임대가 '진행 중'으로 남아 새 분석을 막지 않게 먼저 정리한다. 실패하면 판정은 종전대로(로그만). */
+    private void expireStaleClaudeLeases() {
+        YoutubeOpinionWorkerService worker = workerServiceProvider == null ? null : workerServiceProvider.getIfAvailable();
+        if (worker == null) return;
+        try {
+            worker.expireStaleNow();
+        } catch (RuntimeException e) {
+            log.warn("[유튜브의견] 만료된 Claude 임대 정리 실패 — 진행 중 판정은 그대로 둔다: {}", e.getMessage());
+        }
+    }
+
     public StartResult start(String videoId, String admin) {
         if (!settings.isEnabled()) throw new FeatureDisabledException();
         if (!YoutubeUrlParser.isValidVideoId(videoId)) throw new IllegalArgumentException("영상 ID 형식이 아닙니다.");
-        GeminiService gemini = geminiProvider.getIfAvailable();
-        if (gemini == null || !gemini.isAvailable()) {
-            throw new IllegalStateException("Gemini API 키가 설정되지 않아 분석할 수 없습니다.");
-        }
+        boolean claude = analyzerSettings.isClaude();
         LocalDateTime now = DateTimeUtil.kstNow();
-        if (settings.inQuietWindow(now.toLocalTime())) {
-            throw new IllegalStateException("재료 분석 보호 시간대(" + settings.quietWindowLabel() + ")에는 분석을 시작하지 않습니다.");
+        if (!claude) {
+            GeminiService gemini = geminiProvider.getIfAvailable();
+            if (gemini == null || !gemini.isAvailable()) {
+                throw new IllegalStateException("Gemini API 키가 설정되지 않아 분석할 수 없습니다.");
+            }
+            // 재료 워밍 보호 시간대 — Gemini 전역 한도를 나눠 쓰기 때문(Claude 는 다른 한도라 해당 없음)
+            if (settings.inQuietWindow(now.toLocalTime())) {
+                throw new IllegalStateException("재료 분석 보호 시간대(" + settings.quietWindowLabel() + ")에는 분석을 시작하지 않습니다.");
+            }
         }
+        expireStaleClaudeLeases();
         synchronized (startLock) {
-            if (runRepo.existsByStatus(YtAnalysisRun.Status.RUNNING)) {
+            if (claude) {
+                // 같은 영상에 대기·진행 중인 실행이 있으면 새로 올리지 않는다(중복 실행 방지). 다른 영상은 대기열에서 차례를 기다린다.
+                if (runRepo.existsByVideoIdAndStatusIn(videoId, ACTIVE)) {
+                    throw new IllegalStateException("이 영상은 이미 분석 대기·진행 중입니다 — 끝난 뒤 다시 요청하세요.");
+                }
+            } else if (runRepo.existsByStatus(YtAnalysisRun.Status.RUNNING)) {
                 throw new IllegalStateException("다른 영상 분석이 진행 중입니다 — 끝난 뒤 다시 요청하세요.");
             }
             YtVideo video = videoRepo.findByVideoId(videoId)
@@ -135,10 +179,13 @@ public class YoutubeOpinionAnalysisService {
             if (!requestLimit.tryAcquire()) {
                 throw new TooManyRequestsException("분석 요청은 한 시간에 " + requestLimit.maxPerHour() + "건까지입니다.");
             }
+            String model = claude ? analyzerSettings.claudeModel() : settings.getModel();
             YtAnalysisRun run = tx.execute(s -> {
                 YtAnalysisRun r = runRepo.save(YtAnalysisRun.builder()
-                        .videoId(videoId).transcriptId(transcript.getId()).model(settings.getModel())
-                        .promptVersion(OpinionPrompt.VERSION).status(YtAnalysisRun.Status.RUNNING)
+                        .videoId(videoId).transcriptId(transcript.getId()).model(model).requestedModel(model)
+                        .analyzer(claude ? YtAnalysisRun.ANALYZER_CLAUDE : YtAnalysisRun.ANALYZER_GEMINI)
+                        .promptVersion(OpinionPrompt.versionFor(claude))
+                        .status(claude ? YtAnalysisRun.Status.QUEUED : YtAnalysisRun.Status.RUNNING)
                         .chunkCount(chunks.size()).statementCount(0).droppedCount(0)
                         .requestedBy(admin).startedAt(now).build());
                 video.setStatus(YtVideo.Status.ANALYZING);
@@ -147,14 +194,59 @@ public class YoutubeOpinionAnalysisService {
                 return r;
             });
             long runId = run.getId();
+            if (claude) {
+                // 서버는 Claude 를 부르지 않는다 — 웹 요청 안에서도, 서버 프로세스 안에서도. 로컬 작업자가 임대해 간다.
+                log.info("[유튜브의견] Claude 작업 대기열 등록 run={} video={} 구간 {}개 — by {} (로컬 작업자가 가져간다)",
+                        runId, videoId, chunks.size(), admin);
+                return new StartResult(runId, chunks.size());
+            }
             log.info("[유튜브의견] 분석 시작 run={} video={} 구간 {}개 — by {}", runId, videoId, chunks.size(), admin);
             executor.execute(() -> execute(runId));
             return new StartResult(runId, chunks.size());
         }
     }
 
-    /** 실행 본체 — Gemini 는 트랜잭션 밖. 실패 사유는 사람이 읽을 수 있게 남긴다. */
+    /** 실행 본체(Gemini) — Gemini 는 트랜잭션 밖. 실패 사유는 사람이 읽을 수 있게 남긴다. */
     void execute(long runId) {
+        GeminiService gemini = geminiProvider.getIfAvailable();
+        Map<String, Object> schema = OpinionPrompt.responseSchema();
+        analyzeAndFinish(runId, "Gemini", (chunk, prompt) -> {
+            if (gemini == null) throw new AnalysisFailure("Gemini 서비스를 쓸 수 없습니다");
+            return gemini.generateStructuredJson(prompt, schema);
+        });
+    }
+
+    /**
+     * Claude 작업자가 돌려준 응답 원문 처리 — Gemini 와 <b>같은</b> 해석·검증·저장 경로. 구간 응답이 하나라도 없거나 JSON 으로
+     * 읽히지 않으면 실행 전체 FAILED(발언 0건 저장, 직전 성공 결과 유지).
+     *
+     * @param repliesByChunk 구간 번호 → 모델 응답 원문
+     */
+    void completeFromWorker(long runId, Map<Integer, String> repliesByChunk) {
+        analyzeAndFinish(runId, "Claude", (chunk, prompt) -> repliesByChunk.get(chunk.index()));
+    }
+
+    /** 작업자에게 넘길 구간 — Gemini 가 받는 것과 같은 청크. */
+    List<OpinionPrompt.Chunk> workerChunks(YtAnalysisRun run) {
+        YtTranscript transcript = transcriptRepo.findById(run.getTranscriptId())
+                .orElseThrow(() -> new IllegalStateException("자막 기록이 없습니다"));
+        return OpinionPrompt.chunk(TranscriptParser.fromJson(transcript.getCuesJson()));
+    }
+
+    /** 작업자에게 넘길 구간 프롬프트 — Gemini 가 받는 것과 같은 본문(같은 입력 계약). */
+    String workerPrompt(YtAnalysisRun run, OpinionPrompt.Chunk chunk) {
+        List<OpinionPrompt.ParticipantLine> lines = participants(run.getVideoId()).stream()
+                .map(p -> new OpinionPrompt.ParticipantLine(p.displayName(), p.role())).toList();
+        return OpinionPrompt.build(chunk, lines);
+    }
+
+    /** 구간 응답을 얻는 방법만 분석기별로 다르다 — 나머지(해석·검증·키 중복·저장)는 하나. */
+    @FunctionalInterface
+    interface ReplySource {
+        String reply(OpinionPrompt.Chunk chunk, String prompt);
+    }
+
+    private void analyzeAndFinish(long runId, String source, ReplySource replies) {
         List<OpinionValidator.Validated> accepted = new ArrayList<>();
         List<TranscriptParser.Cue> cues = null;
         int dropped = 0;
@@ -168,15 +260,12 @@ public class YoutubeOpinionAnalysisService {
             List<OpinionPrompt.ParticipantLine> lines = participants.stream()
                     .map(p -> new OpinionPrompt.ParticipantLine(p.displayName(), p.role())).toList();
             List<OpinionPrompt.Chunk> chunks = OpinionPrompt.chunk(cues);
-            GeminiService gemini = geminiProvider.getIfAvailable();
-            if (gemini == null) throw new AnalysisFailure("Gemini 서비스를 쓸 수 없습니다");
             StockMentionResolver.Lookup lookup = stockLookup();
-            Map<String, Object> schema = OpinionPrompt.responseSchema();
             Set<String> keys = new HashSet<>();
             for (OpinionPrompt.Chunk chunk : chunks) {
                 String label = "구간 " + (chunk.index() + 1) + "/" + chunks.size();
-                String reply = gemini.generateStructuredJson(OpinionPrompt.build(chunk, lines), schema);
-                if (reply == null) throw new AnalysisFailure(label + ": Gemini 응답 없음(키·쿼터·일시 오류)");
+                String reply = replies.reply(chunk, OpinionPrompt.build(chunk, lines));
+                if (reply == null) throw new AnalysisFailure(label + ": " + source + " 응답 없음(키·쿼터·일시 오류)");
                 OpinionResponseParser.Parsed parsed = OpinionResponseParser.parse(reply)
                         .orElseThrow(() -> new AnalysisFailure(label + ": 응답을 JSON 배열로 읽지 못함"));
                 dropped += parsed.nonObjectItems();
@@ -205,6 +294,10 @@ public class YoutubeOpinionAnalysisService {
                 YtVideo video = videoRepo.findByVideoId(run.getVideoId()).orElseThrow();
                 run.setFinishedAt(now);
                 run.setDroppedCount(dropped);
+                run.setLeaseToken(null);      // 작업자 임대 종료(Gemini 실행엔 원래 없다)
+                run.setLeaseUntil(null);
+                run.setNextAttemptAt(null);
+                run.setWaitReason(null);
                 if (error != null) {
                     run.setStatus(YtAnalysisRun.Status.FAILED);
                     run.setError(OpinionValidator.cut(error, 500));

@@ -74,7 +74,9 @@ public final class YoutubeOpinionDtos {
 
     public record RunDto(long id, long transcriptId, String model, String promptVersion, String status,
                          int chunkCount, int statementCount, int droppedCount, String error, String requestedBy,
-                         LocalDateTime startedAt, LocalDateTime finishedAt, boolean current) {}
+                         LocalDateTime startedAt, LocalDateTime finishedAt, boolean current,
+                         String analyzer, String requestedModel, int attempts, String waitReason,
+                         LocalDateTime nextAttemptAt) {}
 
     public record ReviewRowDto(long id, String videoId, String videoTitle, String speakerName,
                                String stockNameRaw, String stockCode, String mappingStatus, String stance,
@@ -85,7 +87,29 @@ public final class YoutubeOpinionDtos {
     public record ConfigDto(boolean enabled, boolean autoCollection, List<YoutubeOpinionSettings.Channel> channels,
                             boolean geminiConfigured, int windowDays, int maxChunksPerRun, int dailyCallLimit,
                             long dailyCallsUsed, String quietWindow, int maxTranscriptKb, String model,
-                            String promptVersion) {}
+                            String promptVersion, String analyzer, String claudeModel) {}
+
+    // ---- Claude 로컬 작업자 API(2026-10-01) — 서버는 Claude 를 부르지 않는다 ----
+
+    public record WorkerClaimRequest(String workerId) {}
+
+    /** 구간 하나 — prompt 는 Gemini 가 받는 것과 같은 본문(자막 포함). 작업자는 이것을 stdin 으로만 넘긴다. */
+    public record WorkerChunk(int index, String prompt) {}
+
+    public record WorkerClaim(long runId, String videoId, String leaseToken, LocalDateTime leaseUntil, String model,
+                              String promptVersion, String systemPrompt, List<WorkerChunk> chunks, int attempt,
+                              int maxAttempts) {}
+
+    public record WorkerLeaseRequest(String leaseToken) {}
+
+    /** 구간 응답 원문 — 서버가 JSON 해석·검증을 한다(작업자는 거르지 않는다). */
+    public record WorkerOutput(int index, String text) {}
+
+    public record WorkerCompleteRequest(String leaseToken, String model, List<WorkerOutput> outputs, Long durationMs) {}
+
+    public record WorkerFailRequest(String leaseToken, String errorType, String message, Long retryAfterSeconds) {}
+
+    public record WorkerResult(long runId, String status, int statementCount, String error) {}
 
     /** 처리량 제한(자막 등록·분석 요청) 초과 — 429. */
     public static class TooManyRequestsException extends RuntimeException {

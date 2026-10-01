@@ -151,6 +151,10 @@ services:
       # 채널은 "채널ID=표시이름" 콤마 구분으로 사용자가 고른 것만 — 비어 있으면 영상 등록 불가. 부팅 로그가 상태를 알린다.
       - YOUTUBE_OPINION_ENABLED=${YOUTUBE_OPINION_ENABLED:-false}
       - YOUTUBE_OPINION_CHANNELS=${YOUTUBE_OPINION_CHANNELS:-}
+      # 분석기 — 기본 GEMINI. CLAUDE 로 바꾸면 서버는 대기열에만 올리고 구독 로그인이 된 로컬 PC 의 작업자가 실행한다
+      # (tools/youtube-claude-worker/README.md). 작업자를 안 돌리면 분석이 대기열에 머문다 — 바꾸기 전에 작업자부터.
+      - YOUTUBE_OPINION_ANALYZER=${YOUTUBE_OPINION_ANALYZER:-GEMINI}
+      - YOUTUBE_OPINION_CLAUDE_MODEL=${YOUTUBE_OPINION_CLAUDE_MODEL:-sonnet}
       # 현재 산식 표본 시작일(2026-10-01) — 기본 미정이면 적중률 화면은 '검증 중'(부팅 WARN 1회). 추천 입력 수정이
       # 재무 수집·추천 캐시·스냅샷까지 반영된 뒤 첫 온전한 거래일을 넣고(잠정), 그날 첫 추천 반영을 확인하면 CONFIRMED=true.
       - RECOMMENDATION_SAMPLE_SINCE=${RECOMMENDATION_SAMPLE_SINCE:-}

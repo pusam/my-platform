@@ -1,11 +1,29 @@
 import { describe, it, expect } from 'vitest'
 import {
   stanceLabel, stanceClass, formatKst, safeYoutubeUrl, summaryText, coverageText, viewState,
-  sectionTitle, sequenceText, reviewReasonText, formatPrice
+  sectionTitle, sequenceText, reviewReasonText, formatPrice, runStatusLabel, analyzerLabel
 } from './youtubeOpinion'
 
 const summary = (personCounts, totalStatements, unknown = 0) => ({
   personCounts, totalStatements, unknownSpeakerStatements: unknown, totalPersons: 0
+})
+
+describe('분석 실행 상태 — Claude 작업자 대기열·대기는 실패가 아니다(2026-10-01)', () => {
+  it('대기열·실행 중·대기(사유별)·성공·실패를 구분한다', () => {
+    expect(runStatusLabel({ status: 'QUEUED' })).toBe('대기열(작업자 대기)')
+    expect(runStatusLabel({ status: 'RUNNING' })).toBe('실행 중')
+    expect(runStatusLabel({ status: 'WAITING', waitReason: 'QUOTA' })).toBe('대기(사용량 한도)')
+    expect(runStatusLabel({ status: 'WAITING', waitReason: 'LOGIN' })).toBe('대기(Claude 로그인 필요)')
+    expect(runStatusLabel({ status: 'SUCCEEDED' })).toBe('성공')
+    expect(runStatusLabel({ status: 'FAILED' })).toBe('실패')
+    expect(runStatusLabel(null)).toBe('-')
+  })
+
+  it('분석기 — Claude 는 로컬 작업자가 돌아야 진행된다고 말한다, 기본은 Gemini', () => {
+    expect(analyzerLabel('CLAUDE')).toContain('로컬 작업자')
+    expect(analyzerLabel('GEMINI')).toBe('Gemini(서버)')
+    expect(analyzerLabel(undefined)).toBe('Gemini(서버)')
+  })
 })
 
 describe('유튜브 참고 의견 표시 규칙', () => {
