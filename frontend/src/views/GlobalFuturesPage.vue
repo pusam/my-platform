@@ -1322,12 +1322,14 @@ onUnmounted(() => {
 
 .main-card.up-card { border-color: rgba(239,68,68,0.3); box-shadow: 0 0 30px rgba(239,68,68,0.1); }
 .main-card.down-card { border-color: rgba(59,130,246,0.3); box-shadow: 0 0 30px rgba(59,130,246,0.1); }
-.main-card.stale { opacity: 0.75; border-color: rgba(255,255,255,0.1); box-shadow: none; }
+/* 장 마감은 투명도 대신 점선 테두리로 — 투명도 0.75 는 카드 안 글자를 전부 3.3~4.4 로 떨어뜨렸다(2026-10-01).
+   "장 마감" 배지·주황 안내문·주황 기준 시각이 이미 상태를 말한다. */
+.main-card.stale { border-color: rgba(255,255,255,0.18); border-style: dashed; box-shadow: none; }
 
 .stale-badge {
   display: inline-block;
   background: rgba(245,158,11,0.2);
-  color: #f59e0b;
+  color: #fbbf24;   /* 자기 틴트 위 #f59e0b 는 4.7 로 빠듯 */
   font-size: 0.7rem;
   font-weight: 700;
   padding: 2px 8px;
