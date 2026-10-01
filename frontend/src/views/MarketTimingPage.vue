@@ -1036,7 +1036,7 @@ onMounted(() => {
   font-size: 11px;
   font-weight: 700;
   background: rgba(239,68,68,0.15);
-  color: #ef4444;
+  color: #fca5a5;   /* 자기 틴트 위 #ef4444 는 계산상 4.1 */
 }
 
 /* 데이터 부족 상태 */
@@ -1090,7 +1090,7 @@ onMounted(() => {
 .btn-collect-now {
   padding: 0.75rem 1.25rem;
   background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  color: white;
+  color: var(--text-on-accent, #0b0e13);   /* 밝은 주황 위 흰 글자는 2.15 */
   border: none;
   border-radius: 8px;
   font-weight: 600;
@@ -1271,14 +1271,14 @@ onMounted(() => {
 }
 
 .rising-count { color: #ef4444; font-weight: 600; }
-.unchanged-count { color: #71717a; }
+.unchanged-count { color: var(--text-muted, #8a95a3); }   /* #71717a 는 3.72 */
 .falling-count { color: #3b82f6; font-weight: 600; }
 
 /* 데이터 없을 때 스타일 */
 .rising-count.no-data,
 .unchanged-count.no-data,
 .falling-count.no-data {
-  color: #52525b;
+  color: var(--text-muted, #8a95a3);   /* #52525b 는 2.33 — "-" 가 결측을 말한다 */
   font-weight: normal;
 }
 
@@ -1299,7 +1299,7 @@ onMounted(() => {
 }
 
 .empty-bar-message {
-  color: #71717a;
+  color: var(--text-secondary, #aab3bf);
   font-size: 0.75rem;
   font-weight: 500;
 }
@@ -1314,7 +1314,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #71717a;
+  color: var(--text-secondary, #aab3bf);   /* 회색 막대 위 #71717a 는 2.16 */
   font-size: 0.75rem;
   font-weight: 500;
   background: linear-gradient(135deg, rgba(39, 39, 42, 0.9) 0%, rgba(63, 63, 70, 0.9) 100%);
@@ -1420,7 +1420,7 @@ onMounted(() => {
   justify-content: space-between;
   margin-top: 0.25rem;
   font-size: 0.7rem;
-  color: #71717a;
+  color: var(--text-muted, #8a95a3);   /* 게이지 눈금 #71717a 는 3.72 */
 }
 
 .progress-markers {
@@ -1433,7 +1433,7 @@ onMounted(() => {
   position: absolute;
   transform: translateX(-50%);
   font-size: 0.6875rem;
-  color: #71717a;
+  color: var(--text-muted, #8a95a3);
 }
 
 /* 진단 섹션 */
@@ -1498,9 +1498,10 @@ onMounted(() => {
   min-width: 160px;
 }
 
+/* 흰 글자 + 밝은 보라 그라데이션은 2.72 — 테마 액센트 위 어두운 글자 규약 */
 .btn-collect {
-  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
-  color: white;
+  background: var(--primary-start, #8b93ff);
+  color: var(--text-on-accent, #0b0e13);
 }
 
 .btn-collect:hover:not(:disabled) {
@@ -1948,9 +1949,9 @@ onMounted(() => {
   border-radius: 8px;
 }
 
-.impact-mini-badge.impact-bullish { background: rgba(239,68,68,0.15); color: #ef4444; }
+.impact-mini-badge.impact-bullish { background: rgba(239,68,68,0.15); color: var(--stock-up, #f87171); }
 .impact-mini-badge.impact-neutral { background: rgba(245,158,11,0.15); color: #f59e0b; }
-.impact-mini-badge.impact-bearish { background: rgba(59,130,246,0.15); color: #3b82f6; }
+.impact-mini-badge.impact-bearish { background: rgba(59,130,246,0.15); color: var(--stock-down, #60a5fa); }
 
 .impact-mini-score {
   font-size: 12px;
@@ -1996,8 +1997,8 @@ onMounted(() => {
   font-weight: 700;
 }
 
-.futures-change.positive { color: #ef4444; }
-.futures-change.negative { color: #3b82f6; }
+.futures-change.positive { color: var(--stock-up, #f87171); }   /* #ef4444 는 4.27 */
+.futures-change.negative { color: var(--stock-down, #60a5fa); }
 
 .futures-sub-label {
   font-size: 11px;

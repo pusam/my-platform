@@ -251,7 +251,7 @@ const regimeLabel = (r) => ({ BULL: '상승장', BEAR: '하락장', SIDEWAYS: '�
 .mj-table-wrap { overflow-x: auto; margin-top: 14px; }
 .mj-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mj-table th {
-  text-align: left; font-size: 11px; opacity: 0.6; font-weight: 600;
+  text-align: left; font-size: 11px; color: var(--text-muted, #8a95a3); font-weight: 600;   /* 투명도 0.6 은 3.74 */
   padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 .mj-table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }

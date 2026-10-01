@@ -2051,9 +2051,11 @@ export default {
 .rally-icon { font-size: 14px; }
 .rally-text { flex: 1; }
 .phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
-.phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
-.phase-during { background: rgba(34,197,94,0.15); color: #22c55e; }
-.phase-post { background: rgba(102,126,234,0.15); color: #8b9cf7; }
+/* 배지에만 — 같은 phase-* 클래스가 시장·발굴 탭 패널(.tab-panel)에도 붙어, 패널 전체가 배지 배경(초록 15%)과
+   배지 글자색으로 칠해져 있었다(2026-10-01). */
+.phase-badge.phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.phase-badge.phase-during { background: rgba(34,197,94,0.15); color: #22c55e; }
+.phase-badge.phase-post { background: rgba(102,126,234,0.15); color: #8b9cf7; }
 .signal-card.global { border-left: 3px solid #8b5cf6; }
 .signal-card.ai { border-left: 3px solid #3b82f6; }
 .signal-card.investor { border-left: 3px solid #10b981; }

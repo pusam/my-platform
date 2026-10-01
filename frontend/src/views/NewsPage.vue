@@ -46,7 +46,12 @@
               <span v-if="news._isHot" class="hot-badge">HOT</span>
               <span class="news-time">{{ formatNewsTime(news.summarizedAt) }}</span>
             </div>
-            <h3>{{ news.title }}</h3>
+            <!-- 제목이 키보드 경로(Tab·Enter) — 카드 click 은 마우스용으로 그대로, 링크 click 은 전파를 막아 두 번 안 연다 -->
+            <h3>
+              <a v-if="safeNewsUrl(news.sourceUrl)" class="news-link" :href="safeNewsUrl(news.sourceUrl)"
+                 target="_blank" rel="noopener noreferrer" @click.stop>{{ news.title }}</a>
+              <template v-else>{{ news.title }}</template>
+            </h3>
             <!-- 불릿 요약 -->
             <ul v-if="news._bullets.length > 0" class="news-bullets">
               <li v-for="(bullet, i) in news._bullets" :key="i">{{ bullet }}</li>
@@ -173,10 +178,14 @@ const fetchNews = async () => {
   }
 };
 
+// URL 스킴 가드 — http/https 만(javascript: 인젝션 차단). 카드 click 과 제목 링크가 같은 판정을 쓴다.
+const safeNewsUrl = (url) => (url && /^https?:\/\//i.test(url) ? url : null);
+
 const openNewsUrl = (url) => {
-  // URL 스킴 가드 + noopener,noreferrer (javascript: 인젝션 + tabnabbing 차단)
-  if (url && /^https?:\/\//i.test(url)) {
-    window.open(url, '_blank', 'noopener,noreferrer');
+  const safe = safeNewsUrl(url);
+  // noopener,noreferrer — tabnabbing 차단
+  if (safe) {
+    window.open(safe, '_blank', 'noopener,noreferrer');
   }
 };
 
@@ -221,8 +230,8 @@ onMounted(() => {
 
 .news-badge {
   margin-left: auto;
-  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
-  color: white;
+  background: var(--primary-start, #8b93ff);   /* 흰 글자 + 밝은 보라 그라데이션은 2.72 */
+  color: var(--text-on-accent, #0b0e13);
   padding: 6px 14px;
   border-radius: 20px;
   font-size: 12px;
@@ -258,7 +267,8 @@ onMounted(() => {
 .news-card--hot {
   border-left: 4px solid #DC2626;
   border-color: rgba(220, 38, 38, 0.2);
-  background: linear-gradient(135deg, rgba(255,255,255,0.98), rgba(254,242,242,0.95));
+  /* 밝은 테마 잔재 — 거의 흰 배경 위 흰 제목이 대비 1.07 이었다(2026-10-01). 카드 바탕 위에 붉은 틴트만 */
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.12), rgba(220, 38, 38, 0.04)), var(--surface-card, #12171f);
 }
 .news-card--hot:hover {
   border-color: #DC2626;
@@ -279,7 +289,7 @@ onMounted(() => {
 
 .news-source {
   background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  color: #60a5fa;   /* 자기 틴트 위 #3b82f6 은 4.36 */
   padding: 4px 10px;
   border-radius: 6px;
   font-size: 12px;
@@ -300,7 +310,7 @@ onMounted(() => {
 
 /* HOT 뱃지 */
 .hot-badge {
-  background: linear-gradient(135deg, #DC2626, #B91C1C);
+  background: linear-gradient(135deg, #B91C1C, #991B1B);   /* 깜빡임(투명도 0.8)까지 흰 글자 4.5 이상 */
   color: white;
   padding: 2px 8px;
   border-radius: 4px;
@@ -319,6 +329,9 @@ onMounted(() => {
   font-size: 13px;
   margin-left: auto;
 }
+
+.news-link { color: inherit; text-decoration: none; }
+.news-link:hover { text-decoration: underline; }
 
 .news-content h3 {
   margin: 0 0 12px 0;

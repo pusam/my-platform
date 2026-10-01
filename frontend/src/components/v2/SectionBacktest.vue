@@ -109,7 +109,15 @@
           :class="{ expanded: expandedStrategy === st.strategyType }"
           @click="toggleStrategy(st.strategyType)"
         >
-          <div class="strategy-header">
+          <!-- 카드 click(마우스)은 그대로, 키보드는 머리가 펼침 버튼(2026-10-01 — 마우스로만 펼쳐졌다) -->
+          <div
+            class="strategy-header"
+            role="button"
+            tabindex="0"
+            :aria-expanded="expandedStrategy === st.strategyType ? 'true' : 'false'"
+            @keydown.enter.self.prevent="toggleStrategy(st.strategyType)"
+            @keydown.space.self.prevent="toggleStrategy(st.strategyType)"
+          >
             <span class="strategy-icon">{{ getIcon(st.strategyType) }}</span>
             <span class="strategy-name">{{ st.label }}</span>
             <div class="strategy-stats">
@@ -135,7 +143,11 @@
               v-for="pick in st.picks"
               :key="pick.stockCode"
               class="pick-row"
+              role="button"
+              tabindex="0"
               @click.stop="goToStock(pick.stockCode)"
+              @keydown.enter.self.stop.prevent="goToStock(pick.stockCode)"
+              @keydown.space.self.stop.prevent="goToStock(pick.stockCode)"
             >
               <div class="pick-info">
                 <span class="pick-name">{{ pick.stockName }}</span>
@@ -362,9 +374,9 @@ export default {
   font-size: 15px;
   font-weight: 800;
 }
-.compare-val.high, .compare-val.positive { color: #ef4444; }
+.compare-val.high, .compare-val.positive { color: var(--stock-up, #f87171); }
 .compare-val.mid { color: #f59e0b; }
-.compare-val.low, .compare-val.negative { color: #3b82f6; }
+.compare-val.low, .compare-val.negative { color: var(--stock-down, #60a5fa); }
 .compare-val.neutral { color: rgba(255,255,255,0.7); }
 .compare-detail-row {
   display: flex;
@@ -404,9 +416,10 @@ export default {
   font-size: 18px;
   font-weight: 800;
 }
-.stat-value.high, .stat-value.positive { color: #ef4444; }
+/* 등락색은 토큰 단일 출처 — #ef4444·#3b82f6 은 카드·자기 틴트 위 3.77~4.33 이었다(2026-10-01) */
+.stat-value.high, .stat-value.positive { color: var(--stock-up, #f87171); }
 .stat-value.mid { color: #f59e0b; }
-.stat-value.low, .stat-value.negative { color: #3b82f6; }
+.stat-value.low, .stat-value.negative { color: var(--stock-down, #60a5fa); }
 .stat-value.neutral { color: rgba(255,255,255,0.7); }
 
 /* Strategy Cards */
@@ -437,11 +450,11 @@ export default {
   padding: 2px 8px;
   border-radius: 6px;
 }
-.hit-badge.high { background: rgba(239,68,68,0.15); color: #ef4444; }
+.hit-badge.high { background: rgba(239,68,68,0.15); color: var(--stock-up, #f87171); }
 .hit-badge.mid { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .hit-badge.low { background: rgba(107,114,128,0.15); color: var(--text-muted, #9494bd); }
-.return-badge.positive { background: rgba(239,68,68,0.15); color: #ef4444; }
-.return-badge.negative { background: rgba(59,130,246,0.15); color: #3b82f6; }
+.return-badge.positive { background: rgba(239,68,68,0.15); color: var(--stock-up, #f87171); }
+.return-badge.negative { background: rgba(59,130,246,0.15); color: var(--stock-down, #60a5fa); }
 .return-badge.neutral { background: rgba(107,114,128,0.15); color: var(--text-muted, #9494bd); }
 
 .strategy-meta {
@@ -476,8 +489,8 @@ export default {
 .pick-cur { color: rgba(255,255,255,0.6); }
 .pick-return-wrap { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
 .pick-return { font-size: 12px; font-weight: 700; text-align: right; }
-.pick-return.positive { color: #ef4444; }
-.pick-return.negative { color: #3b82f6; }
+.pick-return.positive { color: var(--stock-up, #f87171); }
+.pick-return.negative { color: var(--stock-down, #60a5fa); }
 .pick-cost-label { font-size: 11px; color: rgba(255,255,255,0.6); }
 
 /* Best / Worst */
@@ -489,8 +502,8 @@ export default {
   border-top: 1px solid rgba(255,255,255,0.06);
 }
 .bw-item { font-size: 11px; }
-.bw-item.best { color: #ef4444; }
-.bw-item.worst { color: #3b82f6; }
+.bw-item.best { color: var(--stock-up, #f87171); }
+.bw-item.worst { color: var(--stock-down, #60a5fa); }
 
 @media (max-width: 768px) {
   .section-card { padding: 16px; border-radius: 14px; }

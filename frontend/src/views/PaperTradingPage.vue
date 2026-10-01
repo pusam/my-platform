@@ -933,6 +933,7 @@ import StockCodeInput from '../components/StockCodeInput.vue';
 import DataFreshness from '../components/DataFreshness.vue';
 import BotPnlChart from '../components/v2/BotPnlChart.vue';
 import ManualJournalSection from '../components/v2/ManualJournalSection.vue';
+import { formatAiReport } from '../utils/aiReportFormat';
 
 const toast = inject('toast', { success(){}, error(){}, warning(){}, info(){} });
 
@@ -1148,18 +1149,6 @@ const formatDate = (dateStr) => {
   if (!dateStr) return '-';
   const d = new Date(dateStr);
   return `${d.getMonth() + 1}/${d.getDate()}`;
-};
-
-const formatAiReport = (text) => {
-  if (!text) return '';
-  // 간단한 마크다운 풍 렌더링: ** -> <strong>, 줄바꿈 -> <br>
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  return escaped
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>');
 };
 
 // 봇 성과 데이터 로드
@@ -1904,24 +1893,25 @@ onUnmounted(() => {
   background: #38a169;
 }
 
+/* 흰 글씨 + 밝은 빨강(#e53e3e)은 4.13 — 한 단계 어두운 빨강부터(2026-10-01) */
 .start-btn.real-btn {
-  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
   color: white;
   border: 1px solid #ff6b6b;
 }
 
 .start-btn.real-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
+  background: linear-gradient(135deg, #9b2c2c 0%, #822727 100%);
   box-shadow: 0 0 10px rgba(229, 62, 62, 0.5);
 }
 
 .stop-btn {
-  background: #e53e3e;
+  background: #c53030;
   color: white;
 }
 
 .stop-btn:hover:not(:disabled) {
-  background: #c53030;
+  background: #9b2c2c;
 }
 
 .start-btn:disabled, .stop-btn:disabled {
@@ -1983,12 +1973,14 @@ onUnmounted(() => {
   background: #38a169;
 }
 
+/* .trade-btn 의 어두운 글자(밝은 녹색용)가 빨강 위에 남아 3.53 이었다 — 흰 글자를 명시한다 */
 .real-trade-btn {
-  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
+  color: #fff;
 }
 
 .real-trade-btn:hover {
-  background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
+  background: linear-gradient(135deg, #9b2c2c 0%, #822727 100%);
 }
 
 /* 테이블 */
@@ -2544,9 +2536,10 @@ onUnmounted(() => {
 }
 
 /* ===== 주간 리포트 ===== */
+/* 흰 글자 + 밝은 보라(#667eea)는 3.66 — 테마 액센트 위 어두운 글자 규약 */
 .btn-generate-report {
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: #fff;
+  background: var(--primary-start, #8b93ff);
+  color: var(--text-on-accent, #0b0e13);
   border: none;
   padding: 8px 16px;
   border-radius: 8px;
@@ -2563,13 +2556,13 @@ onUnmounted(() => {
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 20px;
-  border: 1px solid rgba(0,0,0,0.08);
+  border: 1px solid rgba(255,255,255,0.08);
 }
 .weekly-head {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(0,0,0,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 .weekly-label {
   font-size: 11px;
@@ -2584,7 +2577,7 @@ onUnmounted(() => {
   padding: 4px 10px;
   border-radius: 8px;
   background: rgba(102,126,234,0.15);
-  color: #667eea;
+  color: #a5b4fc;   /* 자기 틴트 위 #667eea 는 계산상 4.07 */
   font-weight: 700;
 }
 .weekly-mode-badge.real {
@@ -2598,8 +2591,9 @@ onUnmounted(() => {
   gap: 12px;
   margin-bottom: 20px;
 }
+/* 밝은 테마 잔재 — #f8f9fa 위 흰 글자는 대비 1.08 이었다(2026-10-01) */
 .weekly-stat {
-  background: #f8f9fa;
+  background: var(--surface-panel, #151b24);
   padding: 12px 14px;
   border-radius: 8px;
 }
@@ -2634,10 +2628,12 @@ onUnmounted(() => {
 }
 .weekly-ai-body {
   font-size: 13px;
-  color: #444;
+  color: var(--text-secondary, #aab3bf);   /* #444 는 어두운 카드 위 1.75 였다 */
   line-height: 1.7;
 }
-.weekly-ai-body strong { color: var(--text-primary, #f0f0f5); }
+/* v-html 본문이라 :deep — 범위 지정 스타일(strong[data-v])은 닿지 않았다 */
+.weekly-ai-body :deep(strong) { color: var(--text-primary, #f0f0f5); }
+.weekly-ai-body :deep(.ai-heading) { display: inline-block; margin-top: 6px; font-size: 14px; }
 
 .weekly-no-ai {
   padding: 16px;
@@ -2645,7 +2641,7 @@ onUnmounted(() => {
   border: 1px dashed rgba(245,158,11,0.3);
   border-radius: 8px;
   font-size: 12px;
-  color: #92400e;
+  color: #fbbf24;   /* #92400e(어두운 갈색)는 어두운 카드 위에서 안 읽혔다 */
   text-align: center;
 }
 
@@ -2666,11 +2662,11 @@ onUnmounted(() => {
 .weekly-history-table td {
   padding: 10px;
   text-align: left;
-  border-bottom: 1px solid rgba(0,0,0,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 .weekly-history-table th {
-  background: #f8f9fa;
-  color: var(--text-muted, #7878a0);
+  background: var(--surface-panel-strong, #202936);   /* #f8f9fa 위 보조 글자는 2.88 이었다 */
+  color: var(--text-secondary, #aab3bf);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;

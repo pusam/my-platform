@@ -714,9 +714,10 @@ onUnmounted(() => {
   color: rgba(255,255,255,0.8);
   background: var(--border-light);
 }
+/* 흰 글자 + 밝은 보라 그라데이션은 2.72 — 테마 액센트 위 어두운 글자 규약(2026-10-01) */
 .main-tab.active {
-  color: #fff;
-  background: linear-gradient(135deg, var(--primary-start), #764ba2);
+  color: var(--text-on-accent, #0b0e13);
+  background: var(--primary-start, #8b93ff);
 }
 
 .page-container {
@@ -795,7 +796,7 @@ onUnmounted(() => {
 
 .market-status-badge.status-closed {
   background: rgba(156,163,175,0.2);
-  color: var(--text-muted, #9494bd);
+  color: #cbd5e1;   /* 자기 틴트 위 보조 글자는 3.42 */
 }
 
 .update-time {
@@ -830,6 +831,7 @@ onUnmounted(() => {
   font-size: 0.8rem;
   color: var(--text-muted, #9494bd);
   cursor: pointer;
+  min-height: 24px;   /* 누르는 영역(라벨)이 20px 였다 */
 }
 
 .auto-toggle input { accent-color: var(--primary-start); }
@@ -866,9 +868,10 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
-.impact-badge.positive { background: rgba(239,68,68,0.2); color: #ef4444; }
-.impact-badge.negative { background: rgba(59,130,246,0.2); color: #3b82f6; }
-.impact-badge.neutral { background: rgba(255,255,255,0.1); color: var(--text-muted, #9494bd); }
+/* 자기 틴트(20%) 위 배지 글자는 한 단계 밝게 — 토큰 색도 틴트 위에선 4.3 안팎이다 */
+.impact-badge.positive { background: rgba(239,68,68,0.2); color: #fca5a5; }
+.impact-badge.negative { background: rgba(59,130,246,0.2); color: #93c5fd; }
+.impact-badge.neutral { background: rgba(255,255,255,0.1); color: #cbd5e1; }
 
 .score-track {
   height: 8px;
@@ -903,8 +906,8 @@ onUnmounted(() => {
   color: var(--text-muted, #9494bd);
 }
 
-.score-labels .neg { color: #3b82f6; }
-.score-labels .pos { color: #ef4444; }
+.score-labels .neg { color: var(--stock-down, #60a5fa); }
+.score-labels .pos { color: var(--stock-up, #f87171); }
 
 .impact-comment {
   margin-top: 10px;
@@ -1015,8 +1018,9 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.factor-pos { color: #ef4444; }
-.factor-neg { color: #3b82f6; }
+/* 등락 글자색은 토큰 단일 출처 — 보라 카드 위 #ef4444 는 3.82~4.03 이었다 */
+.factor-pos { color: var(--stock-up, #f87171); }
+.factor-neg { color: var(--stock-down, #60a5fa); }
 .factor-neutral { color: var(--text-muted, #9494bd); }
 
 /* VIX 공포지수 패널 */
@@ -1382,7 +1386,7 @@ onUnmounted(() => {
 .exchange-badge {
   padding: 3px 10px;
   background: rgba(102,126,234,0.2);
-  color: var(--primary-start);
+  color: #c7d2fe;   /* 자기 틴트 위 액센트 글자는 4.05 */
   border-radius: 6px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -1395,9 +1399,9 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
-.main-status.up { background: rgba(239,68,68,0.2); color: #ef4444; }
-.main-status.down { background: rgba(59,130,246,0.2); color: #3b82f6; }
-.main-status.flat { background: rgba(255,255,255,0.1); color: var(--text-muted, #9494bd); }
+.main-status.up { background: rgba(239,68,68,0.2); color: #fca5a5; }
+.main-status.down { background: rgba(59,130,246,0.2); color: #93c5fd; }
+.main-status.flat { background: rgba(255,255,255,0.1); color: #cbd5e1; }
 
 .main-price {
   display: flex;
@@ -1413,8 +1417,8 @@ onUnmounted(() => {
 }
 
 .change { display: flex; gap: 6px; font-size: 1.1rem; font-weight: 600; }
-.change.up { color: #ef4444; }
-.change.down { color: #3b82f6; }
+.change.up { color: var(--stock-up, #f87171); }
+.change.down { color: var(--stock-down, #60a5fa); }
 .change.flat { color: var(--text-muted, #9494bd); }
 
 .main-details {
@@ -1487,8 +1491,8 @@ onUnmounted(() => {
   margin-bottom: 4px;
 }
 
-.card-price.up { color: #ef4444; }
-.card-price.down { color: #3b82f6; }
+.card-price.up { color: var(--stock-up, #f87171); }
+.card-price.down { color: var(--stock-down, #60a5fa); }
 .card-price.flat { color: #e0e0e0; }
 
 .card-change {
@@ -1497,8 +1501,8 @@ onUnmounted(() => {
   margin-bottom: 10px;
 }
 
-.card-change.up { color: #ef4444; }
-.card-change.down { color: #3b82f6; }
+.card-change.up { color: var(--stock-up, #f87171); }
+.card-change.down { color: var(--stock-down, #60a5fa); }
 .card-change.flat { color: var(--text-muted, #9494bd); }
 
 .card-range {
@@ -1546,8 +1550,8 @@ onUnmounted(() => {
 .table-name { font-weight: 600; color: #fff; }
 .table-symbol { font-size: 0.75rem; color: var(--text-muted, #9494bd); margin-left: 6px; }
 
-.futures-table td.up { color: #ef4444; font-weight: 600; }
-.futures-table td.down { color: #3b82f6; font-weight: 600; }
+.futures-table td.up { color: var(--stock-up, #f87171); font-weight: 600; }
+.futures-table td.down { color: var(--stock-down, #60a5fa); font-weight: 600; }
 
 /* 로딩/에러 */
 .loading-state {

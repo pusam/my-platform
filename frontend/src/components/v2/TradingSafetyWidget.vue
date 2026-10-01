@@ -217,13 +217,15 @@ export default {
   cursor: pointer;
   transition: opacity 0.2s;
 }
+/* 흰 글자 대비: #ef4444 위 3.76 → 한 단계 어두운 빨강부터. 밝은 초록 위 흰 글자는 2.28 이라
+   밝은 액센트 위 어두운 글자 규약(--text-on-accent)으로 뒤집는다(2026-10-01). */
 .btn-kill {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
   color: #fff;
 }
 .btn-resume {
   background: linear-gradient(135deg, #22c55e, #16a34a);
-  color: #fff;
+  color: var(--text-on-accent, #0b0e13);
 }
 .btn-refresh {
   background: rgba(255,255,255,0.08);
