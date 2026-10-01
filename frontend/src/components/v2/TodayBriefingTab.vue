@@ -577,11 +577,12 @@ onMounted(() => {
 }
 
 /* 차트 신호 관찰 — 백테스트 부진(승격불가) 톤다운(적색 계열 + 기본 접힘) */
-.today-observe { opacity: 0.82; }
+/* 강조를 낮추는 건 위치(맨 아래)·접힘으로만 — 투명도를 겹치면 경고 문구("31%")가 대비 3.01 로 가장 흐렸다(2026-10-01) */
+.today-observe { }
 .ts-poor { color: #f87171; background: rgba(248, 113, 113, 0.13); }
 /* 표면·hover 는 공용 .btn-ghost — 크기만 로컬 */
-.ts-toggle { font-size: 11px; font-weight: 600; border-radius: 5px; padding: 2px 9px; }
-.observe-collapsed { margin-top: 8px; font-size: 12px; line-height: 1.5; opacity: 0.72; }
+.ts-toggle { font-size: 11px; font-weight: 600; border-radius: 5px; padding: 2px 9px; min-height: 28px; }
+.observe-collapsed { margin-top: 8px; font-size: 12px; line-height: 1.5; color: var(--text-secondary, #aab3bf); }
 .observe-collapsed strong { color: #f87171; }
 .beta-poor {
   background: rgba(248, 113, 113, 0.10); border-color: rgba(248, 113, 113, 0.38); color: #fca5a5;

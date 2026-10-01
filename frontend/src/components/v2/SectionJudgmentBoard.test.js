@@ -301,3 +301,33 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(apiClient.get).toHaveBeenCalledWith('/recommendation/judgment-board', { params: { scope: 'momentum' } })
   })
 })
+
+/**
+ * 키보드로 연다(2026-10-01) — 행과 정렬 머리글이 Enter 만 받아 Space 를 누르면 화면이 스크롤됐다.
+ * '오늘' 탭 카드와 같은 규약: 포커스된 요소 자신에서만(.self) Enter·Space 를 받는다.
+ */
+describe('SectionJudgmentBoard — 키보드로 연다', () => {
+  beforeEach(() => { apiClient.get.mockReset() })
+
+  it('행은 Space 로도 열린다(Enter 와 같게)', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+    const w = await mountBoard([row({ stockCode: '005930' })])
+    await w.find('.jb-row').trigger('keydown', { key: ' ' })
+    expect(openSpy).toHaveBeenCalledWith('/stock/005930', '_blank')
+    openSpy.mockRestore()
+    sessionStorage.removeItem('judgmentBoard.nav')
+  })
+
+  it('정렬 머리글도 Space 로 정렬한다', async () => {
+    const w = await mountBoard([
+      row({ stockCode: 'A', stockName: '가', totalScore: 90 }),
+      row({ stockCode: 'B', stockName: '나', totalScore: 70 }),
+      row({ stockCode: 'C', stockName: '다', totalScore: 50 })
+    ])
+    const names = () => w.findAll('.jb-row .rn').map(n => n.text())
+    expect(names()).toEqual(['가', '나', '다'])                       // 기본: 종합 내림차순
+    const th = w.findAll('.th-sort').find(t => t.text().startsWith('종합'))
+    await th.trigger('keydown', { key: ' ' })
+    expect(names()).toEqual(['다', '나', '가'])                       // 같은 머리글 → 오름차순
+  })
+})

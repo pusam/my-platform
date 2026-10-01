@@ -63,26 +63,26 @@
             <th class="th-name">종목</th>
             <th class="th-price">현재가 <small>/등락</small></th>
             <th class="th-price">거래대금</th>
-            <th @click="setSort('totalScore')" @keydown.enter="setSort('totalScore')" tabindex="0" class="th-sort">종합{{ sortMark('totalScore') }}</th>
-            <th @click="setSort('technical')" @keydown.enter="setSort('technical')" tabindex="0" class="th-sort th-tech">기술{{ sortMark('technical') }}</th>
-            <th @click="setSort('earnings')" @keydown.enter="setSort('earnings')" tabindex="0" class="th-sort">실적{{ sortMark('earnings') }}</th>
-            <th @click="setSort('sectorMomentum')" @keydown.enter="setSort('sectorMomentum')" tabindex="0" class="th-sort">섹터(테마){{ sortMark('sectorMomentum') }}</th>
-            <th @click="setSort('timingScore')" @keydown.enter="setSort('timingScore')" tabindex="0" class="th-sort"
+            <th @click="setSort('totalScore')" @keydown.enter.self="setSort('totalScore')" @keydown.space.self.prevent="setSort('totalScore')" tabindex="0" class="th-sort">종합{{ sortMark('totalScore') }}</th>
+            <th @click="setSort('technical')" @keydown.enter.self="setSort('technical')" @keydown.space.self.prevent="setSort('technical')" tabindex="0" class="th-sort th-tech">기술{{ sortMark('technical') }}</th>
+            <th @click="setSort('earnings')" @keydown.enter.self="setSort('earnings')" @keydown.space.self.prevent="setSort('earnings')" tabindex="0" class="th-sort">실적{{ sortMark('earnings') }}</th>
+            <th @click="setSort('sectorMomentum')" @keydown.enter.self="setSort('sectorMomentum')" @keydown.space.self.prevent="setSort('sectorMomentum')" tabindex="0" class="th-sort">섹터(테마){{ sortMark('sectorMomentum') }}</th>
+            <th @click="setSort('timingScore')" @keydown.enter.self="setSort('timingScore')" @keydown.space.self.prevent="setSort('timingScore')" tabindex="0" class="th-sort"
                 title="백테스트 hitRate 31% · 점수–수익 역상관 — 숫자 높다고 좋은 자리 아님(예측력 낮음 확인)">차트타이밍<small class="poor-badge">예측력↓</small>{{ sortMark('timingScore') }}</th>
             <th class="th-unv">섹터강도<small>미검증</small></th>
             <th class="th-unv"
                 title="최근 30거래일 회귀 채널(종목상세 차트와 동일 산식) — 방향 + 채널 내 위치(0=하단/100=상단). 표시 전용 참고(점수 미편입).">채널<small>참고</small></th>
-            <th @click="setSort('trackRecord')" @keydown.enter="setSort('trackRecord')" tabindex="0" class="th-sort"
+            <th @click="setSort('trackRecord')" @keydown.enter.self="setSort('trackRecord')" @keydown.space.self.prevent="setSort('trackRecord')" tabindex="0" class="th-sort"
                 :title="trackHeaderTitle">이력<small class="unv-badge">현재 산식</small>{{ sortMark('trackRecord') }}</th>
             <th class="th-unv"
                 title="외인/기관 연속 순매수일(investor_daily_trade 상위 재사용) — streak5 백테스트 약한 양(+) 신호 · 참고만(점수 미편입). 2일 이상만 표기, 데이터 5일 미만 '—'.">수급연속<small>참고</small></th>
-            <th @click="setSort('supplyDemand')" @keydown.enter="setSort('supplyDemand')" tabindex="0" class="th-sort th-caution">수급{{ sortMark('supplyDemand') }}</th>
+            <th @click="setSort('supplyDemand')" @keydown.enter.self="setSort('supplyDemand')" @keydown.space.self.prevent="setSort('supplyDemand')" tabindex="0" class="th-sort th-caution">수급{{ sortMark('supplyDemand') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="r in visibleRows" :key="r.stockCode" class="jb-row" tabindex="0"
               :class="{ 'row-unscored': !r.scored }" @click="openRow(r.stockCode)"
-              @keydown.enter="openRow(r.stockCode)">
+              @keydown.enter.self="openRow(r.stockCode)" @keydown.space.self.prevent="openRow(r.stockCode)">
             <td class="td-name">
               <span class="rn">{{ r.stockName }}</span>
               <span class="rc">{{ r.stockCode }}</span>

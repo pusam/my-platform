@@ -72,8 +72,12 @@
           :class="{ expanded: expandedSector === sector.sectorCode }"
           @click="toggleSector(sector.sectorCode)"
         >
-          <!-- 카드 헤더 -->
-          <div class="sector-header">
+          <!-- 카드 헤더 = 펼침 버튼(키보드). 카드 전체 클릭은 마우스 편의 — 카드를 버튼으로 두면 펼친 뒤 나오는
+               종목 행이 '버튼 안의 버튼'이 된다(2026-10-01, 예전엔 마우스로만 열렸다) -->
+          <div class="sector-header" role="button" tabindex="0"
+               :aria-expanded="expandedSector === sector.sectorCode ? 'true' : 'false'"
+               @keydown.enter.self="toggleSector(sector.sectorCode)"
+               @keydown.space.self.prevent="toggleSector(sector.sectorCode)">
             <div class="sector-info">
               <div class="sector-icon" :style="{ background: sector.color }">
                 <span>{{ sector.sectorName.charAt(0) }}</span>
@@ -107,7 +111,10 @@
             <h4>거래대금 상위 종목</h4>
             <div class="top-stocks">
               <div v-for="stock in sector.topStocks" :key="stock.stockCode" class="stock-row"
-                   @click.stop="goToStock(stock.stockCode)">
+                   role="button" tabindex="0"
+                   @click.stop="goToStock(stock.stockCode)"
+                   @keydown.enter.self="goToStock(stock.stockCode)"
+                   @keydown.space.self.prevent="goToStock(stock.stockCode)">
                 <div class="stock-info">
                   <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
                   <span class="stock-code">{{ stock.stockCode }}</span>

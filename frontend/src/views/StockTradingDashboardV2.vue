@@ -145,7 +145,7 @@
         <!-- 섹터 상대강도 '덜 빠지는 섹터' 상시 배지 — 발굴 유니버스 필터(차트기법, 검증 전 베타).
              타이밍 신호는 '오늘' 탭으로 이동, 발굴엔 섹터강도만 남김. -->
         <div v-if="activeGnbTab === 'discover' && sectorStrength.length" class="sector-strength-row">
-          <span class="sector-strength-label">덜 빠지는 섹터 <small style="opacity:0.6">(베타)</small></span>
+          <span class="sector-strength-label">덜 빠지는 섹터 <small>(베타)</small></span>
           <span v-for="s in sectorStrength.slice(0, 5)" :key="'ss-' + s.sector"
                 class="sector-strength-badge"
                 :class="s.rel_strength >= 0 ? 'positive' : 'negative'">
@@ -154,7 +154,7 @@
         </div>
         <!-- 분석서버(python) 미가용 — '데이터 없음'과 구분 명시 -->
         <div v-else-if="activeGnbTab === 'discover' && !sectorStrengthAvailable" class="sector-strength-row">
-          <span class="sector-strength-label" style="opacity:0.6">⚠ 섹터강도(베타) 분석서버 일시 미가용</span>
+          <span class="sector-strength-label">⚠ 섹터강도(베타) 분석서버 일시 미가용</span>
         </div>
 
         <!-- 발굴 = 종합판단 중심 축소(2026-07-01): 종합판단 + 백테스트만. 목록 5트랙/기타 심화는 숨김(코드 보존). -->
@@ -188,7 +188,7 @@
           </div>
           <div v-else-if="valueTop10.length" class="rec-list">
             <div v-for="(rec, i) in valueTop10" :key="'val-' + i" class="rec-card" role="button" tabindex="0"
-                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
+                 @click="goToStock(rec.stockCode)" @keydown.enter.self="goToStock(rec.stockCode)" @keydown.space.self.prevent="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -221,7 +221,7 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-signal">저평가 종목 데이터 수집 중<br><small style="opacity:0.7">PBR·ROE·부채비율 기반 가치주만 산정 (분기 단위 갱신)</small></div>
+          <div v-else class="empty-signal">저평가 종목 데이터 수집 중<br><small>PBR·ROE·부채비율 기반 가치주만 산정 (분기 단위 갱신)</small></div>
         </div>
 
         <!-- ②-b 성장주 TOP 10 (발굴 탭 — 빠르게 크는 종목, 저평가와 짝) -->
@@ -235,7 +235,7 @@
           </div>
           <div v-else-if="growthTop10.length" class="rec-list">
             <div v-for="(rec, i) in growthTop10" :key="'grw-' + i" class="rec-card" role="button" tabindex="0"
-                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
+                 @click="goToStock(rec.stockCode)" @keydown.enter.self="goToStock(rec.stockCode)" @keydown.space.self.prevent="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -268,7 +268,7 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-signal">성장주 데이터 수집 중<br><small style="opacity:0.7">매출·이익 성장률 + PEG 기반 (분기 단위 갱신)</small></div>
+          <div v-else class="empty-signal">성장주 데이터 수집 중<br><small>매출·이익 성장률 + PEG 기반 (분기 단위 갱신)</small></div>
         </div>
 
         <!-- ②-c 낙폭과대 반등 TOP 10 (발굴 탭 — 많이 빠진 과매도 + 반등 조짐, 추격의 반대) -->
@@ -282,7 +282,7 @@
           </div>
           <div v-else-if="oversoldTop10.length" class="rec-list">
             <div v-for="(rec, i) in oversoldTop10" :key="'ovs-' + i" class="rec-card" role="button" tabindex="0"
-                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
+                 @click="goToStock(rec.stockCode)" @keydown.enter.self="goToStock(rec.stockCode)" @keydown.space.self.prevent="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -315,7 +315,7 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-signal">낙폭과대 반등 후보 없음<br><small style="opacity:0.7">RSI 과매도 + MA20 −5%↓ 낙폭 + 반등 조짐 (장중 갱신)</small></div>
+          <div v-else class="empty-signal">낙폭과대 반등 후보 없음<br><small>RSI 과매도 + MA20 −5%↓ 낙폭 + 반등 조짐 (장중 갱신)</small></div>
         </div>
 
         <!-- ②-d 실적 서프라이즈 TOP 10 (흑자전환·영업이익 급증) -->
@@ -329,7 +329,7 @@
           </div>
           <div v-else-if="earningsTop10.length" class="rec-list">
             <div v-for="(rec, i) in earningsTop10" :key="'ern-' + i" class="rec-card" role="button" tabindex="0"
-                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
+                 @click="goToStock(rec.stockCode)" @keydown.enter.self="goToStock(rec.stockCode)" @keydown.space.self.prevent="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -352,7 +352,7 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-signal">실적 서프라이즈 후보 없음<br><small style="opacity:0.7">흑자전환·영업이익 급증 종목 (분기 실적 기반)</small></div>
+          <div v-else class="empty-signal">실적 서프라이즈 후보 없음<br><small>흑자전환·영업이익 급증 종목 (분기 실적 기반)</small></div>
         </div>
 
         <!-- ②-e 스마트머니(수급) TOP 10 (외국인·기관 순매수) -->
@@ -366,7 +366,7 @@
           </div>
           <div v-else-if="smartMoneyTop10.length" class="rec-list">
             <div v-for="(rec, i) in smartMoneyTop10" :key="'smt-' + i" class="rec-card" role="button" tabindex="0"
-                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
+                 @click="goToStock(rec.stockCode)" @keydown.enter.self="goToStock(rec.stockCode)" @keydown.space.self.prevent="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -389,7 +389,7 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-signal">수급 우위 종목 없음<br><small style="opacity:0.7">외국인·기관 연속/대량 순매수 (장중 갱신)</small></div>
+          <div v-else class="empty-signal">수급 우위 종목 없음<br><small>외국인·기관 연속/대량 순매수 (장중 갱신)</small></div>
         </div>
 
         <!-- ②-b 수급 현황 패널 → 시장 탭 -->
@@ -418,7 +418,7 @@
             <div class="supply-sub-title">연속 순매수 종목</div>
             <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode + item.investorType"
                  class="supply-stock-row" role="button" tabindex="0"
-                 @click="goToStock(item.stockCode)" @keydown.enter="goToStock(item.stockCode)">
+                 @click="goToStock(item.stockCode)" @keydown.enter.self="goToStock(item.stockCode)" @keydown.space.self.prevent="goToStock(item.stockCode)">
               <span class="supply-investor-badge" :class="item.investorType === 'FOREIGN' ? 'foreign' : 'inst'">
                 {{ item.investorType === 'FOREIGN' ? '외' : '기' }}
               </span>
@@ -454,7 +454,7 @@
               <div class="ss-stocks">
                 <span v-for="t in sec.topStocks" :key="t.stockCode"
                       class="ss-stock" role="button" tabindex="0"
-                      @click="goToStock(t.stockCode)" @keydown.enter="goToStock(t.stockCode)">
+                      @click="goToStock(t.stockCode)" @keydown.enter.self="goToStock(t.stockCode)" @keydown.space.self.prevent="goToStock(t.stockCode)">
                   {{ t.stockName }}
                   <span :class="Number(t.changeRate) >= 0 ? 'positive' : 'negative'">
                     {{ Number(t.changeRate) >= 0 ? '+' : '' }}{{ Number(t.changeRate).toFixed(1) }}%
@@ -499,7 +499,7 @@
               :key="'cs-' + idx"
               class="cs-row" :class="'sig-' + (sig.topPattern?.signal || 'NEUTRAL').toLowerCase()"
               role="button" tabindex="0"
-              @click="goToStock(sig.stockCode)" @keydown.enter="goToStock(sig.stockCode)"
+              @click="goToStock(sig.stockCode)" @keydown.enter.self="goToStock(sig.stockCode)" @keydown.space.self.prevent="goToStock(sig.stockCode)"
             >
               <span class="cs-name-block">
                 <span class="cs-name">{{ getCsStockName(sig) }}</span>
@@ -2118,6 +2118,9 @@ export default {
 .ss-stock {
   font-size: 11px;
   padding: 3px 8px;
+  min-height: 26px;   /* WCAG 2.5.8 — 23px 였다(2026-10-01 1280px 실측) */
+  display: inline-flex;
+  align-items: center;
   background: rgba(255,255,255,0.05);
   border-radius: 6px;
   cursor: pointer;

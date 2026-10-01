@@ -29,6 +29,36 @@ describe("'오늘' 탭 슬롯 — 키보드로 연다", () => {
     }
   })
 
+  // 각 role="button" 이 어느 탭 블록 안에 있는지는 앞쪽에서 가장 가까운 `activeGnbTab === '…'` 로 정한다
+  const tagsInTab = (tabName) => {
+    const marker = "activeGnbTab === '"
+    const out = []
+    for (const m of src.matchAll(/<[a-z][^>]*role="button"[^>]*>/g)) {
+      const at = src.lastIndexOf(marker, m.index)
+      const tab = at >= 0 ? src.slice(at + marker.length, src.indexOf("'", at + marker.length)) : null
+      if (tab === tabName) out.push(m[0])
+    }
+    return out
+  }
+
+  it('발굴 탭 카드(목록 5트랙·차트 패턴)도 Enter 와 Space 를 모두 받는다', () => {
+    const tags = tagsInTab('discover')
+    expect(tags.length).toBeGreaterThanOrEqual(6)   // 저평가·성장·낙폭과대·실적·수급 5트랙 + 차트 패턴
+    for (const tag of tags) {
+      expect(tag, tag).toMatch(/@keydown\.enter/)
+      expect(tag, tag).toMatch(/@keydown\.space/)
+    }
+  })
+
+  it('시장 탭 종목 행(연속 순매수·강세 섹터 종목)도 Enter 와 Space 를 모두 받는다', () => {
+    const tags = tagsInTab('market')
+    expect(tags.length).toBeGreaterThanOrEqual(2)
+    for (const tag of tags) {
+      expect(tag, tag).toMatch(/@keydown\.enter/)
+      expect(tag, tag).toMatch(/@keydown\.space/)
+    }
+  })
+
   it('관심종목 행은 버튼이 아니고(안에 입력·버튼이 있다) 종목명이 진짜 버튼이다', () => {
     const row = (todaySlots.match(/<div[^>]*class="wl-row"[^>]*>/) || [''])[0]
     expect(row).not.toBe('')

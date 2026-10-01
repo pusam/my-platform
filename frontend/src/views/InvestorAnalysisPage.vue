@@ -64,7 +64,9 @@
               </thead>
               <tbody>
                 <tr v-for="(trade, index) in currentTrades" :key="`${trade.stockCode}-${index}`"
-                    class="trade-row" @click="goToStock(trade.stockCode)">
+                    class="trade-row" tabindex="0" @click="goToStock(trade.stockCode)"
+                    @keydown.enter.self="goToStock(trade.stockCode)"
+                    @keydown.space.self.prevent="goToStock(trade.stockCode)">
                   <td class="rank">{{ trade.rankNum }}</td>
                   <td class="stock-name">{{ trade.stockName }}</td>
                   <td class="stock-code">{{ trade.stockCode }}</td>
