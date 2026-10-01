@@ -306,6 +306,16 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(market.text()).toContain('ADR 95')
   })
 
+  it('진단 문구에 ADR 이 이미 있으면 ADR 숫자를 따로 또 쓰지 않는다 — 같은 값이 두 번(84.68·84.7) 나왔다', async () => {
+    stubAll()
+    const w = await mountTab({ marketData: { kospiIndex: '6,896.54', kospiChangeRate: 0.86, kosdaqIndex: '879.47', kosdaqChangeRate: 2.75,
+      adr: 84.68, marketStatus: '종합 ADR(20일): 84.7 - 시장이 정상 범위입니다.' } })
+    const market = w.find('.today-market')
+    expect(market.find('.tm-adr').exists()).toBe(false)
+    expect(market.text().match(/ADR/g)).toHaveLength(1)
+    expect(market.text()).toContain('종합 ADR(20일): 84.7')
+  })
+
   it('API 전부 실패해도 빈 화면이 되지 않고, 조회 실패임을 밝힌다', async () => {
     // 2026-08-05 감사: 예전엔 조회 실패도 '관망이 결론입니다'(.ts-state.empty)로 렌더했다.
     // 컷 통과 0건은 시장 판단이고 조회 실패는 판단 불가라 같은 문구로 덮으면 안 된다(§4c).
@@ -446,5 +456,51 @@ describe('TodayBriefingTab — 유튜브 참고 의견', () => {
     const link = detail.find('a.yo-src')
     expect(link.attributes('href')).toBe('https://www.youtube.com/watch?v=TESTvid0001&t=65s')
     expect(link.attributes('rel')).toBe('noopener noreferrer')
+  })
+})
+
+/**
+ * 키보드로 연다(2026-10-01 '오늘' 탭 점검). 카드형 버튼(role="button" div)이 Enter 만 받아 Space 를 누르면
+ * 화면이 스크롤됐고, 후보 카드(버튼) 안에 근거 기사 링크가 들어 있어 '버튼 안의 링크'였다 — 링크에서
+ * Enter 를 누르면 기사와 종목이 함께 열릴 수 있었다.
+ */
+describe('TodayBriefingTab — 키보드로 연다', () => {
+  it('후보 종목은 진짜 버튼으로 연다 — Enter·Space 는 브라우저가 처리하고, 카드 클릭으로 두 번 열리지 않는다', async () => {
+    stubAll()
+    const w = await mountTab()
+    const open = w.find('.candidate-card .cc-open')
+    expect(open.exists()).toBe(true)
+    expect(open.element.tagName).toBe('BUTTON')
+    expect(open.attributes('type')).toBe('button')
+    await open.trigger('click')
+    expect(w.emitted('open-stock')).toEqual([['005930']])
+  })
+
+  it('근거 기사 링크는 버튼(role="button") 안에 있지 않다', async () => {
+    stubAll({ catalyst: { data: { success: true, data: { ...catalystResponse.data.data, newsLink: 'https://news.example/1' } } } })
+    const w = await mountTab()
+    const link = w.find('.cc-cat-link')
+    expect(link.exists()).toBe(true)
+    expect(link.element.closest('[role="button"]')).toBeNull()
+  })
+
+  it('포지션 행은 Space 로도 열린다', async () => {
+    stubAll({ portfolio: { data: { success: true, data: [
+      { stockCode: '005930', stockName: '삼성전자', quantity: 3, profitRate: 1.2, profitLoss: 100 }
+    ] } } })
+    const w = await mountTab()
+    await w.find('.position-row').trigger('keydown', { key: ' ' })
+    expect(w.emitted('open-stock')).toEqual([['005930']])
+  })
+
+  it('차트 타이밍 카드도 Space 로 열린다', async () => {
+    stubAll()
+    recommendationAPI.getTrendPullbackTop10.mockResolvedValue({ data: { success: true, data: [
+      { code: '207940', name: '삼성바이오로직스', signals: ['정배열'] }
+    ] } })
+    const w = await mountTab()
+    await w.find('.ts-toggle').trigger('click')
+    await w.find('.observe-card').trigger('keydown', { key: ' ' })
+    expect(w.emitted('open-stock')).toEqual([['207940']])
   })
 })

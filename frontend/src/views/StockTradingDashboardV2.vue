@@ -41,7 +41,8 @@
                 <div v-for="(sig, i) in phaseSignals" :key="'sig-' + i" class="signal-card" :class="sig.type"
                      :role="sig.stockCode ? 'button' : null" :tabindex="sig.stockCode ? 0 : null"
                      @click="sig.stockCode && goToStock(sig.stockCode)"
-                     @keydown.enter="sig.stockCode && goToStock(sig.stockCode)">
+                     @keydown.enter.self="sig.stockCode && goToStock(sig.stockCode)"
+                     @keydown.space.self.prevent="sig.stockCode && goToStock(sig.stockCode)">
                   <div class="sig-badge">{{ sig.badge }}</div>
                   <div class="sig-info">
                     <span class="sig-name">{{ sig.stockName }}</span>
@@ -56,7 +57,7 @@
               </div>
               <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
             </div>
-            <SectionLiveSurge v-if="currentPhaseKey === 'during'" :active="currentPhaseKey === 'during'" />
+            <SectionLiveSurge v-if="currentPhaseKey === 'during'" :active="currentPhaseKey === 'during'" :preview-count="6" />
           </template>
           <!-- 관심종목(접힘 기본) — 시간대 무관 상시 노출(목표가 편집은 장중에도 필요). 구 발굴 탭의 'pre' 게이트 잔재 제거 -->
           <template #watchlist>
@@ -68,14 +69,15 @@
                 </button>
               </div>
               <div class="wl-list" v-if="watchlistExpanded">
+                <!-- 행 클릭은 마우스 편의, 키보드는 종목명 버튼으로(2026-10-01) — 행 안에 목표가 입력·버튼이 있어 행을
+                     버튼으로 두면 '버튼 안의 버튼'이 되고, 입력칸 Enter(저장)가 행의 Enter 로 번져 종목 화면으로 넘어갔다 -->
                 <div v-for="item in watchlistItems.slice(0, 5)" :key="'wl-' + item.id" class="wl-row"
-                     role="button" tabindex="0"
-                     @click="goToStock(item.stockCode)" @keydown.enter="goToStock(item.stockCode)">
+                     @click="goToStock(item.stockCode)">
                   <span class="wl-risk" v-if="watchlistRisks[item.stockCode]"
                         :class="watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? 'danger' : 'warning'">
                     {{ watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? '🔴' : '🟡' }}
                   </span>
-                  <span class="wl-name">{{ item.stockName }}</span>
+                  <button type="button" class="wl-name wl-open" @click.stop="goToStock(item.stockCode)">{{ item.stockName }}</button>
                   <span class="wl-price" v-if="item.currentPrice">{{ Number(item.currentPrice).toLocaleString() }}</span>
                   <span class="wl-change" v-if="item.changeRate != null"
                         :class="item.changeRate >= 0 ? 'positive' : 'negative'">
@@ -2072,6 +2074,9 @@ export default {
 .wl-risk { font-size: 12px; }
 .wl-risk.danger { } .wl-risk.warning { }
 .wl-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
+/* 종목명 버튼 — 글자 그대로 보이게 버튼 모양만 지운다(포커스 테두리는 전역 :focus-visible) */
+.wl-open { background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-align: left; min-width: 0; }
+.wl-open:hover { text-decoration: underline; }
 .wl-price { font-size: 13px; color: rgba(255,255,255,0.6); font-family: monospace; }
 .wl-change { font-size: 12px; font-weight: 700; width: 55px; text-align: right; }
 /* 목표 매수가 알림 (선택) */

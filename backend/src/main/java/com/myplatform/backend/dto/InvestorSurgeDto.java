@@ -90,11 +90,31 @@ public class InvestorSurgeDto {
     }
 
     /**
-     * 데이터가 10분 이상 지났는지 여부 (프론트에서 회색 처리용)
-     * @return true: 오래된 데이터 (10분 이상 경과), false: 신선한 데이터
+     * 낡음 기준(분) — 수집 한 주기를 건너뛰었을 때만 낡음이다(2026-10-01).
+     *
+     * <p>스냅샷은 매 :02·:12…에 수집되지만({@code InvestorSurgeService.collectIntradaySnapshot} 크론 {@code 0 2/10})
+     * 시각은 10분 단위로 내려 저장된다(12:32 수집분 = 12:30). 그래서 정상 운영에서 가장 최신 값의 나이는 약 2~13분
+     * (수집 오프셋 2분 + 주기 10분 + 수집 소요·화면 30초 갱신)이다. 예전 기준 10분은 매 주기 :x0~:x2 사이에 최신 값까지
+     * 낡음으로 만들어 카드 전체를 흐렸다. ⚠ 크론 주기·오프셋을 바꾸면 이 값도 같이 볼 것.
+     */
+    static final long OUTDATED_AFTER_MINUTES = 15;
+
+    /**
+     * 데이터가 수집 한 주기 넘게 갱신되지 않았는지 — 화면이 '갱신 지연'으로 표시한다.
+     * @return true: 한 주기 넘게 갱신 없음, false: 최신 주기의 값
      */
     public boolean isOutdated() {
-        return getMinutesAgo() >= 10;
+        return outdatedAt(snapshotTime, LocalTime.now());
+    }
+
+    /** 낡음 판정(순수) — {@link #isOutdated()} 의 단일 출처. 시각이 없으면 낡음, 자정을 넘어 음수면 0분으로 본다. */
+    static boolean outdatedAt(LocalTime snapshotTime, LocalTime now) {
+        if (snapshotTime == null) {
+            return true;
+        }
+        Duration duration = Duration.between(snapshotTime, now);
+        long minutesAgo = duration.isNegative() ? 0 : duration.toMinutes();
+        return minutesAgo >= OUTDATED_AFTER_MINUTES;
     }
 
     /**

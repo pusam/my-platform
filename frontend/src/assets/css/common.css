@@ -146,6 +146,14 @@ body {
   min-height: 100vh;
   color: var(--text-primary);
   line-height: 1.6;
+  /*
+   * 한글은 단어 단위로 줄을 바꾼다(2026-10-01). 기본값(normal)은 음절 사이 어디서나 끊어
+   * "관 / 망이", "최소 변 / 화량"처럼 단어가 쪼개졌고 숫자·단위("97,900 / 원")도 갈라졌다.
+   * break-word 는 줄보다 긴 단어만 끊는다. anywhere 로 바꾸지 말 것 — 최소 폭 계산까지 바꿔
+   * 표가 화면에 맞춰 줄면서 종목코드·가격이 두 줄로 쪼개졌다(375px 시장 탭 라이브 주입 실측 118곳).
+   */
+  word-break: keep-all;
+  overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
   /* iOS 노치/홈 인디케이터 safe-area */
   padding-left: env(safe-area-inset-left);

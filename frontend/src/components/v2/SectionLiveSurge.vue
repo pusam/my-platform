@@ -39,10 +39,18 @@
       <div v-for="i in 4" :key="'sk-'+i" class="skel-row"></div>
     </div>
 
-    <div v-else-if="currentStocks.length > 0" class="stocks-grid">
-      <div v-for="stock in currentStocks" :key="stock.stockCode"
+    <template v-else-if="currentStocks.length > 0">
+    <!-- 전부 한 주기 넘게 갱신이 없으면(수집 지연) 섹션에 한 번만 말한다 — 카드마다 반복하지 않는다 -->
+    <p v-if="allOutdated" class="surge-stale-note" role="status">
+      ⚠ 수집이 한 주기(10분) 넘게 지연되고 있습니다 — 아래는 {{ latestSnapshotLabel }} 기준 값입니다.
+    </p>
+    <div class="stocks-grid">
+      <div v-for="stock in visibleStocks" :key="stock.stockCode"
            :class="['stock-card', 'surge-card', stock.surgeLevel?.toLowerCase(), getTrendClass(stock.trendStatus), { common: investor === 'COMMON', outdated: stock.outdated }]"
-           @click="goStock(stock.stockCode)">
+           role="button" tabindex="0" :aria-label="cardLabel(stock)"
+           @click="goStock(stock.stockCode)"
+           @keydown.enter.self="goStock(stock.stockCode)"
+           @keydown.space.self.prevent="goStock(stock.stockCode)">
         <div class="surge-badge-label" :class="stock.surgeLevel?.toLowerCase()"
              v-if="shouldShowHotBadge(stock)">
           {{ getSurgeLevelText(stock.surgeLevel) }}
@@ -55,6 +63,10 @@
           <div class="stock-info">
             <span class="card-stock-name">{{ stock.stockName }}</span>
             <span class="card-stock-code">{{ stock.stockCode }}</span>
+            <!-- 낡음은 글자로 말한다 — 흐리게만 하면 읽기 어렵고(대비 2.5) 왜 흐린지도 모른다(2026-10-01) -->
+            <span v-if="stock.outdated && !allOutdated" class="stale-tag">
+              ⏱ 갱신 지연{{ snapshotLabel(stock) ? ' · ' + snapshotLabel(stock) + ' 기준' : '' }}
+            </span>
           </div>
           <div class="rank-info">
             <span class="current-rank">#{{ stock.currentRank }}</span>
@@ -107,6 +119,12 @@
         </div>
       </div>
     </div>
+    <!-- 미리보기 — '오늘' 탭은 요약 화면이라 상위 몇 개만(휴대폰에서 카드 12장이 페이지의 73%였다, 2026-10-01) -->
+    <button v-if="hiddenCount > 0 || expanded && previewCount > 0 && currentStocks.length > previewCount"
+            type="button" class="surge-more" :aria-expanded="expanded ? 'true' : 'false'" @click="expanded = !expanded">
+      {{ expanded ? '접기' : `나머지 ${hiddenCount}개 더 보기` }}
+    </button>
+    </template>
 
     <div v-else class="empty-msg">
       <p>수급 급증 종목이 없습니다.</p>
@@ -123,11 +141,14 @@ const REFRESH_MS = 30000
 export default {
   name: 'SectionLiveSurge',
   props: {
-    active: { type: Boolean, default: true }
+    active: { type: Boolean, default: true },
+    // 처음에 보여 줄 카드 수(0 = 전부). '오늘' 탭은 요약이라 상위 몇 개만 보이고 나머지는 '더 보기'.
+    previewCount: { type: Number, default: 0 }
   },
   data() {
     return {
       loading: false,
+      expanded: false,
       investor: 'FOREIGN',
       minChange: 50,
       allStocks: {},
@@ -146,6 +167,22 @@ export default {
   computed: {
     currentStocks() {
       return this.allStocks[this.investor] || []
+    },
+    // 서버의 outdated = 수집 한 주기를 건너뛴 값(InvestorSurgeDto.OUTDATED_AFTER_MINUTES)
+    allOutdated() {
+      const list = this.currentStocks
+      return list.length > 0 && list.every(s => s.outdated)
+    },
+    visibleStocks() {
+      const list = this.currentStocks
+      return this.previewCount > 0 && !this.expanded ? list.slice(0, this.previewCount) : list
+    },
+    hiddenCount() {
+      return this.currentStocks.length - this.visibleStocks.length
+    },
+    latestSnapshotLabel() {
+      const times = this.currentStocks.map(s => this.snapshotLabel(s)).filter(Boolean).sort()
+      return times.length ? times[times.length - 1] : '마지막 수집'
     }
   },
   watch: {
@@ -217,6 +254,14 @@ export default {
     goStock(code) {
       if (code) this.$router.push(`/stock/${code}`)
     },
+    // 카드는 버튼이라 안의 글자가 하나의 이름으로 읽힌다 — 핵심만 짧게(종목·순매수·등락률·지연 여부)
+    cardLabel(stock) {
+      const parts = [stock.stockName || stock.stockCode]
+      if (stock.formattedNetBuyAmount) parts.push(`순매수 ${stock.formattedNetBuyAmount}`)
+      if (stock.changeRate) parts.push(`등락률 ${this.formatRate(stock.changeRate)}`)
+      if (stock.outdated) parts.push('갱신 지연')
+      return `${parts.join(', ')} — 상세 보기`
+    },
     shouldShowHotBadge(stock) {
       if (!stock.surgeLevel || stock.surgeLevel === 'NORMAL') return false
       if (stock.trendStatus === 'PROFIT_TAKING') return false
@@ -248,6 +293,12 @@ export default {
       return change > 0 ? 'rank-up' : change < 0 ? 'rank-down' : ''
     },
     hasFormattedChange(val) { return val && val !== '-' },
+    snapshotLabel(stock) {
+      const t = stock && stock.snapshotTime
+      if (!t || typeof t !== 'string') return ''
+      const [h, m] = t.split(':')
+      return h && m ? `${h}:${m}` : ''
+    },
     formatNumber(value) {
       if (!value) return '0'
       return Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 })
@@ -406,7 +457,19 @@ export default {
   background: rgba(255,255,255,0.07);
   transform: translateY(-1px);
 }
-.stock-card.outdated { opacity: 0.55; }
+/* 갱신 지연 — 글자를 흐리게 하지 않는다(대비 유지). 테두리 모양 + '갱신 지연' 글자로 구분 */
+.stock-card.outdated { border-style: dashed; }
+.stale-tag { font-size: 11px; font-weight: 600; color: #fbbf24; }
+.surge-more {
+  display: block; width: 100%; margin-top: 12px; min-height: 40px; padding: 8px 12px;
+  border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 600;
+  color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
+}
+.surge-more:hover { background: rgba(255,255,255,0.09); }
+.surge-stale-note {
+  margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; font-size: 12px; line-height: 1.5;
+  color: #fbbf24; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35);
+}
 .surge-card.hot { border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.06); }
 .surge-card.warm { border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.05); }
 .surge-card.common { border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.06); }

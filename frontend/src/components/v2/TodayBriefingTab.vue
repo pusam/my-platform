@@ -8,7 +8,8 @@
       <span class="tm-item" :class="changeClass(marketData.kosdaqChangeRate)">
         KOSDAQ {{ marketData.kosdaqIndex }} ({{ signed(marketData.kosdaqChangeRate) }}%)
       </span>
-      <span v-if="marketData.adr" class="tm-item tm-adr">ADR {{ marketData.adr }}</span>
+      <!-- 진단 문구(marketStatus)가 이미 "종합 ADR(20일): 84.7 …"을 담으면 숫자를 따로 또 쓰지 않는다(같은 값이 두 번 보였다) -->
+      <span v-if="marketData.adr && !statusHasAdr" class="tm-item tm-adr">ADR {{ marketData.adr }}</span>
       <span v-if="marketData.marketStatus" class="tm-status">{{ marketData.marketStatus }}</span>
     </div>
 
@@ -65,13 +66,13 @@
       </div>
       <div v-else class="candidate-list">
         <div v-for="(c, i) in buyCandidates" :key="c.stockCode" class="candidate-item">
-          <div class="candidate-card" role="button" tabindex="0"
-               @click="$emit('open-stock', c.stockCode)"
-               @keydown.enter="$emit('open-stock', c.stockCode)">
+          <!-- 카드 전체 클릭은 마우스 편의, 키보드·보조기기는 종목명 버튼으로 연다(2026-10-01) — 카드를 role="button"
+               으로 두면 안의 근거 기사 링크가 '버튼 안의 링크'가 되고(링크 Enter 가 카드까지 번짐) Space 도 안 먹었다 -->
+          <div class="candidate-card" @click="$emit('open-stock', c.stockCode)">
             <span class="cc-rank">#{{ i + 1 }}</span>
             <div class="cc-main">
               <div class="cc-head">
-                <span class="cc-name">{{ c.stockName }}</span>
+                <button type="button" class="cc-name cc-open" @click.stop="$emit('open-stock', c.stockCode)">{{ c.stockName }}</button>
                 <span class="cc-grade" :class="gradeClass(c.totalScore)">{{ gradeLabel(c.totalScore) }}</span>
                 <span class="cc-score">{{ c.totalScore }}점</span>
               </div>
@@ -130,7 +131,8 @@
         <div v-for="p in portfolio.slice(0, 3)" :key="p.stockCode"
              class="position-row" role="button" tabindex="0"
              @click="$emit('open-stock', p.stockCode)"
-             @keydown.enter="$emit('open-stock', p.stockCode)">
+             @keydown.enter.self="$emit('open-stock', p.stockCode)"
+             @keydown.space.self.prevent="$emit('open-stock', p.stockCode)">
           <span class="pr-name">{{ p.stockName }}</span>
           <span class="pr-qty">{{ p.quantity }}주</span>
           <span class="pr-rate" :class="Number(p.profitRate) >= 0 ? 'positive' : 'negative'">
@@ -175,7 +177,8 @@
           <div v-for="(c, i) in timingCandidates" :key="c.code"
                class="candidate-card observe-card" role="button" tabindex="0"
                @click="$emit('open-stock', c.code)"
-               @keydown.enter="$emit('open-stock', c.code)">
+               @keydown.enter.self="$emit('open-stock', c.code)"
+               @keydown.space.self.prevent="$emit('open-stock', c.code)">
             <span class="cc-rank">#{{ i + 1 }}</span>
             <div class="cc-main">
               <div class="cc-head">
@@ -230,6 +233,7 @@ const macroAvailable = ref(true);     // dataAvailable=false → 3축 전부 미
 
 const hasMarketData = computed(() =>
   !!(props.marketData && props.marketData.kospiIndex));
+const statusHasAdr = computed(() => String(props.marketData?.marketStatus || '').includes('ADR'));
 
 const totalProfitLoss = computed(() =>
   portfolio.value.reduce((sum, p) => sum + Number(p.profitLoss || 0), 0));
@@ -623,6 +627,9 @@ onMounted(() => {
 .cc-main { flex: 1; min-width: 0; }
 .cc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cc-name { font-size: 14px; font-weight: 700; }
+/* 종목명 버튼 — 글자 그대로 보이게 버튼 모양만 지운다(포커스 테두리는 전역 :focus-visible) */
+.cc-open { background: none; border: 0; padding: 0; margin: 0; color: inherit; cursor: pointer; text-align: left; }
+.cc-open:hover { text-decoration: underline; }
 .cc-grade {
   font-size: 11px;
   font-weight: 700;
@@ -690,6 +697,8 @@ onMounted(() => {
 }
 .tt-chip em { font-style: normal; font-weight: 400; opacity: 0.65; font-size: 11px; }
 .tt-weak { opacity: 0.6; }
+/* '검증 중' 문구는 아이콘과 같은 줄에서 접힌다 — 휴대폰에서 📊 만 홀로 한 줄을 차지했다(2026-10-01) */
+.tt-pending { flex: 1 1 0; min-width: 0; }
 .tt-caution {
   margin-top: 6px; font-size: 11.5px; line-height: 1.45;
   color: #fbbf24;
@@ -728,5 +737,9 @@ onMounted(() => {
 @media (max-width: 600px) {
   .today-market { gap: 10px; font-size: 12px; }
   .tm-status { flex-basis: 100%; margin-left: 0; }
+  /* 간밤·매크로: "라벨 · 판정 · 미검증 참고" 한 줄 + 근거 한 줄. 배지가 오른쪽 끝(margin-left:auto)에 있으면
+     줄이 넘칠 때 배지만 따로 한 줄을 차지해 두 행이 각 3줄이 됐다(2026-10-01 375px 실측). */
+  .today-overnight .ov-beta, .today-macro .ov-beta { order: 2; margin-left: 0; }
+  .today-overnight .ov-drivers, .today-macro .ov-drivers { order: 3; flex-basis: 100%; }
 }
 </style>
