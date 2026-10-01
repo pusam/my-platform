@@ -183,8 +183,18 @@ class SignalOutcomeRepositoryD3Test {
                 .containsExactlyInAnyOrder(okNoLegacy.getStockCode(), okWithLegacy.getStockCode());
     }
 
+    private SignalOutcome insertControlRow(String code, LocalDate date, String d3Pct) {
+        SignalOutcome s = SignalOutcome.builder()
+                .signalType("CONTROL_RANDOM").stockCode(code).stockName(code).signalDate(date)
+                .priceAtSignal(new BigDecimal("10000"))
+                .d3Status("OK").d3PctChange(new BigDecimal(d3Pct))
+                .d3EvaluatedAt(date.plusDays(3).atTime(19, 45))
+                .build();
+        return repo.saveAndFlush(s);
+    }
+
     @Test
-    @DisplayName("findD3OkBetween — [from, toExclusive): 경계일 당일은 현재 산식 표본이라 이전 산식 참고치에서 빠진다")
+    @DisplayName("findD3OkBetween — [from, toExclusive): 경계일 당일은 현재 산식 표본이라 이전 산식 참고치에서 빠진다. 대조군도 같은 경계")
     void findD3OkBetween_isHalfOpen() {
         LocalDate boundary = LocalDate.of(2026, 10, 2);
         SignalOutcome before = insertGateRow("L1", boundary.minusDays(1), "OK", "-4.0000", true);
@@ -192,11 +202,15 @@ class SignalOutcomeRepositoryD3Test {
         insertGateRow("L3", boundary.plusDays(3), "OK", "2.0000", false);   // 경계 이후 — 현재 표본
         insertGateRow("L4", boundary.minusDays(2), "MISSING_BARS", null, true);   // 교정 실패 — 제외
         insertGateRow("L5", FROM.minusDays(1), "OK", "-3.0000", true);      // 시작일 이전 — 제외
+        // 무작위 대조군 — 짝지은 비교의 반대편도 같은 쿼리·같은 경계를 탄다(시그널만 자르고 대조군은 안 자르면 짝이 어긋난다)
+        insertControlRow("C1", boundary.minusDays(1), "-1.0000");          // 경계 이전 — 참고치 쪽
+        insertControlRow("C2", boundary, "0.5000");                        // 경계 당일 — 현재 쪽
 
         List<SignalOutcome> legacy = repo.findD3OkBetween(FROM, boundary, "OK");
         List<SignalOutcome> current = repo.findD3OkSince(boundary, "OK");
 
-        assertThat(legacy).extracting(SignalOutcome::getStockCode).containsExactly(before.getStockCode());
-        assertThat(current).extracting(SignalOutcome::getStockCode).containsExactlyInAnyOrder("L2", "L3");
+        assertThat(legacy).extracting(SignalOutcome::getStockCode)
+                .containsExactlyInAnyOrder(before.getStockCode(), "C1");
+        assertThat(current).extracting(SignalOutcome::getStockCode).containsExactlyInAnyOrder("L2", "L3", "C2");
     }
 }

@@ -52,7 +52,7 @@ class SignalOutcomeTrustGateWiringTest {
         SignalOutcomeService svc = new SignalOutcomeService(repo, mock(StockPriceService.class),
                 mock(StockCatalystRepository.class),
                 provider(), provider(), provider(), provider(), provider(), provider(),
-                provider(), provider(), provider(), provider(), provider());
+                provider(), provider(), provider(), provider(), provider(), provider());
 
         TrustGateRules.Verdict v = svc.trustGate(LocalDate.of(2020, 1, 1));
 
@@ -77,7 +77,7 @@ class SignalOutcomeTrustGateWiringTest {
         SignalOutcomeService svc = new SignalOutcomeService(repo, mock(StockPriceService.class),
                 mock(StockCatalystRepository.class),
                 provider(), provider(), provider(), provider(), provider(), provider(),
-                provider(), provider(), provider(), provider(), provider());
+                provider(), provider(), provider(), provider(), provider(), provider());
 
         TrustGateRules.Verdict v = svc.trustGateBetween(LocalDate.of(2020, 1, 1), LocalDate.of(2026, 10, 2));
 
@@ -91,6 +91,33 @@ class SignalOutcomeTrustGateWiringTest {
         assertThat(v.costAdjustedReturn()).isEqualByComparingTo("-2.18");
     }
 
+    private static SignalOutcome okOn(String type, String code, LocalDate date) {
+        SignalOutcome s = ok(type, code);
+        s.setSignalDate(date);
+        s.setCreatedAt(date.atTime(11, 30));
+        return s;
+    }
+
+    @Test
+    @DisplayName("trustGateBetween — 이전 산식 참고치도 9/1 이전 대조군은 섞지 않는다(대조군 표본 경계, 과대 방향)")
+    void legacyReferenceExcludesControlsBeforeControlBoundary() {
+        LocalDate aug = LocalDate.of(2026, 8, 20), sep = LocalDate.of(2026, 9, 10);
+        SignalOutcomeRepository repo = mock(SignalOutcomeRepository.class);
+        when(repo.findD3OkBetween(any(), any(), anyString())).thenReturn(List.of(
+                okOn("BUY", "A", aug), okOn(ControlGroupService.CONTROL_SIGNAL_TYPE, "C1", aug),
+                okOn("BUY", "B", sep), okOn(ControlGroupService.CONTROL_SIGNAL_TYPE, "C2", sep)));
+        SignalOutcomeService svc = new SignalOutcomeService(repo, mock(StockPriceService.class),
+                mock(StockCatalystRepository.class),
+                provider(), provider(), provider(), provider(), provider(), provider(),
+                provider(), provider(), provider(), provider(), provider(), provider());
+
+        TrustGateRules.Verdict v = svc.trustGateBetween(LocalDate.of(2026, 6, 25), LocalDate.of(2026, 10, 2));
+
+        assertThat(v.controlRows()).as("8/20 대조군은 9/1 경계 이전 — 짝으로 쓰지 않는다").isEqualTo(1);
+        assertThat(v.rows()).isEqualTo(1);
+        assertThat(v.excludedDays()).as("짝이 없어진 8/20 은 숨기지 않고 제외일로 센다").isEqualTo(1);
+    }
+
     @Test
     @DisplayName("trustGateBetween — 경계가 컷오프 이전이면 구간이 비어 쿼리 없이 빈 판정")
     void emptyRangeDoesNotQuery() {
@@ -98,7 +125,7 @@ class SignalOutcomeTrustGateWiringTest {
         SignalOutcomeService svc = new SignalOutcomeService(repo, mock(StockPriceService.class),
                 mock(StockCatalystRepository.class),
                 provider(), provider(), provider(), provider(), provider(), provider(),
-                provider(), provider(), provider(), provider(), provider());
+                provider(), provider(), provider(), provider(), provider(), provider());
 
         TrustGateRules.Verdict v = svc.trustGateBetween(LocalDate.of(2020, 1, 1), LocalDate.of(2026, 6, 1));
 

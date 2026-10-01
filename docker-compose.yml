@@ -151,6 +151,10 @@ services:
       # 채널은 "채널ID=표시이름" 콤마 구분으로 사용자가 고른 것만 — 비어 있으면 영상 등록 불가. 부팅 로그가 상태를 알린다.
       - YOUTUBE_OPINION_ENABLED=${YOUTUBE_OPINION_ENABLED:-false}
       - YOUTUBE_OPINION_CHANNELS=${YOUTUBE_OPINION_CHANNELS:-}
+      # 현재 산식 표본 시작일(2026-10-01) — 기본 미정이면 적중률 화면은 '검증 중'(부팅 WARN 1회). 추천 입력 수정이
+      # 재무 수집·추천 캐시·스냅샷까지 반영된 뒤 첫 온전한 거래일을 넣고(잠정), 그날 첫 추천 반영을 확인하면 CONFIRMED=true.
+      - RECOMMENDATION_SAMPLE_SINCE=${RECOMMENDATION_SAMPLE_SINCE:-}
+      - RECOMMENDATION_SAMPLE_CONFIRMED=${RECOMMENDATION_SAMPLE_CONFIRMED:-false}
       # OOM 때 힙 덤프를 남긴다(2026-09-15). 9/11 16:37 OOM 이 Tomcat Acceptor 스레드만 죽이고 JVM 은
       # 살아남아 배치·텔레그램은 정상으로 보인 채 API 가 3.5일간 죽어 있었는데, 이미지에 jmap/jcmd 가
       # 없어 원인을 특정할 증거가 재시작과 함께 사라졌다. 다음 OOM 은 덤프로 잡는다.

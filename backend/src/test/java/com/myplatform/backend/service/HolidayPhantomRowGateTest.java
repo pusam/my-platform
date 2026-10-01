@@ -52,15 +52,35 @@ class HolidayPhantomRowGateTest {
         }
 
         @Test
-        @DisplayName("거래일이면 종전대로 '이미 수집됐나'부터 본다")
+        @DisplayName("거래일이면 '그날 확정 기록이 있나'부터 본다 — 있으면 KIS 를 부르지 않는다")
         void proceedsOnTradingDay() {
             when(calendar.isMarketClosed(any(LocalDate.class))).thenReturn(false);
-            when(repo.existsByMarketTypeAndInvestorTypeAndTradeDate(any(), any(), any())).thenReturn(true);
+            // 15:50 정규 수집이 외국인·기관을 둘 다 확정 시각 이후에 썼다(2026-10-01 — 행 존재가 아니라 확정 여부)
+            when(repo.summarizeByInvestorType(any())).thenAnswer(inv -> {
+                LocalDate d = inv.getArgument(0);
+                return java.util.List.<Object[]>of(
+                        new Object[]{"FOREIGN", d.atTime(15, 50, 1)},
+                        new Object[]{"INSTITUTION", d.atTime(15, 50, 2)});
+            });
 
             collector.scheduledDailyCollection();
 
-            verify(repo).existsByMarketTypeAndInvestorTypeAndTradeDate(eq("KOSPI"), eq("FOREIGN"), any());
-            verifyNoInteractions(kis);   // 15:50 에 이미 수집된 경로 — 종전 동작
+            verify(repo).summarizeByInvestorType(any());
+            verifyNoInteractions(kis);   // 15:50 에 이미 확정 수집된 경로
+        }
+
+        @Test
+        @DisplayName("행은 있지만 장중 잠정치면 16:00 은 덧붙이지 않고 18:00 보완 수집(삭제 후 재수집)에 맡긴다")
+        void provisionalRowsAreLeftToEveningRetry() {
+            when(calendar.isMarketClosed(any(LocalDate.class))).thenReturn(false);
+            when(repo.summarizeByInvestorType(any())).thenAnswer(inv -> {
+                LocalDate d = inv.getArgument(0);
+                return java.util.List.<Object[]>of(new Object[]{"FOREIGN", d.atTime(11, 13)});
+            });
+
+            collector.scheduledDailyCollection();
+
+            verifyNoInteractions(kis);   // 이 경로는 지우지 않고 덧붙이기만 해서 중복이 생긴다
         }
     }
 

@@ -15,7 +15,8 @@ function historyResp(data) {
 const fullHistory = {
   stockCode: '005930',
   windowDays: 90,
-  summary: { evaluatedCount: 3, hitCount: 2, avgAlpha: 1.2, pendingCount: 1 },
+  // 현재 산식 표본(시작일 이후·교정 D+3) 요약 — 2026-10-01 부터 백엔드가 시작일·상태를 함께 준다
+  summary: { evaluatedCount: 3, hitCount: 2, avgAlpha: 1.2, pendingCount: 1, sampleStatus: 'CONFIRMED', sampleSince: '2026-06-15' },
   items: [
     { signalDate: '2026-07-06', signalType: 'BUY', signalScore: 60, hit: null, pending: true, alpha3d: null, pctChange3d: null },
     { signalDate: '2026-07-01', signalType: 'STRONG_BUY', signalScore: 78, hit: true, pending: false, alpha3d: 2.4, pctChange3d: 3.1 },
@@ -34,11 +35,11 @@ async function mountSection(data, myTrades = []) {
 describe('SignalHistorySection — 📜 신호 이력 (signal_outcome 90일 read-only)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('요약을 제목에 병기 — "최근 90일 3회 중 2회 적중 · 평균 α +1.2% · 평가 대기 1건"', async () => {
+  it('요약을 제목에 병기 — "현재 산식(6/15~) 3회 중 2회 적중 · 평균 α +1.2% · 평가 대기 1건"', async () => {
     const w = await mountSection(fullHistory)
     const title = w.find('.ds-title')
     expect(title.exists()).toBe(true)
-    expect(title.text()).toContain('최근 90일 3회 중 2회 적중')
+    expect(title.text()).toContain('현재 산식(6/15~) 3회 중 2회 적중')
     expect(title.text()).toContain('평균 α +1.2%')
     expect(title.text()).toContain('평가 대기 1건')
   })
@@ -63,6 +64,29 @@ describe('SignalHistorySection — 📜 신호 이력 (signal_outcome 90일 read
     // 미적중 행 — ❌ + 음수 적색
     expect(rows[2].text()).toContain('미적중')
     expect(rows[2].find('.sh-pct').classes()).toContain('negative')
+  })
+
+  // ── 2026-10-01 감사: 추천 신호·교정 D+3·현재 산식 표본(경계 이후)만 요약 ──
+  it('표본 시작일 미정이면 제목에 성적 대신 "검증 중", 경계 이전 행은 "이전 산식"으로 표시', async () => {
+    const w = await mountSection({
+      stockCode: '005930', windowDays: 90,
+      summary: { evaluatedCount: 0, hitCount: 0, avgAlpha: null, pendingCount: 0, sampleStatus: 'UNSET', sampleSince: null },
+      items: [{ signalDate: '2026-09-30', signalType: 'BUY', signalScore: 70, hit: true, pending: false,
+        alpha3d: 1.0, pctChange3d: 2.0, excludedReason: null, inCurrentSample: false }]
+    })
+    expect(w.text()).toContain('검증 중')
+    expect(w.text()).toContain('이전 산식')
+  })
+
+  it('교정 평가에서 빠진 행은 미적중이 아니라 "평가 제외(사유)"로 보인다', async () => {
+    const w = await mountSection({
+      stockCode: '005930', windowDays: 90,
+      summary: { evaluatedCount: 0, hitCount: 0, avgAlpha: null, pendingCount: 0, sampleStatus: 'CONFIRMED', sampleSince: '2026-10-05' },
+      items: [{ signalDate: '2026-10-06', signalType: 'BUY', signalScore: 70, hit: null, pending: false,
+        alpha3d: null, pctChange3d: null, excludedReason: 'HALTED_IN_WINDOW', inCurrentSample: true }]
+    })
+    expect(w.text()).toContain('평가 제외')
+    expect(w.text()).not.toContain('미적중')
   })
 
   it('이력 0건이면 섹션 자체 미렌더', async () => {

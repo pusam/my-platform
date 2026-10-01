@@ -73,21 +73,32 @@
         <b>{{ signedPct(conclusion.tradePlan.atrTargetPct) }}</b>
         <span class="badge-unverified tp-atr-badge">백테스트 참고치 · 검증 전 — 기본 계획 아님</span>
       </div>
+      <!-- 현재 산식 표본(시작일 이후·교정 D+1~D+3)만(2026-10-01). 없으면 옛 90일 레거시 값으로 채우지 않고 '검증 중'. -->
       <div v-if="conclusion.tradePlan.mfeMaeSampleCount > 0" class="tp-mfe">
-        과거 {{ levelLabel }} 시그널 {{ conclusion.tradePlan.mfeMaeSampleCount }}건 실측 — 3거래일 내 평균 최고
+        현재 산식 {{ levelLabel }} 시그널 {{ conclusion.tradePlan.mfeMaeSampleCount }}건 실측<template
+          v-if="conclusion.tradePlan.mfeMaeSampleSince">({{ conclusion.tradePlan.mfeMaeSampleSince }}~{{
+          conclusion.tradePlan.mfeMaeSampleStatus === 'PROVISIONAL' ? ' 잠정' : '' }})</template> — D+1~D+3 평균 최고
         <b class="tp-pos">{{ signedPct(conclusion.tradePlan.avgMfePct) }}</b> / 최저
         <b class="tp-neg">{{ signedPct(conclusion.tradePlan.avgMaePct) }}</b>
       </div>
+      <div v-else class="tp-mfe tp-mfe-pending">
+        과거 실측 변동폭: 검증 중 — {{ conclusion.tradePlan.mfeMaeSampleSince
+          ? '현재 산식 표본 평가 대기' : '현재 산식 표본 시작일 미정' }}
+      </div>
     </div>
 
+    <!-- 적중률 = 현재 산식 표본(시작일 이후·교정 D+3·종목·날짜당 최초 기록)만(2026-10-01). 예전의 '지난 30일 적중률'은
+         이전 산식·레거시 평가값(배치 시점 가격)이라 현재 점수의 성적처럼 읽혔다 — 표본이 없으면 '검증 중'. -->
     <div v-if="accuracyStat" class="accuracy-line">
-      <span class="acc-label">📊 {{ accuracyStat.signalType }} 시그널 지난 30일 적중률</span>
+      <span class="acc-label">📊 {{ accuracyStat.signalType }} 시그널 현재 산식 적중률</span>
       <span class="acc-rate" :class="accuracyClass">{{ accuracyStat.hitRate }}%</span>
-      <span class="acc-detail">({{ accuracyStat.hitCount }}/{{ accuracyStat.totalSignals }}건, 평균 {{ accuracyStat.avgPctChange }}%)</span>
+      <span class="acc-detail">({{ accuracyStat.hitCount }}/{{ accuracyStat.totalSignals }}건, 평균 {{ accuracyStat.avgPctChange }}%<template
+        v-if="sampleSince"> · {{ sampleSince }}~{{ sampleStatus === 'PROVISIONAL' ? ' 잠정' : '' }} · D+3 종가</template>)</span>
       <span v-if="bandStat" class="acc-detail band">· 이 점수대({{ bandStat.band }}) {{ bandStat.hitRate }}% ({{ bandStat.totalSignals }}건, 보드{{ bandSinceSuffix }})</span>
     </div>
-    <div v-else-if="accuracyEmpty" class="accuracy-line empty">
-      <span class="acc-label">📊 적중률 데이터 누적 중 — 3일 후 첫 평가 결과 확보</span>
+    <div v-else-if="accuracyPending" class="accuracy-line empty">
+      <span class="acc-label">📊 적중률 검증 중 — {{ sampleSince
+        ? `현재 산식 표본(${sampleSince}~) 평가 대기` : '현재 산식 표본 시작일 미정' }}</span>
     </div>
 
     <div v-if="conclusion.dataAt" class="conclusion-meta">
@@ -119,8 +130,10 @@ const loading = ref(false);
 const error = ref(false);
 const showChecklist = ref(false);
 const showJournal = ref(false);   // 📔 수동 매수 기록 모달
-const accuracyStats = ref([]);   // 전체 시그널 타입별 통계 (배열)
-const accuracyEmpty = ref(false); // 데이터 누적 중 표시 플래그
+const accuracyStats = ref([]);   // 현재 산식 표본의 등급별 성적(typeStats) — accuracy-by-band 응답
+const accuracyLoaded = ref(false); // 응답을 받았는가 — 받지 못하면 줄 자체를 숨긴다(조회 실패를 '검증 중'으로 말하지 않음)
+const sampleSince = ref(null);    // 현재 산식 표본 시작일(경계). null = 미정
+const sampleStatus = ref(null);   // UNSET · PROVISIONAL · CONFIRMED
 const bandStats = ref([]);        // 점수 구간별 적중률 (V30) — 보드 종합점수(STRONG_BUY/BUY) 격리, phase-38 컷오프 이후
 const bandSince = ref(null);      // 실제 집계 시작일 (phase-38 컷오프 2026-06-25 or 요청창 중 늦은 쪽)
 const catalyst = ref(null);       // 재료 태그 (V31) — NONE/실패 시 null (배지 생략)
@@ -157,21 +170,20 @@ const fetchCatalyst = async (code, stockName) => {
 };
 
 const fetchAccuracy = async () => {
-  try {
-    const { data } = await apiClient.get('/signal-outcomes/accuracy', { params: { days: 30 } });
-    if (data?.success) {
-      const stats = data.data?.stats || [];
-      accuracyStats.value = stats;
-      accuracyEmpty.value = stats.length === 0;
-    }
-  } catch (e) {
-    // 데이터 부족 / API 오류 시 조용히 무시
-  }
+  // 등급별 성적·점수대 적중률 모두 accuracy-by-band 한 번 — 현재 산식 표본만(2026-10-01). 예전의
+  // /signal-outcomes/accuracy(지난 30일·레거시 평가값·승격 중복)는 더 부르지 않는다.
   try {
     const { data } = await apiClient.get('/signal-outcomes/accuracy-by-band', { params: { days: 90 } });
-    if (data?.success) { bandStats.value = data.data?.bands || []; bandSince.value = data.data?.since || null; }
+    if (data?.success) {
+      accuracyStats.value = data.data?.typeStats || [];
+      bandStats.value = data.data?.bands || [];
+      bandSince.value = data.data?.since || null;
+      sampleSince.value = data.data?.sampleSince || null;
+      sampleStatus.value = data.data?.sampleStatus || null;
+      accuracyLoaded.value = true;
+    }
   } catch (e) {
-    // V30 집계 미가용 시 조용히 무시 (기존 적중률 라인은 그대로 표시)
+    // 조회 실패 — 적중률 줄 미표시(§4c: 실패를 '검증 중'이나 0% 로 위장하지 않음)
   }
 };
 
@@ -192,6 +204,11 @@ const accuracyStat = computed(() => {
   const level = conclusion.value?.level;
   if (level !== 'STRONG_BUY' && level !== 'BUY') return null;
   return accuracyStats.value.find(s => s.signalType === level) || null;
+});
+// 매수 등급인데 현재 산식 성적이 아직 없다 — 시작일 미정이거나 평가 대기(3거래일 미도래).
+const accuracyPending = computed(() => {
+  const level = conclusion.value?.level;
+  return (level === 'STRONG_BUY' || level === 'BUY') && accuracyLoaded.value && !accuracyStat.value;
 });
 
 // 현재 종목의 종합 점수가 속한 구간의 적중률 (표본 있을 때만).
@@ -476,6 +493,7 @@ const openChecklist = () => { showChecklist.value = true; };
 /* 가격 방향색 = 등락 관례 (목표(위)=빨강, 손절(아래)=파랑) */
 .tp-stop b { color: var(--stock-down, #60a5fa); }
 .tp-target b { color: var(--stock-up, #f87171); }
+.tp-mfe-pending { opacity: 0.7; }
 .tp-mfe {
   margin-top: 6px;
   font-size: 11.5px;

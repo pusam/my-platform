@@ -72,7 +72,15 @@ public class SignalOutcomeService {
     private final org.springframework.beans.factory.ObjectProvider<MarketCalendarService> calendarProvider;
     // 무작위 대조군(base rate) — 보드 시그널 기록 시 같은 날 짝을 하나 남긴다(P2-19 ④ 해소).
     private final org.springframework.beans.factory.ObjectProvider<ControlGroupService> controlGroupProvider;
+    // 현재 산식 표본 시작일(단일 출처, 2026-10-01) — 미주입(단위테스트)이면 미정.
+    private final org.springframework.beans.factory.ObjectProvider<SignalSampleBoundary> sampleBoundaryProvider;
     private volatile LocalDate lastAlphaAlertDate = null;
+
+    /** 현재 산식 표본 경계 — 빈 미가용이면 미정(UNSET). 화면·관제실이 같은 값을 쓴다. */
+    public SignalSampleBoundary.Boundary sampleBoundary() {
+        SignalSampleBoundary b = sampleBoundaryProvider == null ? null : sampleBoundaryProvider.getIfAvailable();
+        return b == null ? SignalSampleBoundary.Boundary.UNSET : b.current();
+    }
 
     private static final int EVALUATION_DELAY_DAYS = 3;
     /** 1회 배치 평가 상한 — 종목당 KIS 2콜이 트랜잭션 안에서 돌아 백로그가 크면 커넥션 장기 점유. */
@@ -731,9 +739,9 @@ public class SignalOutcomeService {
     static com.myplatform.backend.controlroom.TrustGateRules.Verdict aggregateTrustGate(List<SignalOutcome> rowsIn) {
         List<SignalOutcome> all = rowsIn == null ? List.of() : rowsIn;
         List<SignalOutcome> signals = dedupPerStockDay(filterBoardSignals(all));
-        List<SignalOutcome> controls = all.stream()
-                .filter(s -> ControlGroupService.CONTROL_SIGNAL_TYPE.equals(s.getSignalType()))
-                .collect(Collectors.toList());
+        // 대조군은 표본 경계(9/1) 이후만 — 그 전 대조군은 유니버스가 달라 base rate 가 낮다(edge 과대 방향).
+        // 이전 산식 참고치(trustGateBetween)가 6/25 부터 접으면서 섞였다(2026-10-01). 짝을 잃은 날은 excludedDays 로 드러난다.
+        List<SignalOutcome> controls = pairableControls(all);
 
         Map<LocalDate, List<BigDecimal>> sByDay = pctByDay(signals);
         Map<LocalDate, List<BigDecimal>> cByDay = pctByDay(controls);
@@ -855,24 +863,188 @@ public class SignalOutcomeService {
     }
 
     /**
+     * 짝지은 비교에 쓸 수 있는 대조군 — 타입 + 대조군 표본 경계(9/1) 이후. 그 전 대조군은 유니버스가 달라 base rate 가
+     * 낮다(edge 과대 방향, ControlGroupService 주석). 이전 산식 참고치가 6/25 부터 접으면서 섞였다(2026-10-01). 순수.
+     */
+    static List<SignalOutcome> pairableControls(List<SignalOutcome> rows) {
+        return filterControlSignals(rows).stream()
+                .filter(s -> s.getSignalDate() != null
+                        && !s.getSignalDate().isBefore(ControlGroupService.CONTROL_SAMPLE_SINCE))
+                .collect(Collectors.toList());
+    }
+
+    // ==================== 현재 산식 표본 — 화면 성적의 단일 출처(2026-10-01) ====================
+
+    /**
+     * 현재 산식 표본 — 경계 이후 · 보드 신호 · 교정 D+3 OK · 종목·날짜당 최초 기록 1건. 대조군은 짝지은 비교용으로 따로.
+     * 경계가 미정이면 둘 다 비어 있다(화면은 '검증 중' — 옛 값으로 채우지 않는다).
+     */
+    public record CurrentSample(SignalSampleBoundary.Boundary boundary, LocalDate from,
+                                List<SignalOutcome> rows, List<SignalOutcome> controls) {
+        public boolean available() {
+            return boundary.isSet();
+        }
+    }
+
+    /**
+     * 현재 산식 표본을 읽는다. 화면(오늘 탭·결론 카드·종합판단 이력·종목 신호 이력)이 같은 행을 보게 하는 단일 경로다.
+     *
+     * @param windowDays 0 이하면 경계부터 전부, 아니면 최근 N일과 경계 중 늦은 쪽부터
+     */
+    public CurrentSample currentSample(int windowDays) {
+        SignalSampleBoundary.Boundary b = sampleBoundary();
+        if (!b.isSet()) return new CurrentSample(b, null, List.of(), List.of());
+        LocalDate from = currentSampleFrom(b.since(), windowDays, LocalDate.now());
+        List<SignalOutcome> all = repository.findD3OkSince(from, SignalD3Evaluator.Status.OK.name());
+        return new CurrentSample(b, from, currentSampleRows(all, from), currentSampleControls(all, from));
+    }
+
+    /** 표본 시작 — 경계·최근 N일·phase-38 컷오프 중 가장 늦은 날. 순수 함수(테스트 대상). */
+    static LocalDate currentSampleFrom(LocalDate since, int windowDays, LocalDate today) {
+        LocalDate from = since.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : since;
+        if (windowDays > 0) {
+            LocalDate window = today.minusDays(windowDays);
+            if (window.isAfter(from)) from = window;
+        }
+        return from;
+    }
+
+    /** 보드 신호만 · 최초 기록 1건 · 교정 OK · 시작일 이후. 쿼리 결과를 한 번 더 걸러 쿼리 조건에 기대지 않는다. 순수. */
+    static List<SignalOutcome> currentSampleRows(List<SignalOutcome> all, LocalDate from) {
+        if (all == null || from == null) return List.of();
+        return dedupPerStockDay(filterBoardSignals(all)).stream()
+                .filter(s -> d3Ok(s) && !s.getSignalDate().isBefore(from))
+                .collect(Collectors.toList());
+    }
+
+    private static List<SignalOutcome> currentSampleControls(List<SignalOutcome> all, LocalDate from) {
+        if (all == null || from == null) return List.of();
+        return pairableControls(all).stream()
+                .filter(s -> d3Ok(s) && !s.getSignalDate().isBefore(from))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 교정 D+3 값을 레거시 자리(hit·pctChange3d·alpha3d·mfe/mae)에 얹은 <b>읽기 전용 사본</b> — 기존 집계 함수를 그대로 쓴다.
+     * id 를 비워 둔다: 실수로 저장돼도 원본 행(레거시 값)을 덮어쓰지 못한다. 순수 함수.
+     */
+    static SignalOutcome correctedView(SignalOutcome s) {
+        return s.toBuilder()
+                .id(null)
+                .hit(s.getD3Hit())
+                .pctChange3d(s.getD3PctChange())
+                .alpha3d(s.getD3Alpha())
+                .mfePct3d(s.getD3MfePct())
+                .maePct3d(s.getD3MaePct())
+                .priceAfter3d(s.getD3Close())
+                .evaluatedAt(s.getD3EvaluatedAt())
+                .build();
+    }
+
+    private static List<SignalOutcome> correctedViews(List<SignalOutcome> rows) {
+        return rows.stream().map(SignalOutcomeService::correctedView).collect(Collectors.toList());
+    }
+
+    /**
+     * 종합판단 보드 '이력' 열 — 현재 산식 표본에서 종목별 [코드, 평가 수, 적중 수, 평균 α(교정)].
+     * 형식은 예전 레거시 집계 쿼리와 같아 {@code JudgmentBoardService.toTrackRecordMap} 를 그대로 쓴다.
+     */
+    public List<Object[]> currentTrackAggregates(java.util.Collection<String> codes) {
+        if (codes == null || codes.isEmpty()) return List.of();
+        CurrentSample cs = currentSample(SignalHistoryService.WINDOW_DAYS);
+        return trackAggregates(cs.rows(), new java.util.HashSet<>(codes));
+    }
+
+    /** 순수 — 표본 행 → 종목별 집계. avgAlpha 는 교정 α 가 있는 행만 평균(없으면 null, §4c). */
+    static List<Object[]> trackAggregates(List<SignalOutcome> sampleRows, java.util.Set<String> codes) {
+        Map<String, List<SignalOutcome>> byCode = new java.util.LinkedHashMap<>();
+        for (SignalOutcome s : sampleRows) {
+            if (s.getStockCode() == null || !codes.contains(s.getStockCode())) continue;
+            byCode.computeIfAbsent(s.getStockCode(), k -> new ArrayList<>()).add(s);
+        }
+        List<Object[]> out = new ArrayList<>();
+        for (Map.Entry<String, List<SignalOutcome>> e : byCode.entrySet()) {
+            List<SignalOutcome> rows = e.getValue();
+            long hits = rows.stream().filter(s -> Boolean.TRUE.equals(s.getD3Hit())).count();
+            List<BigDecimal> alphas = rows.stream().map(SignalOutcome::getD3Alpha)
+                    .filter(java.util.Objects::nonNull).collect(Collectors.toList());
+            BigDecimal avgAlpha = alphas.isEmpty() ? null
+                    : com.myplatform.backend.controlroom.TrustGateRules.meanOf(alphas);
+            out.add(new Object[]{e.getKey(), (long) rows.size(), hits, avgAlpha});
+        }
+        return out;
+    }
+
+    /** 결론 카드 매매계획 — 현재 산식 표본에서 그 등급 시그널의 D+1~D+3 평균 최고·최저(교정). */
+    public record MfeMae(int count, BigDecimal avgMfePct, BigDecimal avgMaePct, SignalSampleBoundary.Boundary boundary) {}
+
+    public MfeMae currentMfeMae(String signalType, int windowDays) {
+        CurrentSample cs = currentSample(windowDays);
+        return mfeMaeOf(cs.rows(), signalType, cs.boundary());
+    }
+
+    /** 순수 — 표본 행 중 그 등급만. 값이 없는 축은 null(0 으로 위장 금지). */
+    static MfeMae mfeMaeOf(List<SignalOutcome> sampleRows, String signalType, SignalSampleBoundary.Boundary boundary) {
+        List<SignalOutcome> rows = sampleRows.stream()
+                .filter(s -> signalType != null && signalType.equals(s.getSignalType()))
+                .collect(Collectors.toList());
+        List<BigDecimal> mfes = rows.stream().map(SignalOutcome::getD3MfePct)
+                .filter(java.util.Objects::nonNull).collect(Collectors.toList());
+        List<BigDecimal> maes = rows.stream().map(SignalOutcome::getD3MaePct)
+                .filter(java.util.Objects::nonNull).collect(Collectors.toList());
+        return new MfeMae(rows.size(),
+                mfes.isEmpty() ? null : scale2(com.myplatform.backend.controlroom.TrustGateRules.meanOf(mfes)),
+                maes.isEmpty() ? null : scale2(com.myplatform.backend.controlroom.TrustGateRules.meanOf(maes)),
+                boundary);
+    }
+
+    /** 결론 카드 첫 줄 — 등급별 현재 산식 성적(교정 D+3). 순수. */
+    static List<com.myplatform.backend.dto.SignalBandAccuracyDto.TypeStat> aggregateTypeStats(List<SignalOutcome> sampleRows) {
+        List<com.myplatform.backend.dto.SignalBandAccuracyDto.TypeStat> out = new ArrayList<>();
+        for (String type : List.of("STRONG_BUY", "BUY")) {
+            List<SignalOutcome> rows = sampleRows.stream()
+                    .filter(s -> type.equals(s.getSignalType())).collect(Collectors.toList());
+            if (rows.isEmpty()) continue;
+            long hits = rows.stream().filter(s -> Boolean.TRUE.equals(s.getD3Hit())).count();
+            List<BigDecimal> pcts = rows.stream().map(SignalOutcome::getD3PctChange)
+                    .filter(java.util.Objects::nonNull).collect(Collectors.toList());
+            List<BigDecimal> alphas = rows.stream().map(SignalOutcome::getD3Alpha)
+                    .filter(java.util.Objects::nonNull).collect(Collectors.toList());
+            out.add(com.myplatform.backend.dto.SignalBandAccuracyDto.TypeStat.builder()
+                    .signalType(type)
+                    .totalSignals(rows.size())
+                    .hitCount(hits)
+                    .hitRate(BigDecimal.valueOf(hits * 100).divide(BigDecimal.valueOf(rows.size()), 2, RoundingMode.HALF_UP))
+                    .avgPctChange(pcts.isEmpty() ? null : scale2(com.myplatform.backend.controlroom.TrustGateRules.meanOf(pcts)))
+                    .avgAlpha(alphas.isEmpty() ? null : scale2(com.myplatform.backend.controlroom.TrustGateRules.meanOf(alphas)))
+                    .build());
+        }
+        return out;
+    }
+
+    /**
      * 조건부 적중률 — <b>보드 종합점수(STRONG_BUY/BUY) 격리 + phase-38 컷오프</b> 이후 평가 완료분 기준.
      * 다른 시그널 소스(AI/Composite/수급급등)는 점수 스케일이 달라 제외하고, phase-38 이전 "추격 점수" 표본도 제외해
      * "현재 산식의 종합점수가 실제 수익과 상관있나"만 측정한다.
      */
     public com.myplatform.backend.dto.SignalBandAccuracyDto getAccuracyByBand(int days) {
         int d = days < 1 ? 90 : days;
-        LocalDate from = resolveAccuracyFrom(days, LocalDate.now());
-        List<SignalOutcome> all = repository.findEvaluatedSince(from);
-        // 같은 종목·같은 날 BUY→STRONG_BUY 승격 2행은 최초 기록으로 dedup(P2-F/A-1) — 밴드·카테고리·
-        // 대조군 비교 전부 이 목록 기준. 대조군 행은 무작위 독립 추출이라 dedup 대상 아님(단 승격일엔
-        // 대조군이 시그널보다 1행 많아지는 잔여 비대칭 있음 — AUDIT 2026-08-21 R9).
-        List<SignalOutcome> rows = dedupPerStockDay(filterBoardSignals(all));
-        // 대조군은 filterBoardSignals 에서 이미 빠져 있다(CONTROL_RANDOM ∉ BOARD_SIGNAL_TYPES).
-        // 비교용으로만 별도 추출 — 아래 bands/categories/regimes 집계에는 절대 넘기지 않는다.
-        List<SignalOutcome> controls = filterControlSignals(all);
+        // 현재 산식 표본만(2026-10-01): 경계 이후 · 교정 D+3 OK · 종목·날짜당 최초 기록 1건. 경계 미정이면 전부 빈 집계 —
+        // 예전엔 phase-38 이후 레거시 평가값(배치 시점 가격)을 "실측"으로 보여줘 이전 산식 성적이 현재 점수의 성적처럼 읽혔다.
+        // 대조군 행은 무작위 독립 추출이라 dedup 대상 아님(단 승격일엔 대조군이 시그널보다 1행 많아지는 잔여 비대칭 — R9).
+        CurrentSample cs = currentSample(d);
+        // 집계 함수는 레거시 자리를 읽으므로 교정값을 얹은 사본을 넘긴다(원본 행은 건드리지 않는다).
+        List<SignalOutcome> rows = correctedViews(cs.rows());
+        // 대조군은 비교용으로만 — 아래 bands/categories/regimes 집계에는 절대 넘기지 않는다.
+        List<SignalOutcome> controls = correctedViews(cs.controls());
         return com.myplatform.backend.dto.SignalBandAccuracyDto.builder()
                 .daysWindow(d)
-                .since(from)
+                .since(cs.from())
+                .sampleStatus(cs.boundary().status().name())
+                .sampleSince(cs.boundary().since())
+                .basis("D3_CORRECTED")
+                .evaluatedCount(rows.size())
+                .typeStats(aggregateTypeStats(cs.rows()))
                 .controlComparison(aggregateControlComparison(rows, controls))
                 .bands(aggregateBands(rows))
                 .categories(aggregateCategories(rows))

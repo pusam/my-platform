@@ -119,9 +119,14 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
            "GROUP BY s.sector")
     List<Object[]> getSectorStatistics();
 
+    // ⚠ 세 스크리너 쿼리(마법의 공식·PEG·성장)의 "종목별 최신 행"은 미래 날짜를 뺀다(2026-10-01) — 네이버 연말 추정치 행
+    //   (report_date=12-31, PER 없음 342개)을 최신으로 집으면 조건을 못 넘어 종목이 통째로 빠졌다(오늘 행 기준 251종목).
+    //   12-31 당일부터는 그 행이 '미래'가 아니게 된다 — writer 구분(market_cap)은 백로그(AUDIT_2026-10-01).
+
     // 마법의 공식용 - 영업이익률과 ROE가 있는 최신 데이터 조회
     @Query("SELECT s FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
+           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode " +
+           "    AND s2.reportDate <= CURRENT_DATE) " +
            "AND s.operatingMargin IS NOT NULL AND s.operatingMargin > 0 " +
            "AND s.roe IS NOT NULL AND s.roe > 0 " +
            "AND s.per IS NOT NULL AND s.per > 0 " +
@@ -131,7 +136,8 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
 
     // PEG 기준 저평가 종목 조회 (epsGrowth 있는 경우)
     @Query("SELECT s FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
+           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode " +
+           "    AND s2.reportDate <= CURRENT_DATE) " +
            "AND s.peg IS NOT NULL AND s.peg > 0 " +
            "AND (:maxPeg IS NULL OR s.peg <= :maxPeg) " +
            "AND s.epsGrowth IS NOT NULL " +
@@ -144,7 +150,8 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
 
     // PEG 계산용 - PER과 성장률(epsGrowth 또는 profitGrowth)이 있는 최신 데이터 조회
     @Query("SELECT s FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
+           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode " +
+           "    AND s2.reportDate <= CURRENT_DATE) " +
            "AND s.per IS NOT NULL AND s.per > 0 " +
            "AND (s.epsGrowth IS NOT NULL AND s.epsGrowth > 0 OR s.profitGrowth IS NOT NULL AND s.profitGrowth > 0)")
     List<StockFinancialData> findStocksWithGrowthData();

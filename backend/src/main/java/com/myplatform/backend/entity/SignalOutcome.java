@@ -29,7 +29,7 @@ import java.time.LocalDateTime;
                 @Index(name = "idx_so_stock_code", columnList = "stock_code")
         })
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class SignalOutcome {

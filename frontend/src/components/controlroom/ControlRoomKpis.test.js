@@ -322,6 +322,18 @@ describe('ControlRoomKpis ⑦ — "믿고 사도 되나" 게이트', () => {
     expect(c.find('.trust-sample').text()).not.toContain('이전 산식')
   })
 
+  it('표본 시작일 미정이면 "검증 중"을 밝힌다 — 현재 산식 판정이 아직 없다(2026-10-01)', () => {
+    const c = trustCard({ sampleSince: null, sampleStatus: 'UNSET', legacy: null })
+    expect(c.find('.trust-sample').text()).toContain('표본 시작일 미정')
+    expect(c.find('.trust-sample').text()).toContain('검증 중')
+  })
+
+  it('잠정 경계면 "잠정"을 붙인다 — 첫 추천 반영 확인 전', () => {
+    const c = trustCard({ sampleSince: '2026-10-05', sampleStatus: 'PROVISIONAL', legacy: null })
+    expect(c.find('.trust-sample').text()).toContain('2026-10-05~')
+    expect(c.find('.trust-sample').text()).toContain('잠정')
+  })
+
   it('통과해도 실매수 승인이 아니라고 적는다', () => {
     const c = trustCard({
       state: 'CONSIDER_EXPANDING', rows: 40, distinctDays: 12, controlRows: 40,

@@ -32,6 +32,10 @@ public class JudgmentBoardDto {
     private String scope;           // "momentum"(기본) | "union"(발굴 트랙 포함)
     private UnionStats unionStats;  // union scope 일 때 "—"(미채점) 비율 가시화
     private String note;            // 미검증/역상관 의심 안내 문구
+    /** '이력' 열의 현재 산식 표본 시작일(경계). 미정이면 null — 열은 '검증 중'. */
+    private java.time.LocalDate trackSampleSince;
+    /** 현재 산식 표본 경계 상태 — UNSET · PROVISIONAL · CONFIRMED. */
+    private String trackSampleStatus;
 
     /** union 4-cat 채움 현황 — 순수 발굴주(momentum scoreMap 밖)가 얼마나 "—"로 뜨는지. */
     @Getter

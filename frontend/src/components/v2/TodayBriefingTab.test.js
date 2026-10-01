@@ -167,6 +167,47 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(trust.text()).not.toContain('75~84')     // n=0 밴드 미표시
   })
 
+  // ── 2026-10-01 감사: 현재 산식 표본만(경계 이후·교정 D+3) — 미정이면 옛 수치로 채우지 않는다 ──
+  function stubBand(data) {
+    stubAll()
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('accuracy-by-band')) return Promise.resolve({ data: { success: true, data } })
+      return Promise.resolve({ data: { success: false } })
+    })
+  }
+
+  it('표본 시작일 미정이면 옛 수치 대신 "검증 중" — 현재 산식 성적이 아직 없다', async () => {
+    stubBand({ sampleStatus: 'UNSET', sampleSince: null, since: null, basis: 'D3_CORRECTED',
+      evaluatedCount: 0, typeStats: [], bands: [] })
+    const w = await mountTab()
+    const trust = w.find('.today-trust')
+    expect(trust.exists()).toBe(true)
+    expect(trust.text()).toContain('검증 중')
+    expect(trust.text()).toContain('표본 시작일 미정')
+    expect(trust.text()).not.toContain('%')
+  })
+
+  it('잠정 경계 — 시작일·잠정·D+3 종가 기준을 밝힌다', async () => {
+    stubBand({ sampleStatus: 'PROVISIONAL', sampleSince: '2026-10-05', since: '2026-10-05', basis: 'D3_CORRECTED',
+      evaluatedCount: 12, bands: [{ band: '55~64', scoreFrom: 55, scoreTo: 64, totalSignals: 12, hitCount: 5, hitRate: 41.67 }] })
+    const w = await mountTab()
+    const trust = w.find('.today-trust')
+    expect(trust.text()).toContain('2026-10-05~')
+    expect(trust.text()).toContain('잠정')
+    expect(trust.text()).toContain('D+3')
+    expect(trust.text()).toContain('55~64점 41.67%')
+  })
+
+  it('경계는 정해졌지만 평가된 표본이 아직 없으면 검증 중 — 첫 평가는 3거래일 뒤', async () => {
+    stubBand({ sampleStatus: 'CONFIRMED', sampleSince: '2026-10-05', since: '2026-10-05', basis: 'D3_CORRECTED',
+      evaluatedCount: 0, typeStats: [], bands: [{ band: '55~64', scoreFrom: 55, scoreTo: 64, totalSignals: 0, hitCount: 0, hitRate: 0 }] })
+    const w = await mountTab()
+    const trust = w.find('.today-trust')
+    expect(trust.text()).toContain('검증 중')
+    expect(trust.text()).toContain('2026-10-05')
+    expect(trust.text()).not.toContain('%')
+  })
+
   it('신뢰도 — 적중률 50% 미만이면 경고 문구 표시(성적 미화 금지)', async () => {
     stubAll()
     const w = await mountTab()

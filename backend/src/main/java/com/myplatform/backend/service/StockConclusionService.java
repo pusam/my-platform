@@ -61,6 +61,8 @@ public class StockConclusionService {
     private final StockStatusService stockStatusService;
     private final MarketCalendarService marketCalendar;
     private final java.time.Clock clock;
+    /** 매매계획 MFE/MAE — 현재 산식 표본은 SignalOutcomeService 가 단일 출처. 미주입이면 '검증 중'(0건). */
+    private final ObjectProvider<SignalOutcomeService> signalOutcomeServiceProvider;
 
     // 결론 임계값 — RecommendationService 상수와 동기화 필요.
     private static final int STRONG_BUY_THRESHOLD = 75;
@@ -349,19 +351,21 @@ public class StockConclusionService {
             log.debug("[Conclusion] 매매 계획 기준가 조회 실패 {}: {}", s.getStockCode(), e.getMessage());
         }
 
+        // MFE/MAE 는 현재 산식 표본(경계 이후·교정 D+3·종목·날짜당 최초 기록)만(2026-10-01). 표본 시작일이 미정이거나
+        // 집계를 못 하면 0건·null — 예전처럼 90일 레거시 집계(이전 산식·배치 시점 가격)로 채우지 않는다(화면은 '검증 중').
         BigDecimal avgMfe = null, avgMae = null;
         long sampleCount = 0;
+        SignalSampleBoundary.Boundary mfeSample = SignalSampleBoundary.Boundary.UNSET;
         try {
-            List<Object[]> rows = signalOutcomeRepository.aggregateMfeMae(
-                    level.name(), LocalDate.now().minusDays(MFE_MAE_WINDOW_DAYS));
-            if (!rows.isEmpty() && rows.get(0)[0] != null) {
-                Object[] row = rows.get(0);
-                sampleCount = ((Number) row[0]).longValue();
+            SignalOutcomeService signalService = signalOutcomeServiceProvider == null ? null
+                    : signalOutcomeServiceProvider.getIfAvailable();
+            if (signalService != null) {
+                SignalOutcomeService.MfeMae m = signalService.currentMfeMae(level.name(), MFE_MAE_WINDOW_DAYS);
+                mfeSample = m.boundary();
+                sampleCount = m.count();
                 if (sampleCount > 0) {
-                    avgMfe = row[1] == null ? null
-                            : new BigDecimal(row[1].toString()).setScale(2, RoundingMode.HALF_UP);
-                    avgMae = row[2] == null ? null
-                            : new BigDecimal(row[2].toString()).setScale(2, RoundingMode.HALF_UP);
+                    avgMfe = m.avgMfePct();
+                    avgMae = m.avgMaePct();
                 }
             }
         } catch (Exception e) {
@@ -381,6 +385,8 @@ public class StockConclusionService {
                 .avgMfePct(avgMfe)
                 .avgMaePct(avgMae)
                 .mfeMaeSampleCount(sampleCount)
+                .mfeMaeSampleSince(mfeSample.since())
+                .mfeMaeSampleStatus(mfeSample.status().name())
                 .atrStopPct(atrLevels == null ? null
                         : atrLevels.stopPct().setScale(1, RoundingMode.HALF_UP))
                 .atrTargetPct(atrLevels == null ? null

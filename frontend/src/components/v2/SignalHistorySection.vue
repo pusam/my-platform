@@ -4,8 +4,9 @@
   <DetailSection v-if="(history && history.items && history.items.length) || myTrades.length" :title="sectionTitle">
     <div class="sh-body">
       <div class="sh-note">
-        과거 시그널의 3거래일 평가 실측(적중 = α≥0 &amp; 상승) — 표시 전용, 점수 산식 미편입.
-        평가 대기 = 3거래일 미도래(미적중 아님).
+        과거 추천 신호(강력매수·매수)의 교정 D+3 평가(기록 시점 가격 → D+3 종가, 적중 = α≥0 &amp; 상승) — 표시 전용,
+        점수 산식 미편입. 성적 요약은 현재 산식 표본(시작일 이후)만 — 이전 산식 행은 목록에만 남는다.
+        평가 대기 = 3거래일 미도래(실패로 세지 않음).
       </div>
 
       <!-- 📔 내 매수/매도 마커 (수동 저널) — 시그널과 같은 잣대의 3거래일 평가 병기. 없으면 미표시. -->
@@ -31,9 +32,10 @@
         <div v-for="(it, i) in history.items" :key="'sh-' + i" class="sh-row" :class="rowClass(it)">
           <span class="sh-date">{{ fmtDate(it.signalDate) }}</span>
           <span class="sh-type">{{ typeLabel(it.signalType) }}</span>
+          <span v-if="it.inCurrentSample === false" class="sh-era" title="표본 시작일 이전 — 지금 산식의 성적이 아니라 요약에 안 들어간다">이전 산식</span>
           <span class="sh-score" v-if="it.signalScore != null">{{ it.signalScore }}점</span>
           <span class="sh-result" :class="resultClass(it)">{{ resultLabel(it) }}</span>
-          <span class="sh-pct" v-if="!it.pending" :class="pctClass(it.pctChange3d)">{{ signedPct(it.pctChange3d) }}</span>
+          <span class="sh-pct" v-if="!it.pending && !it.excludedReason" :class="pctClass(it.pctChange3d)">{{ signedPct(it.pctChange3d) }}</span>
           <span class="sh-alpha" v-if="!it.pending && it.alpha3d != null">α {{ signedPct(it.alpha3d) }}</span>
         </div>
       </div>
@@ -81,22 +83,38 @@ const loadMyTrades = async (code) => {
 
 watch(() => props.stockCode, (code) => { load(code); loadMyTrades(code); }, { immediate: true });
 
-// 요약 배지를 제목에 병기 — "최근 90일 5회 중 3회 적중 · 평균 α +1.2%" (접힌 상태에서도 보임)
+// 요약 배지를 제목에 병기 — "현재 산식(10/5~) 5회 중 3회 적중 · 평균 α +1.2%" (접힌 상태에서도 보임).
+// 요약은 현재 산식 표본(표본 시작일 이후·교정 D+3)만(2026-10-01). 시작일이 미정이거나 평가된 표본이 없으면
+// 옛 성적으로 채우지 않고 '검증 중'을 말한다(§4c).
 const sectionTitle = computed(() => {
   const s = history.value?.summary;
   if (!s) return '📜 신호 이력';
   const parts = [];
-  if (s.evaluatedCount > 0) {
-    parts.push(`최근 ${history.value.windowDays}일 ${s.evaluatedCount}회 중 ${s.hitCount}회 적중`);
+  if (!s.sampleSince) {
+    parts.push('추천 적중률 검증 중(현재 산식 표본 시작일 미정)');
+  } else if (s.evaluatedCount > 0) {
+    const prov = s.sampleStatus === 'PROVISIONAL' ? ' 잠정' : '';
+    parts.push(`현재 산식(${fmtDate(s.sampleSince)}~${prov}) ${s.evaluatedCount}회 중 ${s.hitCount}회 적중`);
     if (s.avgAlpha != null) parts.push(`평균 α ${signedPct(s.avgAlpha)}`);
+  } else {
+    parts.push(`추천 적중률 검증 중(현재 산식 ${fmtDate(s.sampleSince)}~ 평가 대기)`);
   }
   if (s.pendingCount > 0) parts.push(`평가 대기 ${s.pendingCount}건`);
-  return parts.length ? `📜 신호 이력 — ${parts.join(' · ')}` : '📜 신호 이력';
+  return `📜 신호 이력 — ${parts.join(' · ')}`;
 });
 
 const typeLabel = (t) => ({ STRONG_BUY: '강력매수', BUY: '매수' }[t] || t);
-const resultLabel = (it) => (it.pending ? '⏳ 평가 대기' : it.hit ? '✅ 적중' : '❌ 미적중');
-const resultClass = (it) => (it.pending ? 'pending' : it.hit ? 'hit' : 'miss');
+// 교정 평가에서 빠진 행 — 실패가 아니라 "잴 수 없었다"(거래정지·봉 결측 등). 미적중으로 세지 않는다(§4c).
+const EXCLUDED_LABELS = {
+  HALTED_IN_WINDOW: '거래정지', MISSING_BARS: '봉 결측', NO_INDEX: '지수 없음', FETCH_FAILED: '수집 실패',
+  UNIT_MISMATCH_SUSPECT: '단위 의심', CORPORATE_ACTION_SUSPECT: '액면변경 의심', NO_START_PRICE: '기록가 없음'
+};
+const resultLabel = (it) => {
+  if (it.pending) return '⏳ 평가 대기';
+  if (it.excludedReason) return `⚪ 평가 제외(${EXCLUDED_LABELS[it.excludedReason] || it.excludedReason})`;
+  return it.hit ? '✅ 적중' : '❌ 미적중';
+};
+const resultClass = (it) => (it.pending || it.excludedReason ? 'pending' : it.hit ? 'hit' : 'miss');
 const rowClass = (it) => (it.pending ? 'row-pending' : '');
 const pctClass = (v) => {
   if (v == null) return '';
@@ -133,6 +151,7 @@ const fmtPrice = (v) => (v == null ? '-' : Number(v).toLocaleString());
 .sh-sell.holding { opacity: 0.55; }
 .sh-date { font-variant-numeric: tabular-nums; opacity: 0.7; min-width: 38px; }
 .sh-type { font-weight: 600; }
+.sh-era { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: rgba(148, 163, 184, 0.18); opacity: 0.85; }
 .sh-score { font-size: 11px; opacity: 0.6; }
 .sh-result { font-size: 12px; font-weight: 600; }
 .sh-result.hit { color: #4ade80; }

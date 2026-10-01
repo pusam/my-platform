@@ -217,15 +217,18 @@ public final class CrewContextBuilder {
         sb.append("- 믿고 사도 되나: ").append(stateLabel(t.state()))
           .append(" · 표본 ").append(t.rows()).append("건/고유 ").append(t.distinctDays()).append("일")
           .append(" · 대조군 ").append(t.controlRows()).append("건\n");
-        if (t.sampleSince() != null) {
-            // 경계를 안 적으면 크루가 "표본이 왜 이렇게 적나"를 결함으로 읽고, 이전 성적을 안 적으면 "근거 없음"으로 읽는다.
-            sb.append("  표본 시작 ").append(t.sampleSince()).append(" (현재 산식 — 9/29~10/1 입력 수정 뒤)");
-            if (t.legacy() != null) {
-                sb.append(" · 이전 산식 참고 ").append(t.legacy().rows()).append("건 비용차감 ")
-                  .append(pct(t.legacy().costAdjustedReturn())).append(" — 현재 판정에 섞지 않음");
-            }
-            sb.append('\n');
+        // 경계를 안 적으면 크루가 "표본이 왜 이렇게 적나"를 결함으로 읽고, 이전 성적을 안 적으면 "근거 없음"으로 읽는다.
+        if (t.sampleSince() == null) {
+            sb.append("  표본 시작일 미정 — 수정 반영 확인 전이라 현재 산식 판정 없음(검증 중)");
+        } else {
+            sb.append("  표본 시작 ").append(t.sampleSince())
+              .append("CONFIRMED".equals(t.sampleStatus()) ? " (확정)" : " (잠정)");
         }
+        if (t.legacy() != null) {
+            sb.append(" · 경계 이전 참고 ").append(t.legacy().rows()).append("건 비용차감 ")
+              .append(pct(t.legacy().costAdjustedReturn())).append(" — 현재 판정에 섞지 않음");
+        }
+        sb.append('\n');
         sb.append("  비용차감 ").append(pct(t.costAdjustedReturn()))
           .append(" · 대조군比 ").append(pct(t.edgeVsControl()))
           .append(t.edgeMarginOfError() == null ? " ±미상(비교일 부족)"

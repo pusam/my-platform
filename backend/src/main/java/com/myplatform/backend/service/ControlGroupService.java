@@ -57,6 +57,12 @@ public class ControlGroupService {
     /** 대조군 전용 시그널 타입 — BOARD_SIGNAL_TYPES 에 없으므로 기존 집계에서 자동 제외. */
     public static final String CONTROL_SIGNAL_TYPE = "CONTROL_RANDOM";
 
+    /**
+     * 대조군 측정 표본 경계(위 클래스 주석) — 이 날짜 전 대조군은 유니버스가 달라 base rate 가 낮다(edge 과대 방향).
+     * 짝지은 비교는 어느 집계든 이 날짜 이후 대조군만 쓴다(2026-10-01, 이전 산식 참고치에도 섞였던 것을 막음).
+     */
+    public static final java.time.LocalDate CONTROL_SAMPLE_SINCE = java.time.LocalDate.of(2026, 9, 1);
+
     /** 유니버스 최소 일봉 수 — 추천 트랙(낙폭과대 등)이 요구하는 수준과 맞춘다. */
     static final int UNIVERSE_MIN_HISTORY = 60;
 

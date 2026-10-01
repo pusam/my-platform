@@ -484,6 +484,7 @@ public class AiStrategySnapshotService {
         }
 
         // 2. Gemini는 코멘트/테마만 보강 (실패해도 점수에 영향 없음)
+        Map<String, GeminiService.AiScoreResult> aiResults = Map.of();
         try {
             List<AiStrategySnapshot> top3 = candidates.stream()
                     .sorted((a, b) -> Integer.compare(
@@ -492,25 +493,8 @@ public class AiStrategySnapshotService {
                     .limit(3)
                     .collect(Collectors.toList());
 
-            Map<String, GeminiService.AiScoreResult> aiResults =
-                    geminiService.scoreStockCandidates(top3, strategyType.name());
-
+            aiResults = geminiService.scoreStockCandidates(top3, strategyType.name());
             if (!aiResults.isEmpty()) {
-                for (AiStrategySnapshot s : candidates) {
-                    GeminiService.AiScoreResult ai = aiResults.get(s.getStockCode());
-                    if (ai != null) {
-                        // 코멘트와 테마만 Gemini에서 가져옴 (점수는 알고리즘 유지)
-                        s.setAiComment(ai.getAiComment());
-                        if (ai.getThemes() != null && !ai.getThemes().isEmpty()) {
-                            s.setAiThemes(String.join(",", ai.getThemes()));
-                        }
-                        // 점수 미세 보정: 알고리즘 95% + Gemini 5%
-                        if (ai.getAiScore() > 0) {
-                            int adjusted = (int) Math.round(s.getScore() * 0.95 + ai.getAiScore() * 0.05);
-                            s.setScore(Math.max(0, Math.min(100, adjusted)));
-                        }
-                    }
-                }
                 log.info("[AI] {} - Gemini 코멘트 보강 ({}종목)", strategyType.name(), aiResults.size());
             }
         } catch (Exception e) {
@@ -518,14 +502,40 @@ public class AiStrategySnapshotService {
             log.debug("[AI] {} - Gemini 코멘트 실패 (점수 영향 없음): {}", strategyType.name(), e.getMessage());
         }
 
-        // 3. 블렌딩 점수 기준 내림차순 정렬
-        candidates.sort((a, b) -> Integer.compare(
+        return rankForSnapshot(candidates, aiResults, SNAPSHOT_LIMIT);
+    }
+
+    /**
+     * LLM 결과를 코멘트·테마로 붙이고 알고리즘 점수 순으로 상위 {@code limit} 개를 고른다. 순수 함수(테스트 대상).
+     *
+     * <p><b>LLM 은 점수·순위를 바꾸지 않는다(2026-10-01).</b> 예전엔 상위 3개에만 "알고리즘 95% + Gemini 5%" 를
+     * 덮어썼다 — 100점 동점이 많은 날 Gemini 가 90 미만을 주면 1~3위가 99 이하로 내려가 4~8위에 밀려
+     * 저장되지 않았다(9/30 13:00 SWING 실측, 9/1 이후 SWING 33회 중 8회). LLM 이 일부 후보에만 닿으니
+     * 감점만 있는 비대칭이기도 했다. Gemini 가 준 점수는 버리고 코멘트·테마만 쓴다 — 되돌리지 말 것.
+     */
+    static List<AiStrategySnapshot> rankForSnapshot(List<AiStrategySnapshot> candidates,
+                                                    Map<String, GeminiService.AiScoreResult> aiResults, int limit) {
+        if (aiResults != null && !aiResults.isEmpty()) {
+            for (AiStrategySnapshot s : candidates) {
+                GeminiService.AiScoreResult ai = aiResults.get(s.getStockCode());
+                if (ai != null) {
+                    s.setAiComment(ai.getAiComment());
+                    if (ai.getThemes() != null && !ai.getThemes().isEmpty()) {
+                        s.setAiThemes(String.join(",", ai.getThemes()));
+                    }
+                }
+            }
+        }
+
+        // 3. 알고리즘 점수 기준 내림차순 정렬(안정 정렬 — 동점은 수집 순서 = 스크리너 순위)
+        List<AiStrategySnapshot> sorted = new java.util.ArrayList<>(candidates);
+        sorted.sort((a, b) -> Integer.compare(
                 b.getScore() != null ? b.getScore() : 0,
                 a.getScore() != null ? a.getScore() : 0));
 
-        // 4. 상위 SNAPSHOT_LIMIT개 선택 + rankNum 재부여
-        List<AiStrategySnapshot> topSnapshots = candidates.stream()
-                .limit(SNAPSHOT_LIMIT)
+        // 4. 상위 limit개 선택 + rankNum 재부여
+        List<AiStrategySnapshot> topSnapshots = sorted.stream()
+                .limit(limit)
                 .collect(Collectors.toList());
 
         int rank = 1;

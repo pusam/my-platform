@@ -77,6 +77,7 @@ public record ControlRoomSnapshotDto(
             String note,
             String noteDetail,
             String sampleSince,
+            String sampleStatus,
             LegacyReference legacy
     ) {}
 

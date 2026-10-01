@@ -61,6 +61,8 @@ public class JudgmentBoardService {
     private final SignalOutcomeRepository signalOutcomeRepository;
     private final InvestorBuyStreakService investorBuyStreakService;
     private final com.myplatform.backend.repository.StockPriceHistoryRepository priceHistoryRepository;
+    /** 이력 열 — 현재 산식 표본(경계·교정 D+3·중복 제거)은 SignalOutcomeService 가 단일 출처. */
+    private final ObjectProvider<SignalOutcomeService> signalOutcomeServiceProvider;
 
     /** 채널 계산 봉 수(거래일) — 종목상세 차트 기본 표시(30봉)와 동기. */
     static final int CHANNEL_BARS = 30;
@@ -165,9 +167,15 @@ public class JudgmentBoardService {
         // 매매 맥락 enrich(표시 전용 — 산식 미편입): 재료 일캐시 read + 거래대금 시세 cache-only.
         enrichContext(rows);
 
+        SignalOutcomeService signalService = signalOutcomeServiceProvider == null ? null
+                : signalOutcomeServiceProvider.getIfAvailable();
+        SignalSampleBoundary.Boundary sample = signalService == null
+                ? SignalSampleBoundary.Boundary.UNSET : signalService.sampleBoundary();
         return JudgmentBoardDto.builder()
                 .market(buildMarket())
                 .rows(rows)
+                .trackSampleSince(sample.since())
+                .trackSampleStatus(sample.status().name())
                 .timingAvailable(timing.available())
                 .sectorStrengthAvailable(ssAvailable)
                 .scope(union ? "union" : "momentum")
@@ -268,9 +276,7 @@ public class JudgmentBoardService {
 
         try {   // 신호 이력 실적(② 참고): signal_outcome 90일 일괄 집계 — IN 절 1쿼리(행별 조회 N+1 금지).
             // 보드 시그널(STRONG_BUY/BUY)만 — 무필터면 대조군(CONTROL_RANDOM)·타 엔진 행까지 실적으로 합산(F15).
-            applyTrackRecord(rows, toTrackRecordMap(signalOutcomeRepository.aggregateTrackRecordByCodes(
-                    codes, LocalDate.now().minusDays(SignalHistoryService.WINDOW_DAYS),
-                    SignalOutcomeService.BOARD_SIGNAL_TYPES)));
+            applyTrackRecord(rows, loadTrackRecords(codes));
         } catch (Exception e) {
             log.warn("[JudgmentBoard] 신호 이력 집계 실패(생략): {}", e.getMessage());
         }
@@ -352,6 +358,18 @@ public class JudgmentBoardService {
 
     /** 신호 이력 실적 한 종목분 — [total, hitCount, avgAlpha]. */
     record TrackRecord(int count, int hitCount, BigDecimal avgAlpha) {}
+
+    /**
+     * 이력 열 집계 — 종목코드별, <b>현재 산식 표본만</b>(경계 이후·교정 D+3·종목·날짜당 최초 기록, 2026-10-01).
+     * 예전엔 90일 레거시 평가값을 중복 제거 없이 더해 "90일 실측"이라 했다 — 이전 산식 표본이 그대로 섞였다.
+     * 표본 시작일이 미정이거나 집계 서비스가 없으면 빈 맵(열은 '검증 중') — 레거시로 되돌아가지 않는다.
+     */
+    Map<String, TrackRecord> loadTrackRecords(List<String> codes) {
+        SignalOutcomeService signalService = signalOutcomeServiceProvider == null ? null
+                : signalOutcomeServiceProvider.getIfAvailable();
+        if (signalService == null) return Map.of();
+        return toTrackRecordMap(signalService.currentTrackAggregates(codes));
+    }
 
     /**
      * 집계 쿼리 결과([stockCode, total, hitCount, avgAlpha]) → 코드별 TrackRecord. 순수 함수.

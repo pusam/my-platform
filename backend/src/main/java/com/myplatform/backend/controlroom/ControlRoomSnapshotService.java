@@ -105,13 +105,6 @@ public class ControlRoomSnapshotService {
     @Value("${bot.nxt-liquidation.enabled:false}")
     private boolean nxtLiquidationEnabled;
 
-    /**
-     * 신뢰 게이트(⑦) 표본 시작일(ISO) — 이 날짜 이후 기록된 시그널만 "현재 산식" 표본이다(2026-10-01).
-     * 비우거나 잘못 적으면 {@link #TRUST_GATE_SAMPLE_SINCE_DEFAULT}. 입력 정의를 또 바꾸면 이 값을 옮기고 그 근거를
-     * CLAUDE.md ⑦ 에 적을 것 — 경계를 안 옮기면 옛 성적이 새 산식 성적으로 읽힌다.
-     */
-    @Value("${control-room.trust-gate.sample-since:}")
-    private String trustGateSampleSince;
 
     private final AtomicReference<Cached> cache = new AtomicReference<>();
 
@@ -453,20 +446,23 @@ public class ControlRoomSnapshotService {
             if (svc == null) {
                 return unavailableTrustGate("시그널 집계 서비스 미가용");
             }
-            // 현재 산식 표본 = 표본 시작일 이후 기록분만(2026-10-01). 그 이전 행은 입력 정의가 달라 섞지 않고
-            // 참고치로만 따로 접는다. (시작일이 phase-38 컷오프보다 앞이면 컷오프로 클램프된다.)
-            LocalDate since = resolveSampleSince(trustGateSampleSince);
-            var v = svc.trustGate(since);
+            // 현재 산식 표본 = 표본 시작일 이후 기록분만(2026-10-01). 시작일은 SignalSampleBoundary 단일 출처 —
+            // 화면(오늘 탭·결론 카드·종합판단)과 같은 값이다. 미정이면 현재 판정은 빈 표본(COLLECTING)이고, 그때까지의
+            // 평가 행은 전부 '경계 이전(미확정)' 참고치로만 따로 접는다. (시작일이 phase-38 컷오프보다 앞이면 컷오프로 클램프된다.)
+            var boundary = svc.sampleBoundary();
+            LocalDate today = LocalDate.now(clock);
+            LocalDate legacyTo = boundary.isSet() ? boundary.since() : today.plusDays(1);
+            var v = boundary.isSet() ? svc.trustGate(boundary.since()) : svc.trustGateBetween(today.plusDays(1), today.plusDays(1));
             ControlRoomSnapshotDto.LegacyReference legacy = null;
             try {
-                LocalDate legacyFrom = LocalDate.now(clock).minusDays(TRUST_GATE_WINDOW_DAYS);
-                var l = svc.trustGateBetween(legacyFrom, since);
+                LocalDate legacyFrom = today.minusDays(TRUST_GATE_WINDOW_DAYS);
+                var l = svc.trustGateBetween(legacyFrom, legacyTo);
                 if (l.rows() > 0 || l.controlRows() > 0) {
                     legacy = new ControlRoomSnapshotDto.LegacyReference(
                             legacyFrom.isBefore(com.myplatform.backend.service.SignalOutcomeService.PHASE38_CUTOFF)
                                     ? com.myplatform.backend.service.SignalOutcomeService.PHASE38_CUTOFF.toString()
                                     : legacyFrom.toString(),
-                            since.toString(), l.rows(), l.distinctDays(), l.controlRows(),
+                            legacyTo.toString(), l.rows(), l.distinctDays(), l.controlRows(),
                             l.costAdjustedReturn(), l.edgeVsControl(), l.state().name());
                 }
             } catch (Exception e) {
@@ -479,8 +475,8 @@ public class ControlRoomSnapshotService {
                     v.edgeExceedsUncertainty(),
                     shape.avgWin(), shape.avgLoss(), shape.worst(), shape.avgMaePct(),
                     v.excludedDays(), v.blockers(), v.headline(),
-                    TRUST_GATE_MEASUREMENT_CAVEAT + sampleBoundaryCaveat(since, legacy) + v.detail(),
-                    since.toString(), legacy);
+                    TRUST_GATE_MEASUREMENT_CAVEAT + sampleBoundaryCaveat(boundary, legacy) + v.detail(),
+                    boundary.since() == null ? null : boundary.since().toString(), boundary.status().name(), legacy);
         } catch (Exception e) {
             log.warn("[관제실] 신뢰 게이트 집계 실패: {}", e.getMessage());
             return unavailableTrustGate("집계 실패 (" + e.getClass().getSimpleName() + ")");
@@ -492,41 +488,34 @@ public class ControlRoomSnapshotService {
         return new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
                 null, null, null, false, null, null, null, null, 0, List.of(), why,
                 "신뢰 게이트를 집계하지 못했다. 표본이 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.",
-                null, null);
-    }
-
-    /**
-     * 표본 시작일 기본값 — 2026-10-02. 근거: 9/29 19:12(실적 전년동기 가드·성장률 재정의) → 9/30 09:17(AI 전략 이익의 질·
-     * 재무비율 오독) → 9/30 11:12(지배주주 PER·PBR, V63·V64) → 10/1(결산월 V65) 순으로 추천 입력이 바뀌었고, 마지막
-     * 수정이 재무 수집(08:30/15:38)·추천 스냅샷(11:30/14:00/17:00/20:05)까지 통과한 뒤의 <b>첫 온전한 거래일</b>이
-     * 10/2 다(10/1 은 오전 스냅샷이 결산월 수정 전 행으로 만들어져 섞인 날). 시그널은 signal_date 단위라 날짜로 자른다.
-     */
-    static final LocalDate TRUST_GATE_SAMPLE_SINCE_DEFAULT = LocalDate.of(2026, 10, 2);
-
-    /** 설정값 파싱 — 비었거나 날짜가 아니면 기본값(경계를 없애는 값은 없다). 순수 함수(테스트 대상). */
-    static LocalDate resolveSampleSince(String configured) {
-        if (configured == null || configured.isBlank()) return TRUST_GATE_SAMPLE_SINCE_DEFAULT;
-        try {
-            return LocalDate.parse(configured.trim());
-        } catch (java.time.format.DateTimeParseException e) {
-            return TRUST_GATE_SAMPLE_SINCE_DEFAULT;
-        }
+                null, null, null);
     }
 
     /**
      * 툴팁·크루용 표본 경계 설명 — "왜 이 날짜부터인가"와 "이전 성적은 참고일 뿐"을 같이 적는다. 순수 함수(테스트 대상).
      * 이전 성적을 숨기면 "아직 근거가 없다"로 읽히고, 섞으면 옛 산식 성적이 새 산식 성적으로 읽힌다 — 둘 다 아니다.
+     * 시작일은 배포일이 아니라 수정이 재무 수집·추천 캐시·스냅샷까지 반영된 뒤의 첫 온전한 거래일이라 기본값이 없다(미정).
      */
-    static String sampleBoundaryCaveat(LocalDate since, ControlRoomSnapshotDto.LegacyReference legacy) {
+    static String sampleBoundaryCaveat(com.myplatform.backend.service.SignalSampleBoundary.Boundary boundary,
+                                       ControlRoomSnapshotDto.LegacyReference legacy) {
         StringBuilder sb = new StringBuilder();
-        sb.append("표본은 ").append(since).append(" 이후 기록분(현재 산식)만 — 9/29~10/1 추천 입력 수정(실적 전년동기 가드·")
-          .append("성장률 재정의·거래정지 게이트·영업이익률 오독·지배주주 PER·결산월) 뒤 첫 온전한 거래일. ");
+        if (boundary == null || !boundary.isSet()) {
+            sb.append("현재 산식 표본 시작일 미정 — 추천 입력 수정(9/29~10/1 재무·실적·지배주주 PER·결산월, 10/1 스크리너 미래 행·AI 순위)이 ")
+              .append("재무 수집·추천 캐시·스냅샷까지 반영된 뒤 첫 온전한 거래일로 정한다(RECOMMENDATION_SAMPLE_SINCE). ")
+              .append("그 전까지 현재 판정은 없다(검증 중). ");
+        } else {
+            sb.append("표본은 ").append(boundary.since()).append(" 이후 기록분(현재 산식)만")
+              .append(boundary.status() == com.myplatform.backend.service.SignalSampleBoundary.Status.CONFIRMED
+                      ? "(확정)" : "(잠정 — 첫 추천 반영 확인 전)")
+              .append(" — 추천 입력 수정이 수집·캐시·스냅샷까지 반영된 뒤 첫 온전한 거래일. ");
+        }
         if (legacy == null) {
             sb.append("경계 이전 평가 행 없음. ");
         } else {
-            sb.append("이전 산식(").append(legacy.from()).append("~").append(legacy.toExclusive()).append(" 전) ")
+            sb.append(boundary != null && boundary.isSet() ? "이전 산식(" : "경계 미정 구간(")
+              .append(legacy.from()).append("~").append(legacy.toExclusive()).append(" 전) ")
               .append(legacy.rows()).append("건/고유 ").append(legacy.distinctDays()).append("일·대조군 ")
-              .append(legacy.controlRows()).append("건: 비용차감 ").append(pctText(legacy.costAdjustedReturn()))
+              .append(legacy.controlRows()).append("건(9/1 이후 대조군만): 비용차감 ").append(pctText(legacy.costAdjustedReturn()))
               .append(" · 대조군比 ").append(pctText(legacy.edgeVsControl()))
               .append(" — 참고치이며 현재 판정에 섞지 않는다. ");
         }

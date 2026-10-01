@@ -49,6 +49,7 @@ class StockConclusionServiceTest {
     @Mock private StockPriceService stockPriceService;
     @Mock private StockPriceHistoryRepository stockPriceHistoryRepository;
     @Mock private ObjectProvider<ChartPatternService> chartPatternProvider;
+    @Mock private ObjectProvider<SignalOutcomeService> signalOutcomeServiceProvider;
 
     /**
      * 2026-09-17(목) 14:00 KST 고정 — 이 테스트의 스냅샷은 같은 날 것이라 F4 신선도 게이트를 통과한다.
@@ -67,7 +68,11 @@ class StockConclusionServiceTest {
                 .thenReturn(StockStatusService.ActiveStatus.ACTIVE);
         service = new StockConclusionService(snapshotRepository, signalOutcomeRepository,
                 stockPriceService, stockPriceHistoryRepository, chartPatternProvider,
-                statusService, new MarketCalendarService(), FIXED_CLOCK);
+                statusService, new MarketCalendarService(), FIXED_CLOCK, signalOutcomeServiceProvider);
+        // MFE/MAE 는 현재 산식 표본(SignalOutcomeService) — 기본은 표본 시작일 미정(검증 중). 개별 테스트에서 경계를 준다.
+        SignalOutcomeService unsetSample = signalServiceWith("");   // 스터빙 안에서 만들면 Mockito 가 미완성 스터빙으로 본다
+        lenient().when(signalOutcomeServiceProvider.getIfAvailable()).thenReturn(unsetSample);
+        lenient().when(signalOutcomeRepository.findD3OkSince(any(), anyString())).thenReturn(List.of());
         // 지지선 조회는 기본 미가용(SR provider null) — entryPosition 은 과열 태그로만 판정. 개별 테스트에서 덮어씀.
         lenient().when(chartPatternProvider.getIfAvailable()).thenReturn(null);
         // 기본: 시세/MFE/일봉 데이터 없음 — tradePlan 은 % 만 채워짐, ATR 참고치 null. 개별 테스트에서 덮어씀.
@@ -324,18 +329,57 @@ class StockConclusionServiceTest {
     }
 
     @Test
-    @DisplayName("tradePlan: 과거 BUY 시그널 MFE/MAE 평균 + 표본 수 동봉")
-    void tradePlan_includesMfeMaeStats() {
+    @DisplayName("tradePlan: 현재 산식 표본 시작일이 미정이면 MFE/MAE 를 옛 레거시 90일 집계로 채우지 않는다(검증 중)")
+    void tradePlan_mfeMaeIgnoresLegacyWhenSampleUnset() {
         when(snapshotRepository.findLatestByStockCode(anyString()))
                 .thenReturn(Optional.of(snapshot(60, 12, 10, 10, 10, 8)));
-        when(signalOutcomeRepository.aggregateMfeMae(eq("BUY"), any()))
+        // 옛 레거시 90일 집계(이전 산식·배치 시점 가격)는 있어도 읽지 않는다 — 수정 전엔 이 12건이 그대로 표시됐다
+        lenient().when(signalOutcomeRepository.aggregateMfeMae(eq("BUY"), any()))
                 .thenReturn(List.<Object[]>of(new Object[]{12L, new BigDecimal("4.1234"), new BigDecimal("-2.5678")}));
 
         StockConclusionDto result = service.getConclusion("005930");
 
-        assertThat(result.getTradePlan().getMfeMaeSampleCount()).isEqualTo(12);
-        assertThat(result.getTradePlan().getAvgMfePct()).isEqualByComparingTo("4.12");
-        assertThat(result.getTradePlan().getAvgMaePct()).isEqualByComparingTo("-2.57");
+        org.mockito.Mockito.verify(signalOutcomeRepository, org.mockito.Mockito.never()).aggregateMfeMae(any(), any());
+        assertThat(result.getTradePlan().getMfeMaeSampleCount()).isZero();
+        assertThat(result.getTradePlan().getMfeMaeSampleStatus()).isEqualTo("UNSET");
+        assertThat(result.getTradePlan().getAvgMfePct()).isNull();
+        assertThat(result.getTradePlan().getAvgMaePct()).isNull();
+    }
+
+    /** 현재 산식 표본 집계 서비스 — 저장소는 이 테스트의 mock 을 함께 쓴다. since 가 비면 미정. */
+    private SignalOutcomeService signalServiceWith(String since) {
+        ObjectProvider<SignalSampleBoundary> bp = org.mockito.Mockito.mock(ObjectProvider.class);
+        lenient().when(bp.getIfAvailable()).thenReturn(new SignalSampleBoundary(since, true));
+        return SignalOutcomeCurrentSampleTest.service(signalOutcomeRepository, bp);
+    }
+
+    @Test
+    @DisplayName("tradePlan: 현재 산식 표본의 BUY 시그널 D+1~D+3 평균 최고·최저(교정) + 표본 수·시작일 동봉")
+    void tradePlan_includesMfeMaeStats() {
+        java.time.LocalDate since = java.time.LocalDate.now().minusDays(20);
+        SignalOutcomeService sample = signalServiceWith(since.toString());
+        when(signalOutcomeServiceProvider.getIfAvailable()).thenReturn(sample);
+        com.myplatform.backend.entity.SignalOutcome a = SignalOutcomeCurrentSampleTest.row(
+                1, "BUY", "A", since.plusDays(1), 60, true, true, "3.00", since.plusDays(1).atTime(11, 30));
+        a.setD3MfePct(new BigDecimal("4.1234"));
+        a.setD3MaePct(new BigDecimal("-2.5678"));
+        com.myplatform.backend.entity.SignalOutcome b = SignalOutcomeCurrentSampleTest.row(
+                2, "BUY", "B", since.plusDays(2), 60, false, false, "-1.00", since.plusDays(2).atTime(11, 30));
+        b.setD3MfePct(new BigDecimal("2.0000"));
+        b.setD3MaePct(new BigDecimal("-4.0000"));
+        com.myplatform.backend.entity.SignalOutcome strong = SignalOutcomeCurrentSampleTest.row(
+                3, "STRONG_BUY", "C", since.plusDays(2), 80, true, true, "5.00", since.plusDays(2).atTime(11, 30));
+        when(signalOutcomeRepository.findD3OkSince(any(), anyString())).thenReturn(List.of(a, b, strong));
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(60, 12, 10, 10, 10, 8)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getTradePlan().getMfeMaeSampleCount()).as("BUY 만 — STRONG_BUY 는 다른 등급").isEqualTo(2);
+        assertThat(result.getTradePlan().getAvgMfePct()).isEqualByComparingTo("3.06");   // (4.1234 + 2) / 2
+        assertThat(result.getTradePlan().getAvgMaePct()).isEqualByComparingTo("-3.28");  // (-2.5678 - 4) / 2
+        assertThat(result.getTradePlan().getMfeMaeSampleSince()).isEqualTo(since);
+        assertThat(result.getTradePlan().getMfeMaeSampleStatus()).isEqualTo("CONFIRMED");
     }
 
     // ================================================================

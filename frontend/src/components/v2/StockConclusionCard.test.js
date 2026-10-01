@@ -39,8 +39,11 @@ const accuracyResponse = {
   ] } }
 }
 
+// accuracy-by-band — 현재 산식 표본(2026-10-01): 등급별 성적(typeStats)·점수대(bands)·시작일을 한 번에 준다
 const bandResponse = {
-  data: { success: true, data: { bands: [
+  data: { success: true, data: { sampleStatus: 'CONFIRMED', sampleSince: '2026-10-05', since: '2026-10-05',
+    typeStats: [{ signalType: 'STRONG_BUY', totalSignals: 20, hitCount: 13, hitRate: 65, avgPctChange: 1.8 }],
+    bands: [
     { band: '55~64', scoreFrom: 55, scoreTo: 64, totalSignals: 0, hitCount: 0, hitRate: 0 },
     { band: '75~84', scoreFrom: 75, scoreTo: 84, totalSignals: 9, hitCount: 6, hitRate: 66.67 }
   ] } }
@@ -167,6 +170,48 @@ describe('StockConclusionCard — 매매 계획 / 조건부 적중률', () => {
     expect(band.text()).toContain('75~84')
     expect(band.text()).toContain('66.67%')
     expect(band.text()).toContain('9건')
+  })
+
+  // ── 2026-10-01 감사: 적중률·MFE/MAE 는 현재 산식 표본(경계 이후·교정 D+3)만 ──
+  function stubWith(band, conclusion = conclusionData) {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/conclusion')) return Promise.resolve({ data: { success: true, data: conclusion } })
+      if (url.includes('/catalyst')) return Promise.resolve({ data: { success: true, data: null } })
+      if (url.includes('accuracy-by-band')) return Promise.resolve({ data: { success: true, data: band } })
+      if (url.includes('accuracy')) return Promise.resolve(accuracyResponse)   // 레거시 — 쓰면 안 된다
+      return Promise.resolve({ data: { success: false } })
+    })
+  }
+
+  it('표본 시작일 미정이면 적중률 줄은 "검증 중" — 레거시 30일 적중률을 쓰지 않는다', async () => {
+    stubWith({ sampleStatus: 'UNSET', sampleSince: null, since: null, typeStats: [], bands: [] })
+    const w = await mountCard()
+    expect(w.find('.accuracy-line').text()).toContain('검증 중')
+    expect(w.text()).not.toContain('65%')   // 레거시 30일 적중률(이전 산식·배치 시점 가격)
+    expect(apiClient.get.mock.calls.map(c => c[0])).not.toContain('/signal-outcomes/accuracy')
+  })
+
+  it('현재 산식 등급별 성적과 시작일을 적중률 줄에 쓴다', async () => {
+    stubWith({ sampleStatus: 'CONFIRMED', sampleSince: '2026-10-05', since: '2026-10-05',
+      typeStats: [{ signalType: 'STRONG_BUY', totalSignals: 11, hitCount: 6, hitRate: 54.55, avgPctChange: 0.8 }],
+      bands: [{ band: '75~84', scoreFrom: 75, scoreTo: 84, totalSignals: 9, hitCount: 6, hitRate: 66.67 }] })
+    const w = await mountCard()
+    const line = w.find('.accuracy-line').text()
+    expect(line).toContain('54.55%')
+    expect(line).toContain('6/11건')
+    expect(line).toContain('2026-10-05~')
+    expect(line).not.toContain('65%')
+  })
+
+  it('MFE/MAE 현재 산식 표본이 없으면 "검증 중" — 옛 값으로 채우지 않는다', async () => {
+    const c = { ...conclusionData, tradePlan: { ...conclusionData.tradePlan,
+      avgMfePct: null, avgMaePct: null, mfeMaeSampleCount: 0, mfeMaeSampleSince: null, mfeMaeSampleStatus: 'UNSET' } }
+    stubWith({ sampleStatus: 'UNSET', since: null, typeStats: [], bands: [] }, c)
+    const w = await mountCard()
+    const mfe = w.find('.tp-mfe')
+    expect(mfe.exists()).toBe(true)
+    expect(mfe.text()).toContain('검증 중')
+    expect(mfe.text()).not.toContain('%')
   })
 
   it('타이트 계획(targetPct=3) 이면 타이트 라벨 표시', async () => {

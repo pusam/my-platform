@@ -56,12 +56,15 @@ public class KisInvestorDataCollector {
             return;
         }
 
-        // 15:50에 이미 수집되었으면 스킵
-        boolean hasData = investorTradeRepository.existsByMarketTypeAndInvestorTypeAndTradeDate(
-                "KOSPI", "FOREIGN", today);
-
-        if (hasData) {
-            log.debug("오늘({}) 데이터가 이미 존재합니다. 16:00 수집 스킵.", today);
+        // 15:50 확정 기록이 있으면 스킵. 행은 있는데 확정이 아니면(장중 잠정치·외국인/기관 일부 누락) 여기서는 지우지 않고
+        // 18:00 보완 수집(그날 행을 지우고 다시 넣는다)에 맡긴다 — 이 경로는 삭제 없이 덧붙이기만 해서 중복이 생긴다(2026-10-01).
+        List<Object[]> summary = investorTradeRepository.summarizeByInvestorType(today);
+        if (InvestorDailyConfirmation.isConfirmed(today, summary)) {
+            log.debug("오늘({}) 확정 기록이 이미 존재합니다. 16:00 수집 스킵.", today);
+            return;
+        }
+        if (InvestorDailyConfirmation.hasRows(summary)) {
+            log.warn("[배치] 16:00 - 오늘({}) 행이 확정 기록이 아님(장중 잠정치 또는 일부 누락) — 18:00 보완 수집이 다시 받는다", today);
             return;
         }
 

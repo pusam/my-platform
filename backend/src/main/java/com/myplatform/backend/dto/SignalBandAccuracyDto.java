@@ -25,10 +25,20 @@ public class SignalBandAccuracyDto {
 
     private int daysWindow;
     /**
-     * 실제 집계 시작일 — 요청 창과 phase-38 컷오프(2026-06-25, anti-추격 튜닝 완료) 중 늦은 쪽.
-     * 보드 종합점수(STRONG_BUY/BUY)만 격리해 "현재 산식 점수" 예측력만 측정. UI 라벨용("6/25부터, 보드 기준").
+     * 실제 집계 시작일 — 현재 산식 표본 시작일(경계)·요청 창·phase-38 컷오프 중 가장 늦은 날(2026-10-01).
+     * 표본 시작일이 미정이면 null — 그때 아래 집계는 전부 비어 있다(옛 값으로 채우지 않는다, 화면은 '검증 중').
      */
     private java.time.LocalDate since;
+    /** 현재 산식 표본 경계 상태 — UNSET(미정) · PROVISIONAL(잠정) · CONFIRMED(확정). */
+    private String sampleStatus;
+    /** 현재 산식 표본 시작일(설정값). 미정이면 null. */
+    private java.time.LocalDate sampleSince;
+    /** 집계 기준 — "D3_CORRECTED"(기록 시점 가격 → D+3 KRX 종가, V59 교정값). 레거시 3일 평가값은 쓰지 않는다. */
+    private String basis;
+    /** 집계에 들어간 표본 수(보드 신호, 종목·날짜당 최초 기록 1건). */
+    private int evaluatedCount;
+    /** 등급별 현재 산식 성적 — 결론 카드 첫 줄. */
+    private List<TypeStat> typeStats;
     private List<BandStat> bands;
     private List<CategoryStat> categories;
     /**
@@ -118,6 +128,19 @@ public class SignalBandAccuracyDto {
         private boolean insufficientSample;
         /** 사람이 읽는 한 줄 결론. */
         private String verdict;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TypeStat {
+        private String signalType;
+        private long totalSignals;
+        private long hitCount;
+        private BigDecimal hitRate;
+        private BigDecimal avgPctChange;
+        private BigDecimal avgAlpha;
     }
 
     @Data

@@ -73,7 +73,7 @@
             <th class="th-unv"
                 title="최근 30거래일 회귀 채널(종목상세 차트와 동일 산식) — 방향 + 채널 내 위치(0=하단/100=상단). 표시 전용 참고(점수 미편입).">채널<small>참고</small></th>
             <th @click="setSort('trackRecord')" @keydown.enter="setSort('trackRecord')" tabindex="0" class="th-sort"
-                title="signal_outcome 최근 90일 실측 — 적중/평가완료 · 평균 α. n<3 은 표본부족 '—'(정렬 항상 하단).">이력<small class="unv-badge">90일 실측</small>{{ sortMark('trackRecord') }}</th>
+                :title="trackHeaderTitle">이력<small class="unv-badge">현재 산식</small>{{ sortMark('trackRecord') }}</th>
             <th class="th-unv"
                 title="외인/기관 연속 순매수일(investor_daily_trade 상위 재사용) — streak5 백테스트 약한 양(+) 신호 · 참고만(점수 미편입). 2일 이상만 표기, 데이터 5일 미만 '—'.">수급연속<small>참고</small></th>
             <th @click="setSort('supplyDemand')" @keydown.enter="setSort('supplyDemand')" tabindex="0" class="th-sort th-caution">수급{{ sortMark('supplyDemand') }}</th>
@@ -107,7 +107,7 @@
             <td class="num td-unv">{{ r.sectorStrengthRel != null ? signed(r.sectorStrengthRel) : '—' }}</td>
             <td class="num td-chan" :class="channelClass(r)" :title="channelTitle(r)">{{ channelLabel(r) }}</td>
             <td class="num td-track" :class="{ 'track-insufficient': !hasTrack(r) }"
-                :title="hasTrack(r) ? '최근 90일 평가 완료 ' + r.trackCount + '회 중 ' + r.trackHitCount + '회 적중' : '표본부족(평가 완료 3회 미만) — 판단 근거로 쓰지 마세요'">
+                :title="trackCellTitle(r)">
               {{ trackLabel(r) }}</td>
             <td class="num td-streak" :class="{ 'streak-on': hasStreak(r) }" :title="streakTitle(r)">{{ streakLabel(r) }}</td>
             <td class="num td-supply" :class="{ suspect: r.scored && r.supplyInverseSuspect }">
@@ -234,8 +234,24 @@ const sourceLabel = (s) => ({
   oversold: '📉낙폭', earnings: '💰실적', smartmoney: '🏦수급'
 }[s] || s);
 const signed = (v) => { const n = Number(v); return `${n > 0 ? '+' : ''}${n}`; };
-// 신호 이력(② 참고, signal_outcome 90일 실측) — n<3 은 표본부족 "—"(muted). 정렬도 항상 하단.
+// 신호 이력(② 참고) — 현재 산식 표본(표본 시작일 이후·교정 D+3·종목·날짜당 최초 기록)만(2026-10-01).
+// 시작일이 미정이면 백엔드가 칸을 비워 보낸다 — 옛 90일 레거시 실측으로 채우지 않는다(검증 중).
+// n<3 은 표본부족 "—"(muted). 정렬도 항상 하단.
 const TRACK_MIN_N = 3;
+const trackSampleSet = computed(() => !!board.value?.trackSampleSince && board.value?.trackSampleStatus !== 'UNSET');
+const trackHeaderTitle = computed(() => {
+  if (!trackSampleSet.value) {
+    return '현재 산식 표본 시작일 미정 — 검증 중(수정 반영 확인 후 시작). 이전 산식 성적은 표시하지 않는다.';
+  }
+  const prov = board.value.trackSampleStatus === 'PROVISIONAL' ? ' · 잠정' : '';
+  return `현재 산식 표본(${board.value.trackSampleSince}~${prov}, 최근 90일) 교정 D+3 실측 — 적중/평가완료 · 평균 α. `
+    + "n<3 은 표본부족 '—'(정렬 항상 하단).";
+});
+const trackCellTitle = (r) => {
+  if (hasTrack(r)) return `현재 산식 표본 평가 완료 ${r.trackCount}회 중 ${r.trackHitCount}회 적중`;
+  if (!trackSampleSet.value) return '검증 중(현재 산식 표본 시작일 미정)';
+  return '표본부족(평가 완료 3회 미만) — 판단 근거로 쓰지 마세요';
+};
 const hasTrack = (r) => r.trackCount != null && Number(r.trackCount) >= TRACK_MIN_N;
 const trackRate = (r) => (hasTrack(r) ? Number(r.trackHitCount) / Number(r.trackCount) : null);
 const trackLabel = (r) => {

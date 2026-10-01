@@ -147,12 +147,12 @@ class CrewContextBuilderTest {
                         new java.math.BigDecimal("-12.41"), new java.math.BigDecimal("-5.42"),
                         0, List.of("고유 거래일 4/10일"),
                         "표본 수집 중 — 고유 거래일 4/10일", "유효 표본은 고유 거래일 수다",
-                        "2026-10-02",
+                        "2026-10-02", "PROVISIONAL",
                         new ControlRoomSnapshotDto.LegacyReference("2026-06-25", "2026-10-02", 183, 44, 35,
                                 new java.math.BigDecimal("-4.33"), new java.math.BigDecimal("0.17"), "EVALUABLE"))
                 : new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
                         null, null, null, false, null, null, null, null,
-                        0, List.of(), "집계 실패", "측정 자체가 실패했다", null, null);
+                        0, List.of(), "집계 실패", "측정 자체가 실패했다", null, null, null);
     }
 
     @Test

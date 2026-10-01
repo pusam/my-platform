@@ -237,6 +237,13 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
     boolean existsByTradeDate(LocalDate tradeDate);
 
     /**
+     * 그날 투자자 유형별 최초 저장 시각 — {@code [investorType, MIN(createdAt)]}. 일별 기록이 장 마감 뒤 확정치인지
+     * ({@code InvestorDailyConfirmation.isConfirmed}) 판정용. 행 존재만으로는 장중 잠정치·부분 수집과 구분이 안 된다(2026-10-01).
+     */
+    @Query("SELECT t.investorType, MIN(t.createdAt) FROM InvestorDailyTrade t WHERE t.tradeDate = :tradeDate GROUP BY t.investorType")
+    List<Object[]> summarizeByInvestorType(@Param("tradeDate") LocalDate tradeDate);
+
+    /**
      * 전체 거래일 수 카운트
      */
     @Query("SELECT COUNT(DISTINCT t.tradeDate) FROM InvestorDailyTrade t")

@@ -108,12 +108,19 @@ public class StockConclusionDto {
         private java.math.BigDecimal stopLossPrice;
         /** 목표가 (원, basePrice 없으면 null). */
         private java.math.BigDecimal targetPrice;
-        /** 과거 동일 시그널(최근 90일)의 3거래일 내 평균 최대 상승 % (MFE). 표본 없으면 null. */
+        /**
+         * 현재 산식 표본(경계 이후·최근 90일) 동일 등급 시그널의 D+1~D+3 평균 최대 상승 %(MFE, 교정 D+3). 표본 없으면 null.
+         * 표본 시작일이 미정이면 옛 레거시 집계로 채우지 않는다(2026-10-01) — 화면은 '검증 중'.
+         */
         private java.math.BigDecimal avgMfePct;
-        /** 과거 동일 시그널의 3거래일 내 평균 최대 하락 % (MAE, 음수). 표본 없으면 null. */
+        /** 같은 표본의 D+1~D+3 평균 최대 하락 % (MAE). 표본 없으면 null. */
         private java.math.BigDecimal avgMaePct;
-        /** MFE/MAE 표본 수. */
+        /** MFE/MAE 표본 수(종목·날짜당 최초 기록 1건). */
         private long mfeMaeSampleCount;
+        /** MFE/MAE 표본 시작일(현재 산식 경계). 미정이면 null. */
+        private java.time.LocalDate mfeMaeSampleSince;
+        /** 현재 산식 표본 경계 상태 — UNSET · PROVISIONAL · CONFIRMED. */
+        private String mfeMaeSampleStatus;
         /**
          * ATR14(Wilder)×2.5 기반 <b>참고</b> 손절 %(음수) — 백테스트 참고치(검증 전), 기본 계획(PLAN_*)과
          * 별개 병기. null=미산출(일봉 15개 미만·현재가 실패 — §4c, 프론트는 줄 미렌더).

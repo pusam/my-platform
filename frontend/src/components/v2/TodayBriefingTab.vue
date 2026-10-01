@@ -38,15 +38,19 @@
       </div>
 
       <!-- 신뢰도(실측) — 후보 바로 위에서 "이 점수를 얼마나 믿어도 되나"를 먼저 보여준다.
-           소스: accuracy-by-band(보드 신호 격리 + phase-38 컷오프 이후 forward 실측). -->
-      <div v-if="trustBands.length" class="today-trust">
+           소스: accuracy-by-band = 현재 산식 표본(표본 시작일 이후·교정 D+3·종목·날짜당 최초 기록, 2026-10-01).
+           시작일이 미정이거나 평가된 표본이 없으면 옛 수치로 채우지 않고 '검증 중'을 말한다(§4c). -->
+      <div v-if="bandAccuracy" class="today-trust">
         <div class="tt-row">
           <span class="tt-icon">📊</span>
-          <span class="tt-title">실측 적중률 <template v-if="trustSince">({{ trustSince }}~ · 3거래일)</template></span>
-          <span v-for="b in trustBands" :key="b.band" class="tt-chip" :class="{ 'tt-weak': b.totalSignals < 30 }">
-            {{ b.band }}점 {{ b.hitRate }}%
-            <em>({{ b.totalSignals }}건{{ b.totalSignals < 30 ? '·표본부족' : '' }})</em>
-          </span>
+          <template v-if="trustBands.length">
+            <span class="tt-title">현재 산식 실측 <template v-if="trustSince">({{ trustSince }}~{{ trustProvisional ? ' · 잠정' : '' }} · D+3 종가)</template></span>
+            <span v-for="b in trustBands" :key="b.band" class="tt-chip" :class="{ 'tt-weak': b.totalSignals < 30 }">
+              {{ b.band }}점 {{ b.hitRate }}%
+              <em>({{ b.totalSignals }}건{{ b.totalSignals < 30 ? '·표본부족' : '' }})</em>
+            </span>
+          </template>
+          <span v-else class="tt-title tt-pending">{{ trustPendingText }}</span>
         </div>
         <div v-if="trustCaution" class="tt-caution">⚠ {{ trustCaution }}</div>
       </div>
@@ -236,6 +240,15 @@ const totalProfitLoss = computed(() =>
 const trustBands = computed(() =>
   (bandAccuracy.value?.bands || []).filter(b => Number(b.totalSignals) > 0));
 const trustSince = computed(() => bandAccuracy.value?.since || null);
+const trustProvisional = computed(() => bandAccuracy.value?.sampleStatus === 'PROVISIONAL');
+// 아직 현재 산식 성적이 없을 때의 문구 — 시작일 미정 vs 시작했지만 첫 평가 전(3거래일 미도래)을 구분한다.
+const trustPendingText = computed(() => {
+  const since = bandAccuracy.value?.sampleSince;
+  if (!since || bandAccuracy.value?.sampleStatus === 'UNSET') {
+    return '적중률 검증 중 — 현재 산식 표본 시작일 미정(수정 반영 확인 후 시작). 이전 산식 성적은 쓰지 않는다.';
+  }
+  return `적중률 검증 중 — 현재 산식 표본 ${since}부터 기록, 첫 평가는 3거래일 뒤`;
+});
 // 표본 충분 밴드가 하나도 없으면 경고를 '유지'한다(2026-08-05 감사 — 폴백 극성 수정).
 // 예전엔 전체 밴드로 폴백해 최대 hitRate 로 판정했는데, n=1 짜리 밴드의 우연한 100% 가
 // "50% 미만" 경고를 지웠다. 표본 부족은 '안심해도 된다'가 아니라 '아직 모른다'다(§4c).

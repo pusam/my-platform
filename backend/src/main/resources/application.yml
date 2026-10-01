@@ -205,6 +205,13 @@ youtube-opinion:
 #   기본 10(활성). 20 이상 또는 -1 = 비활성(무캡) — 표본 축적 후 주간리포트 성과 비교로 캡값 재조정.
 recommendation:
   supply-demand-cap: ${RECOMMENDATION_SUPPLY_DEMAND_CAP:10}
+  # 현재 산식 표본 시작일(SignalSampleBoundary, 2026-10-01) — 관제실 신뢰 게이트·오늘 탭·결론 카드·종합판단 이력·종목 신호 이력이
+  # 이 날짜 이후 기록된 시그널만 "현재 산식 실측"으로 센다. 기본은 미정(빈 값) — 미정이면 화면은 옛 값으로 채우지 않고 '검증 중'.
+  # 배포일이 아니라 추천 입력 수정이 재무 수집·추천 캐시·스냅샷까지 반영된 뒤 첫 온전한 거래일을 넣는다(잠정),
+  # 그날 첫 추천에 수정된 입력이 실제로 들어간 것을 확인하면 confirmed=true(확정). 날짜가 아니면 미정으로 본다.
+  sample:
+    since: ${RECOMMENDATION_SAMPLE_SINCE:}
+    confirmed: ${RECOMMENDATION_SAMPLE_CONFIRMED:false}
 
   # [AUDIT 2026-08-21 R1] 실적(earnings) 입력 소스.
   #   false(기본) = 레거시 stock_financial_data — 이름과 달리 '일별 스냅샷'이라 "최신 2행"이
@@ -292,11 +299,6 @@ control-room:
   # 비우면 jar 안 classpath:control-room/ 을 쓴다 — 운영 기본값(재배포로만 갱신).
   # 서버에서 재배포 없이 문서를 고쳐야 할 때만 볼륨을 마운트하고 이 값을 지정한다.
   docs-dir: ${CONTROL_ROOM_DOCS_DIR:}
-  trust-gate:
-    # ⑦ "믿고 사도 되나" 표본 시작일(ISO) — 이 날짜 이후 기록된 시그널만 현재 산식 표본. 비우면 코드 기본값(2026-10-02:
-    # 9/29~10/1 추천 입력 수정이 재무 수집·추천 스냅샷까지 통과한 뒤 첫 온전한 거래일). 그 이전 성적은 참고치로만 따로 보인다.
-    # 추천 입력 정의를 또 바꾸면 여기(또는 코드 기본값)를 옮기고 근거를 CLAUDE.md ⑦ 에 적을 것.
-    sample-since: ${CONTROL_ROOM_TRUST_GATE_SAMPLE_SINCE:}
   crew:
     # 모델 ID — 하드코딩 금지. 기동 시 GET /v1/models 로 실재 확인하고, 없으면 크루만 DISABLED.
     model: ${CONTROL_ROOM_CREW_MODEL:claude-opus-5}

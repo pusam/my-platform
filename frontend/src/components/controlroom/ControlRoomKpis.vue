@@ -150,10 +150,15 @@
           표본 경계(2026-10-01): 9/29~10/1 입력 수정 뒤 기록분만 현재 산식 표본이다. 이전 산식 성적은 참고로만 —
           숨기면 "근거 없음"으로, 섞으면 옛 성적이 새 산식 성적으로 읽힌다. 판정에 섞였는지는 백엔드가 정한다.
         -->
-        <div v-if="trust.sampleSince" class="s trust-sample" :title="trust.noteDetail || ''">
-          표본 {{ trust.sampleSince }}~ (현재 산식)
+        <div v-if="trust.sampleStatus || trust.sampleSince" class="s trust-sample" :title="trust.noteDetail || ''">
+          <!-- 시작일 미정 = 수정 반영 확인 전(2026-10-01) — 현재 산식 판정이 아직 없다. 잠정 = 첫 추천 반영 확인 전. -->
+          <template v-if="!trust.sampleSince">표본 시작일 미정 — 검증 중(현재 산식 판정 없음)</template>
+          <template v-else>
+            표본 {{ trust.sampleSince }}~ (현재 산식{{ trust.sampleStatus === 'PROVISIONAL' ? ' · 잠정' : '' }})
+          </template>
           <template v-if="trust.legacy">
-            · 이전 산식 {{ trust.legacy.rows }}건 비용차감 {{ pct(trust.legacy.costAdjustedReturn) }} — 참고만
+            · {{ trust.sampleSince ? '이전 산식' : '경계 미정 구간' }} {{ trust.legacy.rows }}건 비용차감
+            {{ pct(trust.legacy.costAdjustedReturn) }} — 참고만
           </template>
         </div>
         <div v-if="trust.note" class="s note" :title="trust.noteDetail || trust.note">

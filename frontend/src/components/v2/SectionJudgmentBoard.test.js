@@ -214,6 +214,32 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(cells[3].text()).toBe('—')
   })
 
+  it('이력 열은 현재 산식 표본 — 시작일 미정이면 헤더·칸이 "검증 중"을 말한다(90일 레거시 실측 아님)', async () => {
+    apiClient.get.mockResolvedValue({ data: { success: true, data: {
+      market: { regime: 'BULL' }, rows: [row({ trackCount: null, trackHitCount: null, trackAvgAlpha: null })],
+      timingAvailable: true, sectorStrengthAvailable: true, scope: 'momentum', note: '테스트',
+      trackSampleStatus: 'UNSET', trackSampleSince: null } } })
+    const w = mount(SectionJudgmentBoard)
+    await flushPromises()
+    const th = w.findAll('th').find(t => t.text().includes('이력'))
+    expect(th.text()).not.toContain('90일')
+    expect(th.attributes('title')).toContain('검증 중')
+    expect(w.find('.td-track').attributes('title')).toContain('검증 중')
+  })
+
+  it('이력 열 — 시작일이 있으면 헤더 툴팁에 시작일·교정 D+3 기준을 적는다', async () => {
+    apiClient.get.mockResolvedValue({ data: { success: true, data: {
+      market: { regime: 'BULL' }, rows: [row({ trackCount: 5, trackHitCount: 3, trackAvgAlpha: 1.2 })],
+      timingAvailable: true, sectorStrengthAvailable: true, scope: 'momentum', note: '테스트',
+      trackSampleStatus: 'PROVISIONAL', trackSampleSince: '2026-10-05' } } })
+    const w = mount(SectionJudgmentBoard)
+    await flushPromises()
+    const th = w.findAll('th').find(t => t.text().includes('이력'))
+    expect(th.attributes('title')).toContain('2026-10-05')
+    expect(th.attributes('title')).toContain('D+3')
+    expect(th.attributes('title')).toContain('잠정')
+  })
+
   it('신호 이력 avgAlpha null(§4c) → 적중 비율만 표시(α 생략)', async () => {
     const w = await mountBoard([row({ trackCount: 4, trackHitCount: 1, trackAvgAlpha: null })])
     expect(w.find('.td-track').text()).toBe('1/4')

@@ -17,6 +17,10 @@ import java.util.List;
  *
  * <p><b>§4c</b>: 평가 전(3거래일 미도래) 행은 pending=true 로 구분 — 미평가를 미스(hit=false)로
  * 위장하지 않는다. 요약(evaluatedCount/hitCount/avgAlpha)은 평가 완료 행만 집계.
+ *
+ * <p><b>2026-10-01</b>: ① 추천 신호(STRONG_BUY/BUY)만 — 무작위 대조군·급등 감지·AI 행은 이 종목의 추천 성적이 아니다.
+ * ② 결과는 교정 D+3 값(기록 시점 가격 → D+3 KRX 종가). ③ 요약은 <b>현재 산식 표본</b>(경계 이후)만 —
+ * 경계 이전 행은 목록에 "이전 산식"으로만 남는다. 경계가 미정이면 요약은 비고 화면은 '검증 중'.
  */
 @Getter
 @Builder
@@ -43,6 +47,10 @@ public class SignalHistoryDto {
         private BigDecimal avgAlpha;
         /** 평가 대기(3거래일 미도래) 건수 — 요약 집계 밖, 별도 표기. */
         private int pendingCount;
+        /** 현재 산식 표본 시작일(경계). 미정이면 null — 요약은 비어 있다. */
+        private LocalDate sampleSince;
+        /** 경계 상태 — UNSET · PROVISIONAL · CONFIRMED. */
+        private String sampleStatus;
     }
 
     @Getter
@@ -55,9 +63,14 @@ public class SignalHistoryDto {
         private Integer signalScore;
         /** true=적중 / false=미적중 / null=평가 대기(pending). */
         private Boolean hit;
-        /** evaluated_at 미기록 = 평가 대기. */
+        /** 교정 D+3 미평가(3거래일 미도래·평가 전) = 평가 대기. */
         private boolean pending;
+        /** 교정 D+3 알파·수익률 — 평가 완료(OK) 행만. */
         private BigDecimal alpha3d;
         private BigDecimal pctChange3d;
+        /** 교정 평가에서 제외된 사유(거래정지·봉 결측 등 d3 상태 코드). OK·대기 행은 null. */
+        private String excludedReason;
+        /** 현재 산식 표본에 드는가(경계 이후). false 면 "이전 산식" — 요약에 안 들어간다. */
+        private boolean inCurrentSample;
     }
 }
