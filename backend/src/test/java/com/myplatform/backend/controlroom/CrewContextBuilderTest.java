@@ -105,7 +105,7 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.VolRegime(false, null, null, "VKOSPI 미수집"),
                         new ControlRoomSnapshotDto.Undecided(false, 0, 0),
                         new ControlRoomSnapshotDto.FinancialInput(false, null, 0, 0, 0, 0, null, null),
-                        trustGate(false)),
+                        trustGate(false), null),
                 calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
                 new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
@@ -183,7 +183,7 @@ class CrewContextBuilderTest {
                 new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
                 new ControlRoomSnapshotDto.Undecided(true, 8, 8),
                 new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null),
-                trustGate(false)));
+                trustGate(false), null));
 
         String text = CrewContextBuilder.build(s, 8192).text();
 
@@ -211,7 +211,7 @@ class CrewContextBuilderTest {
                 new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
                 new ControlRoomSnapshotDto.Undecided(true, 8, 8),
                 new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null),
-                trustGate(true));
+                trustGate(true), null);
     }
 
     private static ControlRoomSnapshotDto.Calendar calendar() {
@@ -250,7 +250,7 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
                         new ControlRoomSnapshotDto.Undecided(true, 8, 8),
                         new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null),
-                        trustGate(true)),
+                        trustGate(true), null),
                 calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
                 new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
@@ -260,5 +260,51 @@ class CrewContextBuilderTest {
         assertThat(text)
                 .contains("어제 스냅샷 폴백")
                 .contains("오늘 실시간 계산값이 아님");
+    }
+
+    // ==================== 봇 성적 게이트(2026-10-02) ====================
+
+    private static ControlRoomSnapshotDto.Kpis kpisWithBotGate(ControlRoomSnapshotDto.BotGate botGate) {
+        ControlRoomSnapshotDto.Kpis k = kpis();
+        return new ControlRoomSnapshotDto.Kpis(k.candidates(), k.gates(), k.lossBreaker(), k.volRegime(),
+                k.undecided(), k.financialInput(), k.trustGate(), botGate);
+    }
+
+    @Test
+    @DisplayName("봇 게이트가 크루에 들어간다 — 추천 게이트와 별개라는 것, 봇이 꺼져 있다는 것, 전략별 성적까지")
+    void botGateReachesCrewAsSeparateQuestion() {
+        ControlRoomSnapshotDto.BotGateLine line = new ControlRoomSnapshotDto.BotGateLine("VIRTUAL", true, "EVALUABLE",
+                114, 16, new java.math.BigDecimal("-0.53"), new java.math.BigDecimal("0.41"), false,
+                new java.math.BigDecimal("38.6"), new java.math.BigDecimal("1.10"), new java.math.BigDecimal("-1.40"),
+                new java.math.BigDecimal("-4.80"), new java.math.BigDecimal("-8.30"), -799_916L,
+                "2026-07-03", "2026-07-27",
+                List.of(new BotGateRules.StrategyLine("SCALPING", 86, 16, new java.math.BigDecimal("-0.61"),
+                        new java.math.BigDecimal("36.0"))),
+                0, List.of("하루 평균 순수익 -0.53%"),
+                "평가 가능 — 아직 근거 없음: 하루 평균 순수익 -0.53%", "유효 표본은 거래가 있었던 날 수다");
+        ControlRoomSnapshotDto.BotGate bot = new ControlRoomSnapshotDto.BotGate(true, "VIRTUAL", false,
+                "2026-07-27T15:20:15", List.of(line), "봇 꺼짐 — 2026-07-27부터 · 새 표본이 쌓이지 않는다", "설명");
+
+        String text = CrewContextBuilder.build(snapshot(kpisWithBotGate(bot)), 8192).text();
+
+        assertThat(text).contains("봇을 믿고 맡겨도 되나(추천 게이트와 별개 — 봇은 추천 점수를 안 쓴다)");
+        assertThat(text).contains("봇 꺼짐");
+        assertThat(text).contains("[모의] 평가 가능(숫자를 읽을 수 있다는 뜻일 뿐, 유리하다는 뜻 아님)");
+        assertThat(text).contains("거래 114건/거래일 16일").contains("기간 2026-07-03~2026-07-27");
+        assertThat(text).contains("하루평균(비용차감) -0.53% ±0.41(0 과 구분 안 됨)");
+        assertThat(text).contains("실현손익 -799,916원");
+        assertThat(text).contains("전략별: SCALPING 86건 -0.61%");
+        assertThat(text).contains("시장 대비 비교 없음");
+    }
+
+    @Test
+    @DisplayName("봇 게이트 집계 실패는 '거래 없음'이 아니라 측정 불가로 전달된다(§4c)")
+    void botGateFailureIsNotSilentlyNoTrades() {
+        ControlRoomSnapshotDto.BotGate failed = new ControlRoomSnapshotDto.BotGate(false, null, null, null,
+                List.of(), "집계 실패 (DataAccessException)", "측정 자체가 실패했다");
+
+        String text = CrewContextBuilder.build(snapshot(kpisWithBotGate(failed)), 8192).text();
+
+        assertThat(text).contains("봇을 믿고 맡겨도 되나: 측정 불가(집계 실패) — 집계 실패 (DataAccessException)");
     }
 }

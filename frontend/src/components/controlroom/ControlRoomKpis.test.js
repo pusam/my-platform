@@ -362,3 +362,126 @@ describe('ControlRoomKpis ⑦ — "믿고 사도 되나" 게이트', () => {
     expect(c.text()).toContain('집계 실패')
   })
 })
+
+/** ⑧ 봇을 믿고 맡겨도 되나 — 기본은 운영 실측(2026-10-02)과 같은 모양: 봇 꺼짐(7/27~), 7월 모의 성적 평가 가능. */
+function botGate(over = {}, lineOver = {}) {
+  return {
+    dataAvailable: true,
+    currentMode: 'VIRTUAL',
+    botActive: false,
+    botStatusChangedAt: '2026-07-27T15:20:15',
+    note: '봇 꺼짐 — 2026-07-27부터 · 새 표본이 쌓이지 않는다',
+    noteDetail: '봇은 추천 점수를 쓰지 않는다',
+    lines: [
+      {
+        mode: 'VIRTUAL',
+        dataAvailable: true,
+        state: 'EVALUABLE',
+        trades: 114,
+        distinctDays: 16,
+        dailyMeanPct: -0.53,
+        marginOfError: 0.41,
+        profitExceedsUncertainty: false,
+        winRatePct: 38.6,
+        avgWinPct: 1.1,
+        avgLossPct: -1.4,
+        worstPct: -4.8,
+        maxDrawdownPct: -8.3,
+        realizedPnlKrw: -799916,
+        firstTradeDay: '2026-07-03',
+        lastTradeDay: '2026-07-27',
+        strategies: [
+          { strategy: 'SCALPING', trades: 86, distinctDays: 16, dailyMeanPct: -0.61, winRatePct: 36.0 },
+          { strategy: 'SWING', trades: 28, distinctDays: 12, dailyMeanPct: -0.2, winRatePct: 46.4 }
+        ],
+        excludedTrades: 0,
+        blockers: ['하루 평균 순수익 -0.53%'],
+        note: '평가 가능 — 아직 근거 없음: 하루 평균 순수익 -0.53%',
+        noteDetail: '유효 표본은 거래가 있었던 날 수다',
+        ...lineOver
+      }
+    ],
+    ...over
+  }
+}
+
+describe('ControlRoomKpis ⑧ — "봇을 믿고 맡겨도 되나" 게이트', () => {
+  const botCard = (over, lineOver) =>
+    mount(ControlRoomKpis, { props: { kpis: kpis({ botGate: botGate(over, lineOver) }) } }).find('.kpi.bot')
+
+  it('봇이 꺼져 있으면 그것부터 말한다 — 아래 성적은 꺼지기 전 기록이다', () => {
+    const c = botCard()
+    expect(c.find('.bot-note').text()).toBe('봇 꺼짐 — 2026-07-27부터 · 새 표본이 쌓이지 않는다')
+    // 꺼짐은 고장이 아니라 상태 — 빨강(alert)이 아니라 주황(warn), 통과(ok)로도 칠하지 않는다
+    expect(c.classes()).toContain('warn')
+    expect(c.classes()).not.toContain('alert')
+    expect(c.classes()).not.toContain('ok')
+  })
+
+  it('모드·상태·표본(거래일 강조)·기간을 백엔드 값 그대로 보여준다', () => {
+    const c = botCard()
+    expect(c.find('.trust-state').text()).toBe('모의 · 평가 가능')
+    expect(c.text()).toContain('거래 114건')
+    expect(c.find('b').text()).toBe('거래일 16일')
+    expect(c.text()).toContain('2026-07-03~2026-07-27')
+  })
+
+  it('하루 평균은 불확실성 폭과 함께, 실현손익은 원 단위로', () => {
+    const t = botCard().text()
+    expect(t).toContain('하루 평균 -0.53%')
+    expect(t).toContain('±0.41')
+    expect(t).toContain('실현손익 -799,916')
+  })
+
+  it('승률만으로 판단하지 않는다 — 이익·손실·최악·최대낙폭과 전략별 성적이 보인다', () => {
+    const c = botCard()
+    expect(c.text()).toContain('승률 38.6%')
+    expect(c.text()).toContain('최악 -4.80%')
+    expect(c.text()).toContain('최대낙폭 -8.30%')
+    expect(c.find('.bot-strategies').text()).toContain('스캘핑 86건 -0.61%')
+    expect(c.find('.bot-strategies').text()).toContain('스윙 28건 -0.20%')
+  })
+
+  it('막는 사유가 담긴 헤드라인과, 추천 점수가 아니라 봇 매매 기록 기준이라는 출처를 밝힌다', () => {
+    const c = botCard()
+    expect(c.text()).toContain('평가 가능 — 아직 근거 없음: 하루 평균 순수익 -0.53%')
+    expect(c.find('.basis').text()).toContain('추천 점수 아님')
+    expect(c.find('.basis').text()).toContain('실전 승인 아님')
+  })
+
+  it('켜져 있고 통과면 ok — 상태 라벨은 "확대 검토 가능"(승인 아님)', () => {
+    const c = botCard({ botActive: true, note: null }, { state: 'CONSIDER_EXPANDING', profitExceedsUncertainty: true })
+    expect(c.find('.trust-state').text()).toBe('모의 · 확대 검토 가능')
+    expect(c.classes()).toContain('ok')
+    expect(c.find('.bot-note').exists()).toBe(false)
+  })
+
+  it('꺼진 봇은 통과여도 초록으로 칠하지 않는다 — 그 성적은 지금 봇이 아니다', () => {
+    const c = botCard({}, { state: 'CONSIDER_EXPANDING' })
+    expect(c.classes()).not.toContain('ok')
+  })
+
+  it('불확실성을 모르면 ± 물음표(§4c)', () => {
+    expect(botCard({}, { marginOfError: null }).text()).toContain('±?')
+  })
+
+  it('줄 단위 집계 실패는 "측정 불가" + 사유 — 거래 0건으로 위장하지 않는다', () => {
+    const c = botCard({}, { dataAvailable: false, state: null, note: '집계 실패 (QueryTimeoutException)' })
+    expect(c.find('.trust-state').text()).toBe('모의 · 측정 불가')
+    expect(c.text()).toContain('집계 실패 (QueryTimeoutException)')
+    expect(c.text()).not.toContain('거래 114건')
+  })
+
+  it('카드 전체 집계 실패는 NoData — 숫자를 하나도 그리지 않는다', () => {
+    const c = botCard({ dataAvailable: false, note: '봇 성과 서비스 미가용', lines: [] })
+    expect(c.find('.trust-state').exists()).toBe(false)
+    expect(c.text()).toContain('봇 성과 서비스 미가용')
+  })
+
+  it('실전 줄이 함께 오면 모드별로 쌓는다', () => {
+    const real = { ...botGate().lines[0], mode: 'REAL', trades: 3, distinctDays: 2, state: 'COLLECTING' }
+    const c = botCard({ lines: [botGate().lines[0], real] })
+    expect(c.findAll('.bot-line')).toHaveLength(2)
+    expect(c.findAll('.trust-state').map((s) => s.text())).toEqual(['모의 · 평가 가능', '실전 · 표본 수집 중'])
+  })
+})

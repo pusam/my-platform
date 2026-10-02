@@ -80,6 +80,7 @@ public final class CrewContextBuilder {
             appendUndecided(sb, k.undecided());
             appendFinancialInput(sb, k.financialInput());
             appendTrustGate(sb, k.trustGate());
+            appendBotGate(sb, k.botGate());
         }
 
         sb.append("\n[판정 캘린더]\n");
@@ -244,6 +245,57 @@ public final class CrewContextBuilder {
         if (t.blockers() != null && !t.blockers().isEmpty()) {
             sb.append("  막는 것: ").append(String.join(", ", t.blockers())).append('\n');
         }
+    }
+
+    /**
+     * "봇을 믿고 맡겨도 되나" 게이트(2026-10-02) — 추천 게이트와 <b>다른 질문</b>이라는 걸 같이 적는다.
+     *
+     * <p>봇은 추천 점수를 쓰지 않는다. 이 줄이 없으면 크루는 추천 게이트를 보고 봇까지 "믿을 만하다/아니다"로 묶어 말한다.
+     * 봇이 꺼져 있으면 그 성적은 꺼지기 전 기록이라는 것도 적는다 — 안 적으면 "지금 봇의 성적"으로 읽는다.
+     */
+    private static void appendBotGate(StringBuilder sb, ControlRoomSnapshotDto.BotGate b) {
+        if (b == null || !b.dataAvailable()) {
+            sb.append("- 봇을 믿고 맡겨도 되나: 측정 불가(집계 실패)");
+            if (b != null && b.note() != null) sb.append(" — ").append(b.note());
+            sb.append('\n');
+            return;
+        }
+        sb.append("- 봇을 믿고 맡겨도 되나(추천 게이트와 별개 — 봇은 추천 점수를 안 쓴다): 현재 모드 ")
+          .append(b.currentMode());
+        if (Boolean.FALSE.equals(b.botActive())) sb.append(" · 봇 꺼짐");
+        else if (Boolean.TRUE.equals(b.botActive())) sb.append(" · 봇 켜짐");
+        if (b.note() != null) sb.append(" — ").append(b.note());
+        sb.append('\n');
+        for (ControlRoomSnapshotDto.BotGateLine l : b.lines() == null ? List.<ControlRoomSnapshotDto.BotGateLine>of() : b.lines()) {
+            sb.append("  [").append("REAL".equals(l.mode()) ? "실전" : "모의").append("] ");
+            if (!l.dataAvailable()) {
+                sb.append("측정 불가 — ").append(l.note()).append('\n');
+                continue;
+            }
+            sb.append(stateLabel(l.state()))
+              .append(" · 거래 ").append(l.trades()).append("건/거래일 ").append(l.distinctDays()).append("일");
+            if (l.firstTradeDay() != null) {
+                sb.append(" · 기간 ").append(l.firstTradeDay()).append('~').append(l.lastTradeDay());
+            }
+            sb.append('\n');
+            sb.append("  하루평균(비용차감) ").append(pct(l.dailyMeanPct()))
+              .append(l.marginOfError() == null ? " ±미상(거래일 부족)" : " ±" + l.marginOfError().toPlainString())
+              .append(l.profitExceedsUncertainty() ? "(불확실성 초과)" : "(0 과 구분 안 됨)")
+              .append(" · 승률 ").append(l.winRatePct() == null ? "미상" : l.winRatePct().toPlainString() + "%")
+              .append(" · 최악 ").append(pct(l.worstPct()))
+              .append(" · 최대낙폭 ").append(pct(l.maxDrawdownPct()))
+              .append(" · 실현손익 ").append(l.realizedPnlKrw() == null ? "미상" : String.format("%,d", l.realizedPnlKrw()) + "원")
+              .append('\n');
+            if (l.strategies() != null && !l.strategies().isEmpty()) {
+                sb.append("  전략별: ").append(l.strategies().stream()
+                        .map(s -> s.strategy() + " " + s.trades() + "건 " + pct(s.dailyMeanPct()))
+                        .collect(java.util.stream.Collectors.joining(" / "))).append('\n');
+            }
+            if (l.blockers() != null && !l.blockers().isEmpty()) {
+                sb.append("  막는 것: ").append(String.join(", ", l.blockers())).append('\n');
+            }
+        }
+        sb.append("  ⚠ 시장 대비 비교 없음(매수만 하는 봇은 오르는 장에서 대체로 번다) · 최고 단계도 확대 검토이지 실전 승인 아님\n");
     }
 
     /** state 를 뜻과 함께 — 크루가 등급으로 오해하지 않게. */

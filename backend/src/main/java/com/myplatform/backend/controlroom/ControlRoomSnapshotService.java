@@ -95,6 +95,8 @@ public class ControlRoomSnapshotService {
     private final RecommendationService recommendationService;
     /** 시그널 측정 위생(dedup·공통창)이 이미 그 클래스에 있어 재계산하지 않는다. 미가용=카드 dataAvailable=false. */
     private final org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.SignalOutcomeService> signalOutcomeServiceProvider;
+    /** 봇 성적 게이트 — 봇 거래 집계가 이미 그 클래스에 있어 재계산하지 않는다. 미가용=카드 dataAvailable=false. */
+    private final org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.BotPerformanceService> botPerformanceProvider;
     private final CrewProperties crewProperties;
     private final CrewModelAvailability modelAvailability;
     private final Clock clock;
@@ -128,6 +130,7 @@ public class ControlRoomSnapshotService {
                                       com.myplatform.backend.repository.StockCatalystRepository catalystRepository,
                                       com.myplatform.backend.repository.SignalOutcomeRepository signalOutcomeRepository,
                                       org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.SignalOutcomeService> signalOutcomeServiceProvider,
+                                      org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.BotPerformanceService> botPerformanceProvider,
                                       MarketCalendarService marketCalendar,
                                       RecommendationService recommendationService,
                                       CrewProperties crewProperties,
@@ -147,6 +150,7 @@ public class ControlRoomSnapshotService {
         this.financialDataRepository = financialDataRepository;
         this.quarterlyRepository = quarterlyRepository;
         this.signalOutcomeServiceProvider = signalOutcomeServiceProvider;
+        this.botPerformanceProvider = botPerformanceProvider;
         this.heartbeatProvider = heartbeatProvider;
         this.stockStatusService = stockStatusService;
         this.catalystRepository = catalystRepository;
@@ -210,7 +214,8 @@ public class ControlRoomSnapshotService {
                         volRegime(),
                         undecided(decisions),
                         financialInput(),
-                        trustGate()),
+                        trustGate(),
+                        botGate(today)),
                 calendar(decisions, targetMonth, today),
                 flagged(flags, decisions, today),
                 anomalies(today),
@@ -481,6 +486,86 @@ public class ControlRoomSnapshotService {
             log.warn("[관제실] 신뢰 게이트 집계 실패: {}", e.getMessage());
             return unavailableTrustGate("집계 실패 (" + e.getClass().getSimpleName() + ")");
         }
+    }
+
+    /** 봇이 켜져 있는데 이보다 오래 매도가 없으면 "최근 거래 없음"을 단다(달력일). */
+    static final int STALE_BOT_TRADE_DAYS = 14;
+
+    static final String BOT_GATE_CAVEAT =
+            "봇은 추천 점수를 쓰지 않는다(스윙=외국인·기관 연속 순매수, 스캘핑=체결강도) — '믿고 사도 되나'와 별개 판정이다. "
+            + "표본은 현재 모드 계좌의 봇 매도 전체다(모의 = 활성 가상계좌, 계좌를 새로 만들면 표본도 새로 시작한다). ";
+
+    /**
+     * "봇을 믿고 맡겨도 되나" 게이트(2026-10-02) — 봇이 실제로 낸 매매 기록으로 3단계 판정.
+     *
+     * <p><b>판정은 {@link BotGateRules} 단일 출처, 집계는 {@code BotPerformanceService.trustGateSummary}</b>.
+     * 여기서는 부르고 DTO 로 옮기기만 한다(추천 게이트와 같은 규약). 조회 실패는 {@code dataAvailable=false}(§4c).
+     */
+    private ControlRoomSnapshotDto.BotGate botGate(LocalDate today) {
+        try {
+            var svc = botPerformanceProvider.getIfAvailable();
+            if (svc == null) {
+                return unavailableBotGate("봇 성과 서비스 미가용");
+            }
+            var s = svc.trustGateSummary();
+            List<ControlRoomSnapshotDto.BotGateLine> lines = s.lines().stream()
+                    .map(ControlRoomSnapshotService::toBotGateLine)
+                    .toList();
+            LocalDate lastTrade = s.lines().isEmpty() ? null : s.lines().get(0).lastTradeDay();
+            String note = botGateNote(s.botActive(), s.botStatusChangedAt(), lastTrade, today);
+            if (note == null && s.note() != null) note = s.note();
+            String detail = BOT_GATE_CAVEAT
+                    + (Boolean.FALSE.equals(s.botActive()) ? "봇이 꺼져 있어 아래 성적은 꺼지기 전 기록이다. " : "")
+                    + (s.note() != null ? s.note() + ". " : "");
+            return new ControlRoomSnapshotDto.BotGate(true, s.currentMode(), s.botActive(),
+                    s.botStatusChangedAt() == null ? null : s.botStatusChangedAt().toString(),
+                    lines, note, detail);
+        } catch (Exception e) {
+            log.warn("[관제실] 봇 성적 게이트 집계 실패: {}", e.getMessage());
+            return unavailableBotGate("집계 실패 (" + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    /**
+     * 카드 표면 한 줄 — 봇이 꺼졌거나 오래 거래가 없으면 그 성적이 "지금 봇"이 아니라는 걸 먼저 말한다. 순수 함수(테스트 대상).
+     * 정상(켜져 있고 최근 거래 있음)이면 null — 정상일 때 조용한 것이 관제실 카드의 계약이다.
+     */
+    static String botGateNote(Boolean botActive, LocalDateTime statusChangedAt, LocalDate lastTradeDay, LocalDate today) {
+        if (Boolean.FALSE.equals(botActive)) {
+            return "봇 꺼짐" + (statusChangedAt == null ? "" : " — " + statusChangedAt.toLocalDate() + "부터")
+                    + " · 새 표본이 쌓이지 않는다";
+        }
+        if (lastTradeDay != null && today != null
+                && java.time.temporal.ChronoUnit.DAYS.between(lastTradeDay, today) > STALE_BOT_TRADE_DAYS) {
+            return "최근 거래 없음 — 마지막 매도 " + lastTradeDay;
+        }
+        return null;
+    }
+
+    static ControlRoomSnapshotDto.BotGateLine toBotGateLine(
+            com.myplatform.backend.service.BotPerformanceService.BotGateLine l) {
+        var v = l.verdict();
+        if (!l.dataAvailable() || v == null) {
+            return new ControlRoomSnapshotDto.BotGateLine(l.mode(), false, null, 0, 0,
+                    null, null, false, null, null, null, null, null, null, null, null,
+                    List.of(), 0, List.of(), l.note(),
+                    "봇 성적을 집계하지 못했다. 거래가 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.");
+        }
+        return new ControlRoomSnapshotDto.BotGateLine(l.mode(), true, v.state().name(),
+                v.trades(), v.distinctDays(), v.dailyMeanPct(), v.marginOfError(), v.profitExceedsUncertainty(),
+                v.winRatePct(), v.avgWinPct(), v.avgLossPct(), v.worstPct(), v.maxDrawdownPct(),
+                l.realizedPnlKrw() == null ? null : l.realizedPnlKrw().longValue(),
+                l.firstTradeDay() == null ? null : l.firstTradeDay().toString(),
+                l.lastTradeDay() == null ? null : l.lastTradeDay().toString(),
+                v.strategies(), v.excludedTrades(), v.blockers(),
+                l.note() != null ? l.note() + " — " + v.headline() : v.headline(),
+                v.detail());
+    }
+
+    /** 집계 실패 — 0 이 아니라 "측정 불가"다(§4c). */
+    private static ControlRoomSnapshotDto.BotGate unavailableBotGate(String why) {
+        return new ControlRoomSnapshotDto.BotGate(false, null, null, null, List.of(), why,
+                "봇 성적 게이트를 집계하지 못했다. 거래가 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.");
     }
 
     /** 집계 실패 — 0 이 아니라 "측정 불가"다(§4c). */

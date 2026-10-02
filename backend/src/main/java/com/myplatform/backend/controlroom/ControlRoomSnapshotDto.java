@@ -32,7 +32,8 @@ public record ControlRoomSnapshotDto(
             VolRegime volRegime,
             Undecided undecided,
             FinancialInput financialInput,
-            TrustGate trustGate
+            TrustGate trustGate,
+            BotGate botGate
     ) {}
 
     /**
@@ -97,6 +98,65 @@ public record ControlRoomSnapshotDto(
             java.math.BigDecimal costAdjustedReturn,
             java.math.BigDecimal edgeVsControl,
             String state
+    ) {}
+
+    /**
+     * "봇을 믿고 맡겨도 되나" — 봇이 실제로 낸 매매 기록으로 판정한 3단계 카드(2026-10-02).
+     *
+     * <p>봇은 추천 점수를 쓰지 않는다(스윙=연속 순매수, 스캘핑=체결강도). 그래서 {@link TrustGate}(추천 신호 성적)는 봇에
+     * 대해 아무것도 말해 주지 않고, 봇은 따로 판정한다. 판정 규칙은 {@link BotGateRules} 단일 출처 — 화면에서 다시
+     * 계산하지 말 것. state 는 승인 등급이 아니다({@link TrustGate} 와 같은 뜻, 최고 단계도 "확대 검토"까지).
+     *
+     * @param dataAvailable      false = 집계 실패(§4c — "거래 없음"과 구분)
+     * @param currentMode        봇 매매 모드 REAL | VIRTUAL
+     * @param botActive          봇 켜짐 여부. 조회 실패면 null
+     * @param botStatusChangedAt 마지막 켜기·끄기 시각(ISO)
+     * @param lines              현재 모드는 항상, 다른 모드는 거래가 있을 때만
+     * @param note               카드 표면용 한 줄(봇 꺼짐·최근 거래 없음). 정상이면 null
+     */
+    public record BotGate(
+            boolean dataAvailable,
+            String currentMode,
+            Boolean botActive,
+            String botStatusChangedAt,
+            List<BotGateLine> lines,
+            String note,
+            String noteDetail
+    ) {}
+
+    /**
+     * 한 모드(계좌)의 봇 성적 판정 — {@link BotGateRules.Verdict} 를 옮긴 것.
+     *
+     * @param dailyMeanPct   거래일별 평균 순수익률의 평균(%, 수수료·세금 차감)
+     * @param marginOfError  95% 불확실성 폭(±%). null = 아직 모름(0 아님)
+     * @param maxDrawdownPct 실현손익 누적 최대 낙폭(자본 대비 %). 자본을 모르면 null
+     * @param realizedPnlKrw 실현손익 합(원)
+     * @param firstTradeDay/lastTradeDay 표본 기간(첫·마지막 매도일, ISO)
+     * @param note           헤드라인(막는 사유 포함) — 집계 실패면 실패 사유
+     * @param noteDetail     툴팁·크루용 설명(유효 표본·비용·시장 대비 비교 없음)
+     */
+    public record BotGateLine(
+            String mode,
+            boolean dataAvailable,
+            String state,
+            int trades,
+            int distinctDays,
+            java.math.BigDecimal dailyMeanPct,
+            java.math.BigDecimal marginOfError,
+            boolean profitExceedsUncertainty,
+            java.math.BigDecimal winRatePct,
+            java.math.BigDecimal avgWinPct,
+            java.math.BigDecimal avgLossPct,
+            java.math.BigDecimal worstPct,
+            java.math.BigDecimal maxDrawdownPct,
+            Long realizedPnlKrw,
+            String firstTradeDay,
+            String lastTradeDay,
+            List<BotGateRules.StrategyLine> strategies,
+            int excludedTrades,
+            List<String> blockers,
+            String note,
+            String noteDetail
     ) {}
 
     /**

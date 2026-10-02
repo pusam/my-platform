@@ -42,7 +42,7 @@ class SignalWeeklyReportTelegramEscapeTest {
     private SignalWeeklyReportService service() {
         Clock clock = Clock.fixed(LocalDate.of(2026, 9, 3).atStartOfDay(KST).toInstant(), KST);
         return new SignalWeeklyReportService(outcomeRepository, weeklyRepository,
-                schedulerLockService, telegramProvider, new ObjectMapper(), clock, null);
+                schedulerLockService, telegramProvider, new ObjectMapper(), clock, null, null, null);
     }
 
     private static WeeklySignalAccuracyDto dtoWithWarning(String warning) {

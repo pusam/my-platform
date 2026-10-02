@@ -168,6 +168,48 @@
       </template>
       <NoData v-else :reason="trust && trust.note" :title="trust && trust.noteDetail" />
     </div>
+
+    <!--
+      ⑧ 봇을 믿고 맡겨도 되나 — 봇이 실제로 낸 매매 기록으로 3단계(2026-10-02).
+      봇은 추천 점수를 쓰지 않는다(스윙=연속 순매수, 스캘핑=체결강도) — 위 '믿고 사도 되나'는 봇에 대해
+      아무것도 말해 주지 않는다. 판정·임계는 백엔드 BotGateRules 단일 출처라 여기서 다시 계산하지 않는다.
+      봇이 꺼져 있으면 아래 성적은 꺼지기 전 기록이다 — 카드가 그걸 먼저 말한다(bot.note).
+    -->
+    <div class="kpi trust bot" :class="botClass">
+      <div class="eyebrow">봇을 믿고 맡겨도 되나</div>
+      <template v-if="bot && bot.dataAvailable">
+        <div v-if="bot.note" class="s bot-note" :title="bot.noteDetail || bot.note">{{ bot.note }}</div>
+        <div v-for="line in botLines" :key="line.mode" class="bot-line">
+          <div class="v trust-state">{{ modeLabel(line.mode) }} · {{ botStateLabel(line) }}</div>
+          <template v-if="line.dataAvailable">
+            <div class="s">
+              거래 {{ line.trades }}건 · <b>거래일 {{ line.distinctDays }}일</b>
+              <template v-if="line.firstTradeDay"> · {{ line.firstTradeDay }}~{{ line.lastTradeDay }}</template>
+            </div>
+            <div class="s trust-nums">
+              <span :class="signClass(line.dailyMeanPct)">하루 평균 {{ pct(line.dailyMeanPct) }}</span>
+              <span :class="{ dead: !line.profitExceedsUncertainty }" :title="botMoeTitle(line)">
+                <em v-if="line.marginOfError != null">±{{ num(line.marginOfError) }}</em>
+                <em v-else>±?</em>
+              </span>
+              <span :class="signClass(line.realizedPnlKrw)">실현손익 {{ formatKrw(line.realizedPnlKrw) }}</span>
+            </div>
+            <div class="s trust-shape">
+              승률 {{ rate(line.winRatePct) }} · 이익 {{ pct(line.avgWinPct) }} / 손실 {{ pct(line.avgLossPct) }}
+              · 최악 {{ pct(line.worstPct) }} · 최대낙폭 {{ pct(line.maxDrawdownPct) }}
+            </div>
+            <div v-if="line.strategies && line.strategies.length" class="s trust-shape bot-strategies">
+              <span v-for="s in line.strategies" :key="s.strategy">
+                {{ strategyLabel(s.strategy) }} {{ s.trades }}건 {{ pct(s.dailyMeanPct) }}
+              </span>
+            </div>
+          </template>
+          <div v-if="line.note" class="s note" :title="line.noteDetail || line.note">{{ line.note }}</div>
+        </div>
+        <span class="basis">봇 매매 기록 기준(추천 점수 아님) · 수수료·세금 차감 · 실전 승인 아님</span>
+      </template>
+      <NoData v-else :reason="bot && bot.note" :title="bot && bot.noteDetail" />
+    </div>
   </div>
 </template>
 
@@ -221,6 +263,44 @@ const edgeTitle = computed(() => {
     ? '우위가 95% 불확실성 폭을 넘었다 — 0 과 구분된다.'
     : '우위가 불확실성 폭 안에 있다 — 0 과 구분되지 않는다(우연일 수 있다).'
 })
+
+// ── ⑧ 봇을 믿고 맡겨도 되나 ─────────────────────────────────────────────────
+// 판정은 백엔드 BotGateRules 가 확정한다. 여기서는 라벨과 색만 — 추천 게이트 카드와 같은 규약.
+const bot = computed(() => props.kpis?.botGate ?? null)
+const botLines = computed(() => bot.value?.lines ?? [])
+
+const BOT_STATE_LABELS = {
+  COLLECTING: '표본 수집 중',
+  EVALUABLE: '평가 가능',
+  CONSIDER_EXPANDING: '확대 검토 가능'
+}
+const botStateLabel = (line) =>
+  line?.dataAvailable ? (BOT_STATE_LABELS[line.state] || '판정 불가') : '측정 불가'
+const modeLabel = (mode) => (mode === 'REAL' ? '실전' : '모의')
+const STRATEGY_LABELS = { SCALPING: '스캘핑', SWING: '스윙', CLOSING: '종가매수', UNKNOWN: '미상' }
+const strategyLabel = (s) => STRATEGY_LABELS[s] || s
+
+// 통과는 첫 줄(현재 모드)만 본다. 꺼진 봇은 통과여도 초록으로 칠하지 않는다 — 그 성적은 '지금 봇'이 아니다.
+// 꺼짐은 고장이 아니라 상태라 빨강 대신 주황(warn).
+const botClass = computed(() => {
+  const first = botLines.value[0]
+  const off = bot.value?.botActive === false
+  return {
+    ok: first?.state === 'CONSIDER_EXPANDING' && !off,
+    collecting: first?.state === 'COLLECTING',
+    warn: off
+  }
+})
+
+const botMoeTitle = (line) => {
+  if (line.marginOfError == null) return '불확실성 폭을 아직 계산할 수 없다(거래일 2일 미만). 0 이 아니라 "모름"이다.'
+  return line.profitExceedsUncertainty
+    ? '하루 평균 수익이 95% 불확실성 폭을 넘었다 — 0 과 구분된다.'
+    : '하루 평균 수익이 불확실성 폭 안에 있다 — 0 과 구분되지 않는다(우연일 수 있다).'
+}
+
+/** 승률은 결측이면 '-'. */
+const rate = (v) => (v == null ? '-' : `${Number(v).toFixed(1)}%`)
 
 /** %는 결측이면 '-' — 0 으로 위장하지 않는다(§4c). */
 const pct = (v) => (v == null ? '-' : `${Number(v) > 0 ? '+' : ''}${Number(v).toFixed(2)}%`)
@@ -364,6 +444,11 @@ const headroomText = computed(() => {
 .trust-nums .up { color: var(--cr-grn); }
 .trust-nums .down { color: var(--cr-red); }
 .trust-nums .none { color: var(--cr-mut); }
+
+/* ⑧ 봇 — 추천 카드와 같은 한 줄 통째 레이아웃. 모드가 둘이면 줄을 나눠 쌓는다. */
+.bot-line + .bot-line { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--cr-line); }
+.bot-note { color: var(--cr-amb); }
+.bot-strategies { display: flex; flex-wrap: wrap; gap: 2px 14px; }
 
 .eyebrow {
   font-family: var(--cr-mono);

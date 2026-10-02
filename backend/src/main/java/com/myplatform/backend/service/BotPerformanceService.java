@@ -1,11 +1,14 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.controlroom.BotGateRules;
 import com.myplatform.backend.dto.BotPerformanceDto;
 import com.myplatform.backend.dto.BotPerformanceDto.DailyPnlDto;
 import com.myplatform.backend.dto.BotPerformanceDto.ExitReasonStatDto;
 import com.myplatform.backend.dto.BotPerformanceDto.StockPnlDto;
+import com.myplatform.backend.entity.BotConfig;
 import com.myplatform.backend.entity.VirtualAccount;
 import com.myplatform.backend.entity.VirtualTradeHistory;
+import com.myplatform.backend.repository.BotConfigRepository;
 import com.myplatform.backend.repository.VirtualAccountRepository;
 import com.myplatform.backend.repository.VirtualTradeHistoryRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +31,7 @@ public class BotPerformanceService {
 
     private final VirtualTradeHistoryRepository tradeHistoryRepository;
     private final VirtualAccountRepository accountRepository;
+    private final BotConfigRepository botConfigRepository;
 
     // Bot trade reasons (매수 + 매도 사유) — AutoTradingBotService 가 기록하는 실값과 동기.
     // 스윙/종가매수·청산 사유가 빠지면 승률/PnL/MDD 집계에서 해당 거래가 통째로 누락된다.
@@ -64,6 +68,93 @@ public class BotPerformanceService {
     );
 
     private static final Long REAL_ACCOUNT_ID = 999999L;
+
+    /** 봇 상태 행 key — 매매 모드(REAL/VIRTUAL)·켜짐 여부. */
+    private static final String BOT_CONFIG_KEY = "trading_bot";
+
+    // ==================== 봇 성적 게이트 (2026-10-02) ====================
+
+    /**
+     * 한 모드(계좌)의 "봇을 믿고 맡겨도 되나" 판정.
+     *
+     * @param dataAvailable false = 집계 실패(§4c — "거래 없음"과 구분)
+     * @param capitalKrw    최대 낙폭을 자본 대비로 볼 원금. 실전은 모름(null)
+     * @param verdict       판정(집계 실패면 null). 판정 규칙은 {@link BotGateRules} 단일 출처
+     */
+    public record BotGateLine(String mode, boolean dataAvailable, Long accountId, BigDecimal capitalKrw,
+                              BigDecimal realizedPnlKrw, LocalDate firstTradeDay, LocalDate lastTradeDay,
+                              BotGateRules.Verdict verdict, String note) {}
+
+    /**
+     * 봇 성적 게이트 묶음 — 현재 모드는 항상, 다른 모드는 거래가 있을 때만 싣는다.
+     *
+     * @param botActive          봇 켜짐 여부(설정 행). 조회 실패면 null
+     * @param botStatusChangedAt 마지막 켜기·끄기 시각
+     */
+    public record BotGateSummary(String currentMode, Boolean botActive, LocalDateTime botStatusChangedAt,
+                                 List<BotGateLine> lines, String note) {}
+
+    /**
+     * 관제실 카드·주간 텔레그램이 같이 쓰는 봇 성적 게이트.
+     *
+     * <p>봇은 추천 점수를 쓰지 않으므로(스윙=연속 순매수, 스캘핑=체결강도) 추천 게이트와 따로 판정한다.
+     * 표본은 <b>현재 모드 계좌의 봇 매도 전체</b> — 모의는 활성 가상계좌라서 계좌를 새로 만들면 표본도 새로 시작한다.
+     */
+    public BotGateSummary trustGateSummary() {
+        BotConfig config = null;
+        String note = null;
+        try {
+            config = botConfigRepository.findByConfigKey(BOT_CONFIG_KEY).orElse(null);
+        } catch (Exception e) {
+            log.warn("[봇 게이트] 봇 설정 조회 실패 — VIRTUAL 로 본다: {}", e.getMessage());
+            note = "봇 설정 조회 실패 — 모의 계좌로 판정";
+        }
+        String current = config != null && "REAL".equalsIgnoreCase(config.getTradingMode()) ? "REAL" : "VIRTUAL";
+
+        List<BotGateLine> lines = new ArrayList<>();
+        lines.add(trustGate(current));
+        BotGateLine other = trustGate("REAL".equals(current) ? "VIRTUAL" : "REAL");
+        if (other.dataAvailable() && other.verdict() != null && other.verdict().trades() > 0) {
+            lines.add(other);
+        }
+        return new BotGateSummary(current,
+                config == null ? null : config.getIsActive(),
+                config == null ? null : config.getLastStatusChange(),
+                List.copyOf(lines), note);
+    }
+
+    /** 한 모드의 판정. 실전 = 실계좌(999999), 모의 = 활성 가상계좌. */
+    public BotGateLine trustGate(String mode) {
+        boolean real = "REAL".equalsIgnoreCase(mode);
+        String label = real ? "REAL" : "VIRTUAL";
+        try {
+            Long accountId;
+            BigDecimal capital = null;
+            if (real) {
+                accountId = REAL_ACCOUNT_ID;
+            } else {
+                Optional<VirtualAccount> account = accountRepository.findFirstByIsActiveTrueOrderByIdDesc();
+                if (account.isEmpty()) {
+                    return new BotGateLine(label, true, null, null, BigDecimal.ZERO, null, null,
+                            BotGateRules.judge(List.of(), null, 0), "활성 가상계좌 없음 — 모의 봇 거래 0건");
+                }
+                accountId = account.get().getId();
+                capital = account.get().getInitialBalance();
+            }
+            BotTradeOutcomes.Result r = BotTradeOutcomes.build(
+                    tradeHistoryRepository.findBotTrades(accountId, BOT_REASONS));
+            BigDecimal maxDrawdownPct = capital == null || capital.signum() <= 0 ? null
+                    : r.maxDrawdownKrw().negate().multiply(BigDecimal.valueOf(100))
+                            .divide(capital, 2, RoundingMode.HALF_UP);
+            return new BotGateLine(label, true, accountId, capital, r.realizedPnlKrw(),
+                    r.firstDay(), r.lastDay(),
+                    BotGateRules.judge(r.outcomes(), maxDrawdownPct, r.excluded()), null);
+        } catch (Exception e) {
+            log.warn("[봇 게이트] {} 집계 실패: {}", label, e.getMessage());
+            return new BotGateLine(label, false, null, null, null, null, null, null,
+                    "집계 실패 (" + e.getClass().getSimpleName() + ")");
+        }
+    }
 
     /** 하위 호환 — mode 미지정 시 가상(모의) */
     public BotPerformanceDto getPerformance(Integer days) {

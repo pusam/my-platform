@@ -52,6 +52,9 @@ public class SignalWeeklyReportService {
     private final Clock clock;
     // 크론 dead-man switch — 일요일 18:00 리포트 성공 심박 기록(best-effort). null-safe(단위테스트 미주입 보존).
     private final ObjectProvider<BatchHeartbeatService> heartbeatProvider;
+    // 주간 텔레그램 '믿고 맡겨도 되나' 줄(2026-10-02) — 관제실 두 게이트와 같은 집계를 부른다. null-safe(단위테스트 미주입 보존).
+    private final ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
+    private final ObjectProvider<BotPerformanceService> botPerformanceProvider;
 
     public SignalWeeklyReportService(SignalOutcomeRepository outcomeRepository,
                                      SignalWeeklyAccuracyRepository weeklyRepository,
@@ -59,7 +62,9 @@ public class SignalWeeklyReportService {
                                      ObjectProvider<TelegramNotificationService> telegramProvider,
                                      ObjectMapper objectMapper,
                                      Clock clock,
-                                     ObjectProvider<BatchHeartbeatService> heartbeatProvider) {
+                                     ObjectProvider<BatchHeartbeatService> heartbeatProvider,
+                                     ObjectProvider<SignalOutcomeService> signalOutcomeProvider,
+                                     ObjectProvider<BotPerformanceService> botPerformanceProvider) {
         this.outcomeRepository = outcomeRepository;
         this.weeklyRepository = weeklyRepository;
         this.schedulerLockService = schedulerLockService;
@@ -67,6 +72,8 @@ public class SignalWeeklyReportService {
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.heartbeatProvider = heartbeatProvider;
+        this.signalOutcomeProvider = signalOutcomeProvider;
+        this.botPerformanceProvider = botPerformanceProvider;
     }
 
     /**
@@ -248,16 +255,109 @@ public class SignalWeeklyReportService {
         TelegramNotificationService telegram = telegramProvider.getIfAvailable();
         if (telegram == null || !telegram.isEnabled()) return;
         try {
-            telegram.sendBriefing(buildTelegramSummary(dto, priorSupplyInverted, supplyInverted));
+            telegram.sendBriefing(buildTelegramSummary(dto, priorSupplyInverted, supplyInverted, gateSectionQuiet()));
         } catch (Exception e) {
             log.warn("[주간측정] 텔레그램 요약 발송 실패: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 관제실 두 게이트를 주 1회 텔레그램으로 — 관제실을 안 열어도 "믿고 맡겨도 되나"의 현재 답을 놓치지 않게(2026-10-02).
+     *
+     * <p>판정은 관제실 카드와 <b>같은 집계</b>(추천 = {@code SignalOutcomeService.trustGate}, 봇 = {@code BotPerformanceService.trustGateSummary})
+     * 라서 숫자가 갈리지 않는다. 집계가 실패하면 줄을 빼지 않고 "측정 실패"로 적는다(§4c — 조용한 생략 금지).
+     */
+    private String gateSectionQuiet() {
+        com.myplatform.backend.controlroom.TrustGateRules.Verdict reco = null;
+        SignalSampleBoundary.Boundary boundary = null;
+        String recoFailure = null;
+        try {
+            SignalOutcomeService svc = signalOutcomeProvider == null ? null : signalOutcomeProvider.getIfAvailable();
+            if (svc == null) {
+                recoFailure = "시그널 집계 서비스 미가용";
+            } else {
+                boundary = svc.sampleBoundary();
+                if (boundary != null && boundary.isSet()) reco = svc.trustGate(boundary.since());
+            }
+        } catch (Exception e) {
+            log.warn("[주간측정] 추천 게이트 집계 실패: {}", e.getMessage());
+            recoFailure = "집계 실패(" + e.getClass().getSimpleName() + ")";
+        }
+        BotPerformanceService.BotGateSummary bot = null;
+        String botFailure = null;
+        try {
+            BotPerformanceService svc = botPerformanceProvider == null ? null : botPerformanceProvider.getIfAvailable();
+            if (svc == null) botFailure = "봇 성과 서비스 미가용";
+            else bot = svc.trustGateSummary();
+        } catch (Exception e) {
+            log.warn("[주간측정] 봇 게이트 집계 실패: {}", e.getMessage());
+            botFailure = "집계 실패(" + e.getClass().getSimpleName() + ")";
+        }
+        return gateSection(reco, boundary, recoFailure, bot, botFailure);
+    }
+
+    /**
+     * '믿고 맡겨도 되나' 블록 — 순수 함수(테스트 대상). 헤드라인은 게이트가 만든 문장을 그대로 쓴다(여기서 다시 판정하지 않음).
+     *
+     * @param reco        추천 게이트 판정. 표본 시작일이 미정이면 null
+     * @param recoFailure 추천 게이트 집계 실패 사유(성공이면 null)
+     * @param bot         봇 게이트 묶음(실패면 null)
+     * @param botFailure  봇 게이트 집계 실패 사유(성공이면 null)
+     */
+    static String gateSection(com.myplatform.backend.controlroom.TrustGateRules.Verdict reco,
+                              SignalSampleBoundary.Boundary boundary, String recoFailure,
+                              BotPerformanceService.BotGateSummary bot, String botFailure) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n🚦 <b>믿고 맡겨도 되나</b> (관제실 게이트)\n");
+
+        sb.append("• 추천: ");
+        if (recoFailure != null) {
+            sb.append("측정 실패 — ").append(TelegramNotificationService.escapeHtml(recoFailure));
+        } else if (reco == null) {
+            sb.append("표본 시작일 미정 — 현재 산식 판정 없음(검증 중)");
+        } else {
+            sb.append(TelegramNotificationService.escapeHtml(reco.headline()));
+            sb.append(String.format(" (표본 %d건·고유 %d일, %s~", reco.rows(), reco.distinctDays(), boundary.since()));
+            sb.append(boundary.status() == SignalSampleBoundary.Status.CONFIRMED ? ")" : " 잠정)");
+        }
+        sb.append('\n');
+
+        if (botFailure != null || bot == null) {
+            sb.append("• 봇: 측정 실패 — ")
+              .append(TelegramNotificationService.escapeHtml(botFailure == null ? "결과 없음" : botFailure)).append('\n');
+        } else {
+            for (BotPerformanceService.BotGateLine line : bot.lines()) {
+                sb.append("• 봇(").append("REAL".equals(line.mode()) ? "실전" : "모의");
+                if (line.mode().equals(bot.currentMode()) && Boolean.FALSE.equals(bot.botActive())) {
+                    sb.append(", 꺼짐");
+                    if (bot.botStatusChangedAt() != null) {
+                        sb.append(' ').append(bot.botStatusChangedAt().toLocalDate()).append('~');
+                    }
+                }
+                sb.append("): ");
+                if (!line.dataAvailable() || line.verdict() == null) {
+                    sb.append("측정 실패 — ").append(TelegramNotificationService.escapeHtml(line.note()));
+                } else {
+                    sb.append(TelegramNotificationService.escapeHtml(line.verdict().headline()));
+                    sb.append(String.format(" (거래 %d건·거래일 %d일)", line.verdict().trades(), line.verdict().distinctDays()));
+                }
+                sb.append('\n');
+            }
+        }
+        sb.append("<i>평가 가능 = 숫자를 읽을 수 있다는 뜻(유리하다는 뜻 아님) · 최고 단계도 확대 검토이지 실매수 승인 아님</i>\n");
+        return sb.toString();
     }
 
     /** 텔레그램 본문 — 카테고리별 적중률/전주 대비/경고. 표본부족 셀은 "(표본부족)" 명시. */
     /** 패키지 가시성 — {@code SignalWeeklyReportTelegramEscapeTest}. parse_mode=HTML 이라 자유 텍스트는 이스케이프. */
     String buildTelegramSummary(WeeklySignalAccuracyDto dto, List<Boolean> priorSupplyInverted,
                                 boolean supplyInverted) {
+        return buildTelegramSummary(dto, priorSupplyInverted, supplyInverted, null);
+    }
+
+    /** @param gateSection '믿고 맡겨도 되나' 블록({@link #gateSection}). null 이면 넣지 않는다 */
+    String buildTelegramSummary(WeeklySignalAccuracyDto dto, List<Boolean> priorSupplyInverted,
+                                boolean supplyInverted, String gateSection) {
         StringBuilder sb = new StringBuilder();
         sb.append("📊 <b>주간 시그널 예측력 측정</b> (").append(dto.getWeekStart())
                 .append(" ~ ").append(dto.getWeekEnd()).append(")\n");
@@ -286,6 +386,8 @@ public class SignalWeeklyReportService {
                 sb.append("• ").append(TelegramNotificationService.escapeHtml(w)).append('\n');
             }
         }
+
+        if (gateSection != null) sb.append(gateSection);
 
         sb.append("\n<i>측정 전용 — 종합점수 산식 무변경. /api/signal-outcomes/weekly-report</i>");
         return sb.toString();
