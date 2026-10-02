@@ -237,8 +237,9 @@ public class GlobalFuturesService {
                 }
             }
 
-            // 마켓 상태
-            String marketStatus = meta.path("marketState").asText("CLOSED");
+            // 마켓 상태 — 응답에 없으면 null(모름). 예전엔 없을 때 "CLOSED" 로 채워 장중(10/2 11:28)에도 머리말이
+            // "장마감"이었다(2026-10-02 화면 점검). 모르는 것을 닫혔다고 말하지 않는다(§4c) — 화면은 null 이면 배지를 안 그린다.
+            String marketStatus = marketStateOrNull(meta);
 
             // 데이터 경과 시간 계산
             long dataAgeMinutes = 0;
@@ -758,6 +759,15 @@ public class GlobalFuturesService {
     private volatile Map<String, Object> fearGreedCache = null;
     private volatile long fearGreedCacheTime = 0;
     private static final long FEAR_GREED_CACHE_MS = 5 * 60 * 1000; // 5분 캐시
+
+    /** Yahoo chart meta 의 marketState — 없거나 비면 null(모름). 순수 함수(테스트 대상). */
+    static String marketStateOrNull(com.fasterxml.jackson.databind.JsonNode meta) {
+        if (meta == null) return null;
+        com.fasterxml.jackson.databind.JsonNode v = meta.get("marketState");
+        if (v == null || v.isNull()) return null;
+        String s = v.asText("").trim();
+        return s.isEmpty() ? null : s;
+    }
 
     /**
      * CNN Fear & Greed Index 조회

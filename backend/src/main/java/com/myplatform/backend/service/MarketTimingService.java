@@ -57,14 +57,21 @@ public class MarketTimingService {
     // 휴장일 가드 — MON-FRI cron 만으론 평일 공휴일에 '오늘' 행을 만든다(2026-09-28)
     private final MarketCalendarService marketCalendar;
 
+    // 등락 종목 수 출처 — KIS 국내업종 현재지수(2026-10-02, 죽은 네이버 시세 크롤 대체). MarketBreadth 참조.
+    private final KoreaInvestmentService koreaInvestmentService;
+
+    private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
+
     public MarketTimingService(MarketDailyStatusRepository marketDailyStatusRepository,
                                TelegramNotificationService telegramNotificationService,
                                RedisCacheService redisCacheService,
-                               MarketCalendarService marketCalendar) {
+                               MarketCalendarService marketCalendar,
+                               KoreaInvestmentService koreaInvestmentService) {
         this.marketDailyStatusRepository = marketDailyStatusRepository;
         this.telegramNotificationService = telegramNotificationService;
         this.redisCacheService = redisCacheService;
         this.marketCalendar = marketCalendar;
+        this.koreaInvestmentService = koreaInvestmentService;
     }
 
     // ADR 기준값
@@ -127,6 +134,12 @@ public class MarketTimingService {
         boolean kosdaqExists = marketDailyStatusRepository.findByMarketTypeAndTradeDate("KOSDAQ", today).isPresent();
 
         if (!kospiExists || !kosdaqExists) {
+            // 장중 부팅이면 수집하지 않는다 — 등락 종목 수는 장 마감 확정치만 쓴다(MarketBreadth.COUNTS_SETTLED_AT).
+            // 저녁 배포처럼 마감 뒤 부팅이면 여기서 그날 값을 채운다.
+            if (!MarketBreadth.countsSettled(java.time.LocalTime.now(KST))) {
+                log.info("ADR 시장 데이터 — 장 마감 전 부팅이라 수집하지 않는다(16:30 크론이 확정치를 쓴다, 날짜: {})", today);
+                return;
+            }
             log.info("ADR 시장 데이터가 없습니다. 초기 데이터 수집을 시작합니다... (날짜: {})", today);
             try {
                 collectMarketData();
@@ -229,21 +242,11 @@ public class MarketTimingService {
         kospiStatus = refreshIndexIfMissing(kospiStatus, "KOSPI");
         kosdaqStatus = refreshIndexIfMissing(kosdaqStatus, "KOSDAQ");
 
-        // ADR이 없으면 계산
-        if (kospiStatus != null && kospiStatus.getAdr20() == null) {
-            BigDecimal adr = calculateAdr("KOSPI", analysisDate);
-            kospiStatus.setAdr20(adr);
-            kospiStatus.setCondition(determineCondition(adr));
-        }
-        if (kosdaqStatus != null && kosdaqStatus.getAdr20() == null) {
-            BigDecimal adr = calculateAdr("KOSDAQ", analysisDate);
-            kosdaqStatus.setAdr20(adr);
-            kosdaqStatus.setCondition(determineCondition(adr));
-        }
-
-        // ★ 당일 등락비가 없으면 실시간 크롤링으로 보충 (지수와 시점 동기화)
-        refreshDailyRatioIfMissing(kospiStatus, "KOSPI");
-        refreshDailyRatioIfMissing(kosdaqStatus, "KOSDAQ");
+        // ADR 은 저장된 adr20 을 믿지 않고 매번 등락 수에서 다시 계산한다(2026-10-02) — 크롤 사망 기간에 저장된 adr20 은
+        // 0 행이 섞인 창으로 계산돼 "3주 전 6일치"가 정상값처럼 남아 있다. 창 안 유효일이 부족하면 null(판단 보류).
+        // (장중 등락비 실시간 보충은 죽은 네이버 크롤이었다 — 분당 헛요청만 남겨 제거. 당일 등락비는 16:30 확정치로 채운다.)
+        applyAdr(kospiStatus, "KOSPI");
+        applyAdr(kosdaqStatus, "KOSDAQ");
 
         // 종합 ADR 계산
         BigDecimal combinedAdr = calculateCombinedAdr(kospiStatus, kosdaqStatus);
@@ -251,7 +254,8 @@ public class MarketTimingService {
 
         // 진단 및 전략 생성
         String diagnosis = generateDiagnosis(kospiStatus, kosdaqStatus, combinedAdr);
-        String strategy = overallCondition != null ? overallCondition.getSuggestion() : "";
+        String strategy = overallCondition != null ? overallCondition.getSuggestion()
+                : "시장 폭 데이터가 다시 쌓일 때까지 ADR 기반 판단은 쓰지 않습니다.";
 
         // ★ 당일 급락/폭락 오버라이드: ADR이 정상이더라도 당일 등락률이 크면 상태 보정
         BigDecimal kospiRate = (kospiStatus != null) ? kospiStatus.getIndexChangeRate() : null;
@@ -339,7 +343,8 @@ public class MarketTimingService {
         List<AdrHistoryDto> history = new ArrayList<>();
 
         LocalDate endDate = LocalDate.now();
-        LocalDate startDate = endDate.minusDays(days + ADR_PERIOD);
+        // 각 날짜의 ADR 창(20행)까지 담으려고 넉넉히 — 저장된 adr20 대신 등락 수에서 다시 계산한다(MarketBreadth).
+        LocalDate startDate = endDate.minusDays(days + ADR_PERIOD * 2L + 20);
 
         List<MarketDailyStatus> kospiData = marketDailyStatusRepository
                 .findByMarketTypeAndTradeDateBetweenOrderByTradeDateDesc("KOSPI", startDate, endDate);
@@ -351,13 +356,13 @@ public class MarketTimingService {
             MarketDailyStatus kospi = kospiData.get(i);
             LocalDate date = kospi.getTradeDate();
 
-            BigDecimal kospiAdr = kospi.getAdr20() != null ? kospi.getAdr20() : calculateAdr("KOSPI", date);
+            BigDecimal kospiAdr = MarketBreadth.adr(kospiData.subList(i, kospiData.size())).value();
             BigDecimal kosdaqAdr = null;
 
             // 코스닥 데이터 찾기
-            for (MarketDailyStatus k : kosdaqData) {
-                if (k.getTradeDate().equals(date)) {
-                    kosdaqAdr = k.getAdr20() != null ? k.getAdr20() : calculateAdr("KOSDAQ", date);
+            for (int j = 0; j < kosdaqData.size(); j++) {
+                if (kosdaqData.get(j).getTradeDate().equals(date)) {
+                    kosdaqAdr = MarketBreadth.adr(kosdaqData.subList(j, kosdaqData.size())).value();
                     break;
                 }
             }
@@ -378,8 +383,9 @@ public class MarketTimingService {
     /**
      * 매일 장 마감 후 ADR 시장 지표 자동 수집 (평일 16:30)
      * - 15:30 장 마감 후 1시간 여유를 두고 수집
+     * - 초 필드 20 — 2026-10-02 부터 KIS 를 부르므로 :00 을 피한다(잔고 모니터·워머가 :00 에 몰린다, §4b)
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "cacheScheduler", cron = "20 30 16 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void scheduledMarketDataCollection() {
         // 휴장일 가드 — collectMarketData 는 '오늘' 날짜로 저장한다. 평일 공휴일에 돌면 직전 거래일 값이
@@ -398,162 +404,95 @@ public class MarketTimingService {
     }
 
     /**
-     * 시장 데이터 수집 (네이버 금융)
+     * 시장 데이터 수집 — 등락 종목 수는 KIS 국내업종 현재지수(2026-10-02), 지수 종가·등락률은 네이버 모바일 지수 API.
+     *
+     * <p>등락 수는 장 마감 확정치만 쓴다 — 15:40 전이면 아무것도 저장하지 않고 예외로 알린다(수동 버튼이 "완료"로 속지 않게).
+     * 한 시장이라도 조회에 실패하면 그 시장 행은 만들지도 고치지도 않고, 마지막에 예외로 실패를 알린다(§4c — 0 으로 저장 금지).
+     * 예전 네이버 시세 크롤은 실패를 0 으로 저장해 9/11~10/2 ADR 이 3주 전 값으로 굳었다({@link MarketBreadth}).
      */
     @Transactional
     public void collectMarketData() {
+        collectMarketData(java.time.LocalTime.now(KST));
+    }
+
+    /** 시각을 받는 본체 — 장 마감 전/후 동작을 테스트하려고 분리. */
+    void collectMarketData(java.time.LocalTime now) {
+        if (!MarketBreadth.countsSettled(now)) {
+            throw new IllegalStateException("장 마감(" + MarketBreadth.COUNTS_SETTLED_AT
+                    + ") 전에는 등락 종목 수를 저장하지 않습니다 — 장중 잠정치입니다. 16:30 에 자동 수집됩니다.");
+        }
         log.info("시장 데이터 수집 시작");
-
-        try {
-            // 코스피 데이터 수집
-            collectMarketDataFromNaver("KOSPI");
-
-            // 코스닥 데이터 수집
-            collectMarketDataFromNaver("KOSDAQ");
-
-            log.info("시장 데이터 수집 완료");
-        } catch (Exception e) {
-            log.error("시장 데이터 수집 실패: {}", e.getMessage(), e);
-            throw new RuntimeException("시장 데이터 수집 실패: " + e.getMessage());
+        List<String> failed = new ArrayList<>();
+        if (!collectMarketDataFor("KOSPI", "0001")) failed.add("KOSPI");
+        if (!collectMarketDataFor("KOSDAQ", "1001")) failed.add("KOSDAQ");
+        if (!failed.isEmpty()) {
+            throw new IllegalStateException("등락 종목 수 조회 실패: " + failed + " — 저장하지 않았다(0 으로 위장하지 않음)");
         }
+        log.info("시장 데이터 수집 완료");
     }
 
     /**
-     * 네이버 금융에서 시장 데이터 수집
+     * 한 시장의 하루 행 — 등락 수를 못 받으면 false(행을 만들지도 고치지도 않는다).
+     *
+     * @param indexCode KIS 업종코드 — 코스피 0001, 코스닥 1001
      */
-    private void collectMarketDataFromNaver(String marketType) {
+    private boolean collectMarketDataFor(String marketType, String indexCode) {
+        MarketBreadth.Counts counts;
         try {
-            String url;
-            if ("KOSPI".equals(marketType)) {
-                url = "https://finance.naver.com/sise/sise_rise.naver";
-            } else {
-                url = "https://finance.naver.com/sise/sise_rise.naver?sosok=1";
-            }
-
-            // 상승/하락/보합 종목 수 수집
-            int advancingCount = crawlStockCount(marketType, "rise");
-            int decliningCount = crawlStockCount(marketType, "fall");
-            int unchangedCount = crawlStockCount(marketType, "steady");
-            int upperLimitCount = crawlStockCount(marketType, "upper");
-            int lowerLimitCount = crawlStockCount(marketType, "lower");
-
-            // 지수 정보 수집
-            BigDecimal[] indexInfo = crawlIndexInfo(marketType);
-            BigDecimal indexClose = indexInfo[0];
-            BigDecimal indexChangeRate = indexInfo[1];
-            BigDecimal tradingValue = indexInfo[2];
-
-            LocalDate today = LocalDate.now();
-
-            // 기존 데이터 확인
-            Optional<MarketDailyStatus> existing = marketDailyStatusRepository
-                    .findByMarketTypeAndTradeDate(marketType, today);
-
-            MarketDailyStatus status;
-            if (existing.isPresent()) {
-                status = existing.get();
-            } else {
-                status = new MarketDailyStatus();
-                status.setMarketType(marketType);
-                status.setTradeDate(today);
-            }
-
-            status.setAdvancingCount(advancingCount);
-            status.setDecliningCount(decliningCount);
-            status.setUnchangedCount(unchangedCount);
-            status.setUpperLimitCount(upperLimitCount);
-            status.setLowerLimitCount(lowerLimitCount);
-            status.setTotalCount(advancingCount + decliningCount + unchangedCount);
-            status.setIndexClose(indexClose);
-            status.setIndexChangeRate(indexChangeRate);
-            status.setTradingValue(tradingValue);
-
-            // 당일 등락비 계산
-            if (decliningCount > 0) {
-                BigDecimal dailyRatio = BigDecimal.valueOf(advancingCount)
-                        .divide(BigDecimal.valueOf(decliningCount), 2, RoundingMode.HALF_UP)
-                        .multiply(new BigDecimal("100"));
-                status.setDailyRatio(dailyRatio);
-            }
-
-            // ADR 계산
-            BigDecimal adr = calculateAdr(marketType, today);
-            status.setAdr20(adr);
-
-            marketDailyStatusRepository.save(status);
-            log.info("{} 시장 데이터 저장 완료: 상승={}, 하락={}, 보합={}, ADR={}",
-                    marketType, advancingCount, decliningCount, unchangedCount, adr);
-
+            counts = MarketBreadth.fromKisIndexPrice(koreaInvestmentService.getIndexPrice(indexCode));
         } catch (Exception e) {
-            log.error("{} 시장 데이터 수집 실패: {}", marketType, e.getMessage());
-            throw new RuntimeException(marketType + " 데이터 수집 실패: " + e.getMessage());
+            log.warn("[시장 폭] {} KIS 등락 종목 수 조회 예외: {}", marketType, e.getMessage());
+            counts = null;
         }
-    }
-
-    /**
-     * 종목 수 크롤링
-     */
-    private int crawlStockCount(String marketType, String type) {
-        try {
-            String sosok = "KOSPI".equals(marketType) ? "0" : "1";
-            String url;
-
-            switch (type) {
-                case "rise":
-                    url = "https://finance.naver.com/sise/sise_rise.naver?sosok=" + sosok;
-                    break;
-                case "fall":
-                    url = "https://finance.naver.com/sise/sise_fall.naver?sosok=" + sosok;
-                    break;
-                case "steady":
-                    url = "https://finance.naver.com/sise/sise_steady.naver?sosok=" + sosok;
-                    break;
-                case "upper":
-                    url = "https://finance.naver.com/sise/sise_upper.naver?sosok=" + sosok;
-                    break;
-                case "lower":
-                    url = "https://finance.naver.com/sise/sise_lower.naver?sosok=" + sosok;
-                    break;
-                default:
-                    return 0;
-            }
-
-            Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0")
-                    .timeout(10000)
-                    .get();
-
-            // 종목 수 추출 (예: "상승 (528)")
-            Element countElement = doc.selectFirst("div.subtop_sise_graph2 span");
-            if (countElement != null) {
-                String text = countElement.text();
-                // 괄호 안의 숫자 추출
-                if (text.contains("(") && text.contains(")")) {
-                    String numStr = text.substring(text.indexOf("(") + 1, text.indexOf(")"));
-                    return Integer.parseInt(numStr.replace(",", ""));
-                }
-            }
-
-            // 테이블에서 행 수 세기 (fallback)
-            Elements rows = doc.select("table.type_2 tbody tr");
-            int count = 0;
-            for (Element row : rows) {
-                if (row.select("td").size() > 1 && !row.select("td a").isEmpty()) {
-                    count++;
-                }
-            }
-            return count;
-
-        } catch (Exception e) {
-            log.warn("{} {} 종목 수 크롤링 실패: {}", marketType, type, e.getMessage());
-            return 0;
+        if (counts == null) {
+            log.warn("[시장 폭] {} 등락 종목 수 미확보 — 행을 만들지도 고치지도 않는다(0 으로 저장하지 않음, §4c)", marketType);
+            return false;
         }
+
+        // 지수 정보 수집 (네이버 모바일 API → HTML 폴백). 못 받으면 그 칸만 비운다.
+        BigDecimal[] indexInfo = crawlIndexInfo(marketType);
+
+        LocalDate today = LocalDate.now(KST);
+        MarketDailyStatus status = marketDailyStatusRepository
+                .findByMarketTypeAndTradeDate(marketType, today)
+                .orElseGet(() -> {
+                    MarketDailyStatus s = new MarketDailyStatus();
+                    s.setMarketType(marketType);
+                    s.setTradeDate(today);
+                    return s;
+                });
+
+        status.setAdvancingCount(counts.advancing());
+        status.setDecliningCount(counts.declining());
+        status.setUnchangedCount(counts.unchanged());
+        status.setUpperLimitCount(counts.upperLimit());
+        status.setLowerLimitCount(counts.lowerLimit());
+        status.setTotalCount(counts.total());
+        if (indexInfo[0] != null) status.setIndexClose(indexInfo[0]);
+        if (indexInfo[1] != null) status.setIndexChangeRate(indexInfo[1]);
+        if (indexInfo[2] != null) status.setTradingValue(indexInfo[2]);
+        status.setDailyRatio(counts.declining() > 0
+                ? BigDecimal.valueOf(counts.advancing())
+                        .divide(BigDecimal.valueOf(counts.declining()), 2, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                : null);
+        marketDailyStatusRepository.save(status);
+
+        // ADR 은 오늘 행까지 넣어 다시 계산(같은 트랜잭션이라 방금 저장한 행이 창에 들어간다)
+        MarketBreadth.Adr adr = adrDetail(marketType, today);
+        status.setAdr20(adr.value());
+        marketDailyStatusRepository.save(status);
+        log.info("{} 시장 데이터 저장 완료: 상승={}, 하락={}, 보합={}, ADR={} (유효 {}일/{})",
+                marketType, counts.advancing(), counts.declining(), counts.unchanged(),
+                adr.value(), adr.validDays(), adr.windowDays());
+        return true;
     }
 
     /**
      * 지수 정보 조회 (네이버 모바일 API 우선 → HTML 크롤링 폴백)
      */
-    private BigDecimal[] crawlIndexInfo(String marketType) {
+    // package-private — 단위 테스트가 네트워크 없이 바꿔 끼운다(MarketTimingBreadthCollectionTest)
+    BigDecimal[] crawlIndexInfo(String marketType) {
         BigDecimal[] result = new BigDecimal[3];  // [종가, 등락률, 거래대금]
 
         // 1차: 네이버 모바일 API (JSON - 안정적)
@@ -613,7 +552,8 @@ public class MarketTimingService {
      * API: https://m.stock.naver.com/api/index/{KOSPI|KOSDAQ}/basic
      * 응답 필드: closePrice, compareToPreviousClosePrice, fluctuationsRatio 등
      */
-    private BigDecimal[] fetchIndexFromNaverApi(String marketType) throws Exception {
+    // package-private — 단위 테스트가 네트워크 없이 바꿔 끼운다(MarketTimingBreadthCollectionTest)
+    BigDecimal[] fetchIndexFromNaverApi(String marketType) throws Exception {
         BigDecimal[] result = new BigDecimal[3];
         String code = "KOSPI".equals(marketType) ? "KOSPI" : "KOSDAQ";
 
@@ -764,33 +704,12 @@ public class MarketTimingService {
     }
 
     /**
-     * 당일 등락비가 없으면 실시간 크롤링으로 보충
-     * - 지수는 실시간 API로 갱신되지만 등락비는 16:30 스케줄 수집에 의존
-     * - 장중에는 DB에 오늘 데이터가 없으므로 등락비도 실시간으로 보충
-     * - ★ condition 은 건드리지 않는다 (점검 수정 2026-06-11): 과거엔 당일 등락비를
-     *   determineCondition(ADR 임계 120/80/60)에 넣어 ADR 기반 판정을 덮어썼는데,
-     *   하루짜리 등락비는 20일 ADR 보다 변동성이 훨씬 커서 평범한 상승일(등락비 150)도
-     *   장중 '과열', 평범한 하락일(70)도 '침체'로 오판되는 버그였음.
-     */
-    private void refreshDailyRatioIfMissing(MarketStatusDto status, String marketType) {
-        if (status == null || status.getDailyRatio() != null) {
-            return;
-        }
-        try {
-            int adv = crawlStockCount(marketType, "rise");
-            int dec = crawlStockCount(marketType, "fall");
-            BigDecimal dailyRatio = applyDailyRatio(status, adv, dec);
-            if (dailyRatio != null) {
-                log.debug("{} 당일 등락비 실시간 보충: {} (상승={}, 하락={})", marketType, dailyRatio, adv, dec);
-            }
-        } catch (Exception e) {
-            log.debug("{} 당일 등락비 실시간 보충 실패: {}", marketType, e.getMessage());
-        }
-    }
-
-    /**
      * 당일 등락비 계산·세팅 — 순수 로직 (테스트 대상). dailyRatio 만 채우고
      * ADR(20일) 기반 condition 은 보존한다. 분모(하락 종목 수) 0 이하이면 no-op.
+     *
+     * <p>★ condition 은 건드리지 않는다 (점검 수정 2026-06-11): 과거엔 당일 등락비를 determineCondition(ADR 임계
+     * 120/80/60)에 넣어 ADR 기반 판정을 덮어썼는데, 하루짜리 등락비는 20일 ADR 보다 변동성이 훨씬 커서 평범한
+     * 상승일(등락비 150)도 장중 '과열'로 오판됐다. (장중 실시간 보충은 죽은 네이버 크롤이라 2026-10-02 제거했다.)
      */
     static BigDecimal applyDailyRatio(MarketStatusDto status, int adv, int dec) {
         if (status == null || dec <= 0) {
@@ -804,44 +723,52 @@ public class MarketTimingService {
     }
 
     /**
-     * ADR 계산 (20일 기준)
-     * ADR = (20일 상승 종목 수 합계 / 20일 하락 종목 수 합계) * 100
+     * ADR 계산 (20일 기준) — 창 안 '등락 수가 실제로 있는 날'만 합산, 그런 날이 15일 미만이면 null(판단 보류).
+     * 규칙은 {@link MarketBreadth#adr} 단일 출처.
      */
     public BigDecimal calculateAdr(String marketType, LocalDate endDate) {
-        LocalDate startDate = endDate.minusDays(ADR_PERIOD + 10);  // 여유있게 조회
+        return adrDetail(marketType, endDate).value();
+    }
 
+    /** ADR 과 그 근거(유효일·창 크기). 휴장·서버 다운으로 빈 날까지 담으려고 달력일 넉넉히 조회한다. */
+    MarketBreadth.Adr adrDetail(String marketType, LocalDate endDate) {
+        LocalDate startDate = endDate.minusDays(ADR_PERIOD * 2L + 5);
         List<MarketDailyStatus> recentData = marketDailyStatusRepository
                 .findByMarketTypeAndTradeDateBetweenOrderByTradeDateDesc(marketType, startDate, endDate);
-
-        if (recentData.size() < ADR_PERIOD) {
-            log.debug("{} ADR 계산 불가: 데이터 부족 ({}/{}일)", marketType, recentData.size(), ADR_PERIOD);
-            return null;
+        MarketBreadth.Adr adr = MarketBreadth.adr(recentData);
+        if (adr.value() == null) {
+            log.debug("{} ADR 판단 보류: 유효 {}일/{} (필요 {}일)", marketType,
+                    adr.validDays(), adr.windowDays(), MarketBreadth.MIN_VALID_DAYS);
         }
-
-        // 최근 20일 데이터만 사용
-        List<MarketDailyStatus> targetData = recentData.subList(0, Math.min(ADR_PERIOD, recentData.size()));
-
-        long totalAdvancing = 0;
-        long totalDeclining = 0;
-
-        for (MarketDailyStatus data : targetData) {
-            totalAdvancing += data.getAdvancingCount() != null ? data.getAdvancingCount() : 0;
-            totalDeclining += data.getDecliningCount() != null ? data.getDecliningCount() : 0;
-        }
-
-        if (totalDeclining == 0) {
-            return new BigDecimal("999.99");  // 하락 종목 없음
-        }
-
-        BigDecimal adr = BigDecimal.valueOf(totalAdvancing)
-                .divide(BigDecimal.valueOf(totalDeclining), 4, RoundingMode.HALF_UP)
-                .multiply(new BigDecimal("100"))
-                .setScale(2, RoundingMode.HALF_UP);
-
-        log.debug("{} ADR 계산 완료: {} (상승합계={}, 하락합계={})",
-                marketType, adr, totalAdvancing, totalDeclining);
-
         return adr;
+    }
+
+    /**
+     * 시장 폭 수집 건강(관제실 규칙 ⑮ 입력) — 코스피 기준 마지막으로 등락 수가 있는 날과 ADR 창 유효일.
+     *
+     * @param latestCountedDate 등락 수가 실제로 있는 가장 최근 날(없으면 null)
+     */
+    public record BreadthHealth(LocalDate latestCountedDate, int validDays) {}
+
+    public BreadthHealth breadthHealth(LocalDate today) {
+        List<MarketDailyStatus> rows = marketDailyStatusRepository
+                .findByMarketTypeAndTradeDateBetweenOrderByTradeDateDesc("KOSPI", today.minusDays(120), today);
+        LocalDate latest = rows.stream()
+                .filter(MarketBreadth::hasCounts)
+                .map(MarketDailyStatus::getTradeDate)
+                .findFirst()
+                .orElse(null);
+        return new BreadthHealth(latest, MarketBreadth.adr(rows).validDays());
+    }
+
+    /** 화면용 상태에 ADR·상태·유효일을 채운다(저장된 adr20 은 쓰지 않는다). */
+    private void applyAdr(MarketStatusDto status, String marketType) {
+        if (status == null) return;
+        LocalDate end = status.getTradeDate() != null ? status.getTradeDate() : LocalDate.now(KST);
+        MarketBreadth.Adr adr = adrDetail(marketType, end);
+        status.setAdr20(adr.value());
+        status.setCondition(determineCondition(adr.value()));
+        status.setAdrValidDays(adr.validDays());
     }
 
     /**
@@ -890,6 +817,12 @@ public class MarketTimingService {
     private String generateDiagnosis(MarketStatusDto kospi, MarketStatusDto kosdaq, BigDecimal combinedAdr) {
         StringBuilder sb = new StringBuilder();
 
+        if (combinedAdr == null) {
+            // 판단 보류 — 그럴듯한 값 대신 왜 없는지를 말한다(§4c). 오늘 탭·모닝브리핑·AI 분석이 이 문장을 그대로 쓴다.
+            sb.append(MarketBreadth.insufficientMessage(
+                    kospi == null ? null : kospi.getAdrValidDays(),
+                    kosdaq == null ? null : kosdaq.getAdrValidDays()));
+        }
         if (combinedAdr != null) {
             sb.append(String.format("종합 ADR(20일): %.1f ", combinedAdr));
 
@@ -919,15 +852,17 @@ public class MarketTimingService {
      * Entity를 DTO로 변환
      */
     private MarketStatusDto convertToStatusDto(MarketDailyStatus entity) {
+        // 0/0/0 행(크롤 사망 기간에 실패를 0 으로 저장한 행)은 '모름'으로 내보낸다 — 화면이 0 종목을 사실로 그리지 않게.
+        boolean counted = MarketBreadth.hasCounts(entity);
         return MarketStatusDto.builder()
                 .marketType(entity.getMarketType())
                 .tradeDate(entity.getTradeDate())
-                .advancingCount(entity.getAdvancingCount())
-                .decliningCount(entity.getDecliningCount())
-                .unchangedCount(entity.getUnchangedCount())
-                .upperLimitCount(entity.getUpperLimitCount())
-                .lowerLimitCount(entity.getLowerLimitCount())
-                .dailyRatio(entity.getDailyRatio())
+                .advancingCount(counted ? entity.getAdvancingCount() : null)
+                .decliningCount(counted ? entity.getDecliningCount() : null)
+                .unchangedCount(counted ? entity.getUnchangedCount() : null)
+                .upperLimitCount(counted ? entity.getUpperLimitCount() : null)
+                .lowerLimitCount(counted ? entity.getLowerLimitCount() : null)
+                .dailyRatio(counted ? entity.getDailyRatio() : null)
                 .adr20(entity.getAdr20())
                 .condition(determineCondition(entity.getAdr20()))
                 .indexClose(entity.getIndexClose())

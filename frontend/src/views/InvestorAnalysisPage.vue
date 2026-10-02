@@ -58,7 +58,8 @@
                   <th>종목명</th>
                   <th>종목코드</th>
                   <th>{{ tradeType === 'BUY' ? '순매수' : '순매도' }} (억원)</th>
-                  <th>현재가</th>
+                  <!-- 저장된 수급 기록의 가격 = 그날 종가(2026-10-02) — "현재가"라 부르면 실시간 시세 화면과 값이 갈려 보인다 -->
+                  <th>종가</th>
                   <th>등락률</th>
                 </tr>
               </thead>
@@ -170,11 +171,11 @@
                   <span class="value date">{{ formatDateRange(stock.startDate, stock.endDate) }}</span>
                 </div>
                 <div class="detail-row" v-if="stock.currentPrice">
-                  <span class="label">현재가</span>
+                  <span class="label">{{ storedPriceLabel(stock.endDate) }}</span>
                   <span class="value">{{ formatNumber(stock.currentPrice) }}원</span>
                 </div>
                 <div class="detail-row" v-if="stock.changeRate">
-                  <span class="label">등락률</span>
+                  <span class="label">등락률(그날)</span>
                   <span class="value rate" :class="getRateClass(stock.changeRate)">
                     {{ formatRate(stock.changeRate) }}
                   </span>
@@ -266,6 +267,7 @@ import { ref, computed, onMounted, defineProps } from 'vue'
 import { useRouter } from 'vue-router'
 import { investorAPI, shortSellingAPI } from '../utils/api'
 import { toast } from '../utils/toast'
+import { tradeDataLabel, storedPriceLabel } from '../utils/marketDataLabels'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
 import DataFreshness from '../components/DataFreshness.vue'
@@ -331,25 +333,12 @@ const tradeDataStatusIcon = computed(() => {
   return '📊'
 })
 
+// 머리말은 데이터의 거래일로(2026-10-02) — 브라우저 시계로 "오늘 HH:mm (잠정)"을 붙이면 장중엔 어제 확정치가
+// 오늘 잠정치처럼 보였다. 서버는 장 마감 확정치만 저장한다(InvestorDailyConfirmation). 판정은 marketDataLabels 단일 출처.
 const updateTradeStatus = () => {
-  const now = new Date()
-  const hours = now.getHours()
-  const minutes = now.getMinutes()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  const hour = String(hours).padStart(2, '0')
-  const min = String(minutes).padStart(2, '0')
-
-  if (hours >= 15 && minutes >= 30) {
-    tradeTimestamp.value = `${month}.${day} 장 마감 확정`
-    tradeDataStatus.value = 'status-confirmed'
-  } else if (hours >= 9 && hours < 16) {
-    tradeTimestamp.value = `${month}.${day} ${hour}:${min} (잠정)`
-    tradeDataStatus.value = 'status-live'
-  } else {
-    tradeTimestamp.value = `${month}.${day} ${hour}:${min}`
-    tradeDataStatus.value = 'status-unknown'
-  }
+  const label = tradeDataLabel(allTrades.value)
+  tradeTimestamp.value = label.text
+  tradeDataStatus.value = label.status
 }
 
 const changeTradeType = (type) => {

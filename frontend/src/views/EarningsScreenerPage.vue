@@ -16,7 +16,8 @@
           <span class="timestamp-icon">📅</span>
           <span class="timestamp-label">데이터 기준일:</span>
           <span class="timestamp-value">{{ formatDateTime(collectStatus.lastUpdatedAt) }}</span>
-          <span class="data-count">({{ collectStatus.totalRecords?.toLocaleString() }}개 종목)</span>
+          <!-- 서버의 totalRecords 는 재무 테이블 누적 행 수(날짜별 스냅샷 포함)다 — 종목 수가 아니다(예전 "129,414개 종목", 2026-10-02) -->
+          <span class="data-count">(누적 {{ collectStatus.totalRecords?.toLocaleString() }}건)</span>
         </div>
         <div v-else class="timestamp-info warning">
           <span class="timestamp-icon">⚠️</span>

@@ -91,16 +91,19 @@ public class TradingDiaryService {
         // 3) Gemini 프롬프트용 요약 빌드
         String summaryText = buildSummary(weekStart, weekEnd, stats, auditLogs, histories);
 
-        // 4) Gemini 호출
-        String aiReport;
-        try {
-            aiReport = geminiService.generateWeeklyTradingReport(summaryText);
-            if (aiReport == null || aiReport.isBlank()) {
-                aiReport = "AI 분석을 일시적으로 사용할 수 없습니다. 통계만 저장되었습니다.";
+        // 4) Gemini 호출 — 매매가 없는 주는 부르지 않는다(2026-10-02). 예전엔 0건인 주에도 "다음 주엔 반드시 1회 이상 매매",
+        //    "소액 실제 투자 병행" 같은 조언을 지어냈다 — 분석할 거래가 없는데 그럴듯한 문장을 만드는 것(§4c).
+        String aiReport = noTradeReport(stats.totalBuys, stats.totalSells, stats.blockedCount);
+        if (aiReport == null) {
+            try {
+                aiReport = geminiService.generateWeeklyTradingReport(summaryText);
+                if (aiReport == null || aiReport.isBlank()) {
+                    aiReport = "AI 분석을 일시적으로 사용할 수 없습니다. 통계만 저장되었습니다.";
+                }
+            } catch (Exception e) {
+                log.error("[주간리포트] Gemini 호출 실패", e);
+                aiReport = "AI 호출 실패: " + e.getMessage();
             }
-        } catch (Exception e) {
-            log.error("[주간리포트] Gemini 호출 실패", e);
-            aiReport = "AI 호출 실패: " + e.getMessage();
         }
 
         // 5) 저장 (이미 있으면 업데이트)
@@ -149,6 +152,16 @@ public class TradingDiaryService {
             }
         }
         return saved;
+    }
+
+    /**
+     * 체결된 매매가 없는 주의 리포트 본문 — AI 를 부르지 않는다. 매매가 있으면 null(AI 분석 진행). 순수 함수(테스트 대상).
+     */
+    static String noTradeReport(int totalBuys, int totalSells, int blockedCount) {
+        if (totalBuys + totalSells > 0) return null;
+        return "이번 주 체결된 매매가 없습니다"
+                + (blockedCount > 0 ? "(안전장치 차단 " + blockedCount + "건)" : "")
+                + " — 분석할 거래가 없어 AI 분석을 생략했습니다. 거래가 없는 주에는 조언을 만들지 않습니다.";
     }
 
     public Optional<WeeklyTradingReport> getLatest(String mode) {

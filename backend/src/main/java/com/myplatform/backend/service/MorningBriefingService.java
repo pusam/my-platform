@@ -136,6 +136,9 @@ public class MorningBriefingService {
                 if (timing.getDiagnosis() != null) {
                     sb.append(String.format("💬 %s\n", timing.getDiagnosis()));
                 }
+            } else if (timing != null && timing.getDiagnosis() != null && !timing.getDiagnosis().isBlank()) {
+                // ADR 판단 보류(2026-10-02) — "데이터 없음" 한 마디 대신 왜 없는지(시장 폭 수집 공백·유효일)를 그대로 싣는다
+                sb.append(String.format("ADR 판단 보류\n💬 %s\n", timing.getDiagnosis().trim()));
             } else {
                 sb.append("데이터 없음\n");
             }

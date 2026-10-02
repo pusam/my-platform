@@ -724,17 +724,9 @@ public class VirtualTradeService implements TradeService {
      */
     private TradeHistoryDto toTradeHistoryDto(VirtualTradeHistory trade) {
         String tradeTypeName = "BUY".equals(trade.getTradeType()) ? "매수" : "매도";
-        String tradeReasonName = switch (trade.getTradeReason()) {
-            case "AUTO_BUY", "SCALPING_ENTRY" -> "자동매수";
-            case "STOP_LOSS" -> "손절";
-            case "TAKE_PROFIT" -> "익절";
-            case "TAKE_PROFIT_HALF" -> "1차익절(절반)";
-            case "TRAILING_STOP" -> "트레일링스탑";
-            case "TIME_CUT" -> "타임컷";
-            case "END_OF_DAY" -> "장마감청산";
-            case "AUTO_SELL" -> "자동매도";
-            default -> "수동";
-        };
+        // 사유 이름은 TradeReasonLabels 단일 출처(2026-10-02) — 예전 switch 는 봇 사유 8가지가 빠져 "수동"으로 보였고,
+        // null 사유면 switch 가 NPE 를 냈다.
+        String tradeReasonName = TradeReasonLabels.label(trade.getTradeReason());
 
         return TradeHistoryDto.builder()
                 .id(trade.getId())

@@ -74,8 +74,11 @@ public class MarketTimingDto {
         /** 당일 등락비 (상승/하락 * 100) */
         private BigDecimal dailyRatio;
 
-        /** 20일 ADR */
+        /** 20일 ADR — 창 안 등락 수가 있는 날이 15일 미만이면 null(판단 보류, MarketBreadth) */
         private BigDecimal adr20;
+
+        /** ADR 창(최근 20거래일) 안에서 등락 수가 실제로 있는 날 수 — 판단 보류 사유를 화면이 말하게 */
+        private Integer adrValidDays;
 
         /** 시장 상태 */
         private MarketCondition condition;

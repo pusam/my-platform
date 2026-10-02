@@ -779,9 +779,12 @@ public class AiStockAnalysisService {
         try {
             var timing = marketTimingService.getCurrentMarketTiming();
             if (timing != null) {
+                // ADR 이 없으면(시장 폭 데이터 부족 — MarketBreadth) 100 으로 채워 "정상"·공포탐욕 100 으로 만들지 않는다(§4c).
+                Double adr = timing.getCombinedAdr() != null ? timing.getCombinedAdr().doubleValue() : null;
                 String sentiment;
-                double adr = timing.getCombinedAdr() != null ? timing.getCombinedAdr().doubleValue() : 100;
-                if (adr >= 120) {
+                if (adr == null) {
+                    sentiment = "판단 보류(시장 폭 데이터 부족)";
+                } else if (adr >= 120) {
                     sentiment = "과열";
                 } else if (adr <= 80) {
                     sentiment = "침체";
@@ -789,8 +792,8 @@ public class AiStockAnalysisService {
                     sentiment = "정상";
                 }
 
-                // 공포/탐욕 지수 계산 (ADR 기반 단순화)
-                double fearGreedIndex = Math.min(100, Math.max(0, adr));
+                // 공포/탐욕 지수 계산 (ADR 기반 단순화) — ADR 을 모르면 모른다
+                Double fearGreedIndex = adr == null ? null : Math.min(100, Math.max(0, adr));
 
                 // KOSPI/KOSDAQ 지수 정보
                 Double kospiIndex = null;

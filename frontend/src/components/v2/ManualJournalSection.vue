@@ -64,8 +64,9 @@
           <tr v-for="j in entries" :key="j.id">
             <td class="mj-date">{{ fmtDateTime(j.buyAt) }}</td>
             <td>
-              <b>{{ j.stockName || j.stockCode }}</b>
-              <span class="mj-code">{{ j.stockCode }}</span>
+              <!-- 이름이 코드로 저장된 기록은 코드를 두 번 쓰지 않는다(예전 "003490003490", 2026-10-02) -->
+              <b>{{ stockNameOnce(j.stockName, j.stockCode) }}</b>
+              <span v-if="stockNameOnce(j.stockName, j.stockCode) !== j.stockCode" class="mj-code">{{ j.stockCode }}</span>
               <div v-if="j.memo" class="mj-memo" :title="j.memo">💬 {{ j.memo }}</div>
             </td>
             <td class="right">
@@ -127,6 +128,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { manualJournalAPI } from '../../utils/api';
+import { stockNameOnce } from '../../utils/marketDataLabels';
 
 const entries = ref([]);
 const stats = ref(null);

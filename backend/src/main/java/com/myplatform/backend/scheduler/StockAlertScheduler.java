@@ -103,8 +103,9 @@ public class StockAlertScheduler {
      * 장 마감 후 알림 (평일 16:45)
      * - 16:00 투자자 데이터 수집, 16:30 ADR 수집이 완료된 후 실행
      * - 시장 상태 알림 (과열/공포 구간만)
+     * - 초 필드 45 — 2026-10-02 부터 등락 수를 KIS 에서 다시 받으므로 :00 을 피한다(§4b). 16:30 수집이 실패했으면 여기서 한 번 더 받는다.
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 45 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "45 45 16 * * MON-FRI", zone = "Asia/Seoul")
     public void afterMarketCloseAlert() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태");

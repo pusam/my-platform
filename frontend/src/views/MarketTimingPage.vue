@@ -41,16 +41,16 @@
       </div>
 
       <!-- 데이터 부족 알림 -->
+      <!-- ADR 판단 보류(2026-10-02) — 서버가 쓴 사유(최근 20거래일 중 등락 수가 있는 날 수)를 그대로 보인다.
+           '기간 수집' 버튼은 걸지 않는다: 과거 등락 종목 수는 어떤 소스로도 받을 수 없다(KRX 死, KIS 는 당일 값만). -->
       <div class="data-needed-alert" v-if="!marketData?.combinedAdr">
         <div class="alert-content">
           <span class="alert-icon">📊</span>
           <div class="alert-text">
-            <strong>ADR 계산을 위한 데이터가 부족합니다</strong>
-            <p>정확한 시장 분석을 위해 최소 20일간의 데이터가 필요합니다.</p>
+            <strong>ADR 판단 보류 — 시장 폭 데이터 부족</strong>
+            <p>{{ marketData?.diagnosis || '최근 20거래일 중 상승·하락 종목 수가 수집된 날이 부족합니다.' }}</p>
+            <p>매 거래일 장 마감 뒤(16:30) 자동으로 쌓이며, 15일이 차면 다시 계산됩니다.</p>
           </div>
-          <button @click="scrollToBackfill" class="btn-collect-now">
-            📅 기간 수집하기
-          </button>
         </div>
       </div>
     </div>
@@ -342,8 +342,8 @@
           <div class="futures-price">
             {{ q.unit === '$' ? '$' : '' }}{{ formatFuturesPrice(q.currentPrice) }}{{ q.unit === '원' ? '원' : '' }}
           </div>
-          <div class="futures-change" :class="q.changeRate >= 0 ? 'positive' : 'negative'" v-if="q.changeRate">
-            {{ q.changeRate >= 0 ? '+' : '' }}{{ Number(q.changeRate).toFixed(2) }}%
+          <div class="futures-change" :class="q.changeRate >= 0 ? 'positive' : 'negative'" v-if="q.changeRate != null">
+            {{ q.changeRate > 0 ? '+' : '' }}{{ Number(q.changeRate).toFixed(2) }}%
           </div>
         </div>
       </div>
@@ -455,6 +455,7 @@ const props = defineProps({
 });
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI, exchangeRateAPI } from '../utils/api';
+import { commodityFromResponse } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import GlobalNav from '../components/GlobalNav.vue';
 import DataFreshness from '../components/DataFreshness.vue';
@@ -801,20 +802,18 @@ const fetchFutures = async () => {
     const commodities = [];
     if (goldRes.status === 'fulfilled' && goldRes.value.data.success) {
       const g = goldRes.value.data.data;
-      commodities.push({ symbol: 'GOLD', name: '금 (1돈)', currentPrice: g.pricePerDon || g.price, changeRate: g.changeRate || 0, unit: '원' });
+      commodities.push({ symbol: 'GOLD', name: '금 (1돈)', currentPrice: g.pricePerDon || g.price, changeRate: g.changeRate ?? null, unit: '원' });
     }
     if (silverRes.status === 'fulfilled' && silverRes.value.data.success) {
       const s = silverRes.value.data.data;
-      commodities.push({ symbol: 'SILVER', name: '은 (1돈)', currentPrice: s.pricePerDon || s.price, changeRate: s.changeRate || 0, unit: '원' });
+      commodities.push({ symbol: 'SILVER', name: '은 (1돈)', currentPrice: s.pricePerDon || s.price, changeRate: s.changeRate ?? null, unit: '원' });
     }
-    if (oilRes.status === 'fulfilled' && oilRes.value.data.success) {
-      const o = oilRes.value.data.data;
-      commodities.push({ symbol: 'OIL', name: 'WTI 원유', currentPrice: o.price, changeRate: o.changeRate || 0, unit: '$' });
-    }
-    if (krwRes.status === 'fulfilled' && krwRes.value.data.success) {
-      const k = krwRes.value.data.data;
-      commodities.push({ symbol: 'KRW', name: 'USD/KRW', currentPrice: k.rate || k.basePrice, changeRate: k.changeRate || 0, unit: '원' });
-    }
+    // 원유·환율 응답 모양은 commodityFromResponse 가 맞춘다 — 유가는 pricePerBarrel(예전엔 없는 price 를 읽어 "$-"),
+    // 환율은 감싸지 않은 DTO 라 success 가 없어 항목이 조용히 빠졌다(2026-10-02 화면 점검).
+    const oil = oilRes.status === 'fulfilled' ? commodityFromResponse(oilRes.value.data, 'OIL') : null;
+    if (oil) commodities.push(oil);
+    const krw = krwRes.status === 'fulfilled' ? commodityFromResponse(krwRes.value.data, 'KRW') : null;
+    if (krw) commodities.push(krw);
     commodityQuotes.value = commodities;
 
     if (impactRes.status === 'fulfilled' && impactRes.value.data.success) {

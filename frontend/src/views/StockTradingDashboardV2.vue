@@ -653,7 +653,8 @@ function transformMarketData(d) {
       kospiChangeRate: Number(d.kospi.indexChangeRate) || 0,
       kosdaqIndex: d.kosdaq ? Number(d.kosdaq.indexClose).toLocaleString('ko-KR', { minimumFractionDigits: 2 }) : '-',
       kosdaqChangeRate: d.kosdaq ? Number(d.kosdaq.indexChangeRate) || 0 : 0,
-      adr: Number(d.combinedAdr) || 0,
+      // ADR 판단 보류(시장 폭 데이터 부족, 2026-10-02)는 null 그대로 — 0 으로 바꾸면 "ADR 0"(극심한 공포)으로 읽힌다(§4c)
+      adr: d.combinedAdr != null ? Number(d.combinedAdr) : null,
       dailyRatio: dailyRatio,
       marketStatus: d.diagnosis || '',
       analysisDate: d.analysisDate || null

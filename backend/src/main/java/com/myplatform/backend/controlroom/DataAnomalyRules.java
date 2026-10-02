@@ -420,6 +420,41 @@ public final class DataAnomalyRules {
                 windowDays + "일 창: 시그널 " + boardSignals + " vs 대조군 0");
     }
 
+    // ==================== ⑮ 시장 폭(상승·하락 종목 수) 수집 정지 ====================
+    /** 거래일 기준 이만큼 밀리면 경고 — 1일은 정상일 수 있다(15:40~16:30 사이엔 오늘 값이 아직 없다). */
+    static final int BREADTH_STALE_TRADING_DAYS = 2;
+
+    /**
+     * 시장 폭 수집 정지 / ADR 판단 보류 — 2026-10-02 실사고: 네이버 레거시 시세 페이지가 죽은 뒤(마지막 정상 9/10) 크롤 실패가
+     * 0 으로 저장돼 ADR(20일)이 3주간 "9/3~9/10 6일치"였는데 배치 모니터는 '성공'이었다(0 을 저장하고 끝났으니까). 그 값이
+     * 모닝브리핑·AI 분석·시장 알림으로 매일 나갔다. 지금은 KIS 국내업종 현재지수로 받고 실패하면 행을 만들지 않는다 —
+     * 그래서 사망은 '0 행'이 아니라 <b>마지막 수집일이 멈추는 것</b>으로 보인다.
+     *
+     * @param latestCountedDate     등락 수가 실제로 있는 가장 최근 날(없으면 null)
+     * @param tradingDaysBehind     그 날 뒤로 마감된 거래일 수(오늘 마감 전이면 오늘은 안 센다)
+     * @param validDays             ADR 창(최근 20거래일) 안 등락 수가 있는 날 수
+     */
+    public static Anomaly marketBreadthStall(LocalDate latestCountedDate, int tradingDaysBehind, int validDays) {
+        if (latestCountedDate == null || tradingDaysBehind >= BREADTH_STALE_TRADING_DAYS) {
+            return new Anomaly(WARNING, "market-breadth-stall",
+                    "시장 폭(상승·하락 종목 수) 수집 정지 — 마지막 수집 "
+                            + (latestCountedDate == null ? "없음" : latestCountedDate + " · 거래일 " + tradingDaysBehind + "일 밀림"),
+                    "16:30 MarketTimingService·16:45 장 마감 알림이 KIS 국내업종 현재지수(FHPUP02100000)의 ascn/down/stnr_issu_cnt "
+                            + "로 등락 수를 받는다. 실패하면 행을 만들지 않는다(0 저장 금지 — 2026-09 크롤 사망 때 0 이 정상값처럼 쌓였다). "
+                            + "확인 — ① 로그 grep '[시장 폭]' ② KIS 토큰·rt_cd ③ 16:45 재시도 로그. 길어지면 ADR 판단 보류가 늘어난다.",
+                    "마지막 " + latestCountedDate + " · 밀린 거래일 " + tradingDaysBehind);
+        }
+        if (validDays < com.myplatform.backend.service.MarketBreadth.MIN_VALID_DAYS) {
+            return new Anomaly(INFO, "market-breadth-adr-suspended",
+                    "ADR 판단 보류 중 — 최근 " + com.myplatform.backend.service.MarketBreadth.ADR_PERIOD
+                            + "거래일 중 등락 수 " + validDays + "일(" + com.myplatform.backend.service.MarketBreadth.MIN_VALID_DAYS + "일 필요)",
+                    "2026-09-11~10-01 크롤 사망 구간은 과거 등락 수 소스가 없어 메울 수 없다(KIS 는 당일 값만). 매 거래일 16:30 "
+                            + "수집으로 창이 다시 찬다. 그동안 오늘 탭·시장 타이밍·모닝브리핑·AI 분석은 ADR 판단을 보류한다(고장 아님 — 상태).",
+                    "유효 " + validDays + "/" + com.myplatform.backend.service.MarketBreadth.ADR_PERIOD);
+        }
+        return null;
+    }
+
     // ==================== ⑫ KIS 분봉 API 실패율 ====================
     /** 판정에 필요한 최소 시도 수 — 그 아래는 비율이 요동쳐 오탐이 된다. */
     static final long MINUTE_CHART_MIN_ATTEMPTS = 5;

@@ -97,6 +97,8 @@ public class ControlRoomSnapshotService {
     private final org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.SignalOutcomeService> signalOutcomeServiceProvider;
     /** 봇 성적 게이트 — 봇 거래 집계가 이미 그 클래스에 있어 재계산하지 않는다. 미가용=카드 dataAvailable=false. */
     private final org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.BotPerformanceService> botPerformanceProvider;
+    /** 시장 폭 수집 건강(규칙 ⑮) — 미가용이면 그 규칙만 건너뛴다. */
+    private final org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.MarketTimingService> marketTimingProvider;
     private final CrewProperties crewProperties;
     private final CrewModelAvailability modelAvailability;
     private final Clock clock;
@@ -131,6 +133,7 @@ public class ControlRoomSnapshotService {
                                       com.myplatform.backend.repository.SignalOutcomeRepository signalOutcomeRepository,
                                       org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.SignalOutcomeService> signalOutcomeServiceProvider,
                                       org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.BotPerformanceService> botPerformanceProvider,
+                                      org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.MarketTimingService> marketTimingProvider,
                                       MarketCalendarService marketCalendar,
                                       RecommendationService recommendationService,
                                       CrewProperties crewProperties,
@@ -151,6 +154,7 @@ public class ControlRoomSnapshotService {
         this.quarterlyRepository = quarterlyRepository;
         this.signalOutcomeServiceProvider = signalOutcomeServiceProvider;
         this.botPerformanceProvider = botPerformanceProvider;
+        this.marketTimingProvider = marketTimingProvider;
         this.heartbeatProvider = heartbeatProvider;
         this.stockStatusService = stockStatusService;
         this.catalystRepository = catalystRepository;
@@ -309,6 +313,16 @@ public class ControlRoomSnapshotService {
             // 고장이 아니라 상태 — 봇 진입이 sanity 앵커에서 막히는 이유를 여기서 알 수 있다.
             found.add(DataAnomalyRules.corporateActionHistoryStale(
                     stockStatusService.getSuspectedCorporateActions()));
+
+            // 시장 폭 수집 정지 / ADR 판단 보류(2026-10-02 — 네이버 크롤 사망이 0 으로 3주간 숨어 있었다)
+            var timing = marketTimingProvider.getIfAvailable();
+            if (timing != null) {
+                var health = timing.breadthHealth(today);
+                found.add(DataAnomalyRules.marketBreadthStall(health.latestCountedDate(),
+                        tradingDaysAfter(health.latestCountedDate(),
+                                marketCalendar.lastClosedTradingDay(LocalDateTime.now(clock)), marketCalendar),
+                        health.validDays()));
+            }
 
             List<DataAnomalyRules.Anomaly> items = DataAnomalyRules.sortBySeverity(found);
             return new ControlRoomSnapshotDto.Anomalies(true, items, now,
@@ -566,6 +580,17 @@ public class ControlRoomSnapshotService {
     private static ControlRoomSnapshotDto.BotGate unavailableBotGate(String why) {
         return new ControlRoomSnapshotDto.BotGate(false, null, null, null, List.of(), why,
                 "봇 성적 게이트를 집계하지 못했다. 거래가 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.");
+    }
+
+    /** {@code from} 다음 날부터 {@code to} 까지(포함) 거래일 수. from 이 null 이면 큰 값(=모름 → 경고). */
+    static int tradingDaysAfter(LocalDate from, LocalDate to, MarketCalendarService calendar) {
+        if (from == null) return 99;
+        if (to == null || !to.isAfter(from)) return 0;
+        int n = 0;
+        for (LocalDate d = from.plusDays(1); !d.isAfter(to) && n < 99; d = d.plusDays(1)) {
+            if (!calendar.isMarketClosed(d)) n++;
+        }
+        return n;
     }
 
     /** 집계 실패 — 0 이 아니라 "측정 불가"다(§4c). */

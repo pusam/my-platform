@@ -563,7 +563,8 @@
                   <span class="label">최대 낙폭 (MDD)
                     <small class="hint" title="누적 손익 곡선의 고점 대비 최대 하락폭. 자산 보호 핵심 지표">ⓘ</small>
                   </span>
-                  <span class="value negative">{{ formatProfitLoss(botPerf.maxDrawdown) }}</span>
+                  <!-- 낙폭은 잃은 크기라 '+' 를 붙이지 않는다(예전 "+867,935원", 2026-10-02) -->
+                  <span class="value negative">{{ formatDrawdown(botPerf.maxDrawdown) }}</span>
                 </div>
               </div>
             </div>
@@ -1528,6 +1529,13 @@ const formatCurrency = (value) => {
 const formatNumber = (value) => {
   if (value === null || value === undefined) return '-';
   return new Intl.NumberFormat('ko-KR').format(Math.round(value));
+};
+
+/** 최대 낙폭(원) — 서버는 양수 크기로 준다. 손실이므로 −로 보인다. 0 이면 0원. */
+const formatDrawdown = (value) => {
+  if (value === null || value === undefined) return '-';
+  const v = Math.abs(Math.round(Number(value)));
+  return (v === 0 ? '' : '−') + new Intl.NumberFormat('ko-KR').format(v) + '원';
 };
 
 const formatProfitLoss = (value) => {

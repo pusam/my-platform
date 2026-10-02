@@ -92,7 +92,7 @@ class HolidayPhantomRowGateTest {
 
         private MarketTimingService serviceWith(MarketCalendarService calendar) {
             return new MarketTimingService(repo, mock(TelegramNotificationService.class),
-                    mock(RedisCacheService.class), calendar);
+                    mock(RedisCacheService.class), calendar, mock(KoreaInvestmentService.class));
         }
 
         @Test
