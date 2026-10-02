@@ -401,25 +401,33 @@ public class SectorTradingService {
             }
         }
 
-        // 전체 거래대금 계산 (섹터별 합계의 총합 — 중복 종목 비례 배분되어 합산 ≤ 100%)
-        BigDecimal totalAllSectors = results.stream()
-                .map(SectorTradingDto::getTotalTradingValue)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // 비율 계산
-        if (totalAllSectors.compareTo(BigDecimal.ZERO) > 0) {
-            for (SectorTradingDto dto : results) {
-                BigDecimal percentage = dto.getTotalTradingValue()
-                        .multiply(BigDecimal.valueOf(100))
-                        .divide(totalAllSectors, 2, RoundingMode.HALF_UP);
-                dto.setPercentage(percentage);
-            }
-        }
+        applyMarketShare(results, uniqueStockTradingValue);
 
         // 거래대금 순 정렬
         results.sort((a, b) -> b.getTotalTradingValue().compareTo(a.getTotalTradingValue()));
 
         return results;
+    }
+
+    /**
+     * 섹터별 '전체 대비' 비율 — 분모는 <b>종목 단위로 한 번만 센</b> 전체 거래대금(순수, 2026-10-02).
+     *
+     * <p>예전엔 섹터 합계의 총합을 분모로 썼다(주석은 "중복 종목 비례 배분"이라 했지만 배분 코드는 없었다) — 여러 섹터에 속한
+     * 종목(10/2 기준 20종목)이 섹터 수만큼 더해져, 통신 섹터에 들어 있던 삼성전자·SK하이닉스 거래대금이 반도체와 통신에 두 번
+     * 잡혔다(통신 8.42조·전체 23.58조). 테마는 겹칠 수 있으므로 비율 합이 100% 를 넘을 수 있다 — 각 비율이 전체 시장 대비로 맞다.
+     *
+     * @param uniqueStockValue 종목코드 → 거래대금(섹터를 몇 개 돌든 한 번)
+     */
+    static void applyMarketShare(List<SectorTradingDto> results, Map<String, BigDecimal> uniqueStockValue) {
+        BigDecimal marketTotal = uniqueStockValue.values().stream()
+                .filter(java.util.Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        for (SectorTradingDto dto : results) {
+            dto.setMarketTotalTradingValue(marketTotal);
+            dto.setPercentage(marketTotal.compareTo(BigDecimal.ZERO) > 0 && dto.getTotalTradingValue() != null
+                    ? dto.getTotalTradingValue().multiply(BigDecimal.valueOf(100)).divide(marketTotal, 2, RoundingMode.HALF_UP)
+                    : null);
+        }
     }
 
     /**

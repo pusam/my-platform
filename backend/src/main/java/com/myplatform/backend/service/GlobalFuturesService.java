@@ -207,17 +207,17 @@ public class GlobalFuturesService {
                         .setScale(2, RoundingMode.HALF_UP);
             }
 
-            // 고가/저가
-            BigDecimal highPrice = parseBd(meta.path("regularMarketDayHigh").asText());
-            BigDecimal lowPrice = parseBd(meta.path("regularMarketDayLow").asText());
+            // 고가/저가 — Yahoo 는 일부 지수(VIX·^TNX)에 0 을 준다: 0 은 모름(2026-10-02, 화면 '고가 0.00' 위장)
+            BigDecimal highPrice = zeroAsMissing(parseBd(meta.path("regularMarketDayHigh").asText()));
+            BigDecimal lowPrice = zeroAsMissing(parseBd(meta.path("regularMarketDayLow").asText()));
             BigDecimal volumeBd = parseBd(meta.path("regularMarketVolume").asText());
 
             // indicators fallback
             if (highPrice == null || lowPrice == null) {
                 JsonNode indicators = result.path("indicators").path("quote").get(0);
                 if (indicators != null) {
-                    if (highPrice == null) highPrice = getLastFromArray(indicators.path("high"));
-                    if (lowPrice == null) lowPrice = getLastFromArray(indicators.path("low"));
+                    if (highPrice == null) highPrice = zeroAsMissing(getLastFromArray(indicators.path("high")));
+                    if (lowPrice == null) lowPrice = zeroAsMissing(getLastFromArray(indicators.path("low")));
                     if (volumeBd == null) volumeBd = getLastFromArray(indicators.path("volume"));
                 }
             }
@@ -868,6 +868,14 @@ public class GlobalFuturesService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 정확히 0 인 고가·저가는 '모름'(순수). Yahoo 가 VIX·미국채 금리 같은 지수에 고가/저가 0 을 줘서 시세표에 "0.00" 이
+     * 찍혔다(2026-10-02). 음수 가격은 실재할 수 있어(2020 WTI) 0 만 결측으로 본다.
+     */
+    static BigDecimal zeroAsMissing(BigDecimal v) {
+        return v != null && v.signum() == 0 ? null : v;
     }
 
     private BigDecimal getLastFromArray(JsonNode array) {

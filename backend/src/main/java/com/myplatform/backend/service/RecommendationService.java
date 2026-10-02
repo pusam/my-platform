@@ -2735,7 +2735,15 @@ public class RecommendationService {
     }
 
     private String getSnapshotTimeLabel() {
-        if (cacheTime != null) return cacheTime.format(TIME_FMT) + " 기준 (종가)";
+        return snapshotTimeLabel(cacheTime);
+    }
+
+    /**
+     * DB 스냅샷 폴백의 기준 시각 라벨(순수). 예전엔 무조건 "기준 (종가)"를 붙여 11:30·14:00 장중 스냅샷도 '종가'로 보였다
+     * (2026-10-02 관제실 "10/02 14:00 기준 (종가)"). 스냅샷 시각만 정직하게 적는다.
+     */
+    static String snapshotTimeLabel(LocalDateTime snapshotAt) {
+        if (snapshotAt != null) return snapshotAt.format(TIME_FMT) + " 스냅샷 기준";
         return "이전 데이터";
     }
 

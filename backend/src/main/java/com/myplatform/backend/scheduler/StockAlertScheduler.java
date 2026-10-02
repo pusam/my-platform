@@ -240,7 +240,8 @@ public class StockAlertScheduler {
      * 초 필드는 :00 을 피한다(KIS 를 부르는 크론 — 잔고 모니터·워머가 :00 에 몰려 EGW00215, §4b).
      */
     @Scheduled(scheduler = "batchScheduler", cron = "40 30 18 * * MON-FRI", zone = "Asia/Seoul")
-    public void collectShortSellingBalance() {
+    // 메서드 이름이 배치 모니터의 잡 이름이 된다 — 예전 이름(collectShortSellingBalance)은 잔고 수집으로 읽혔다(2026-10-02)
+    public void collectShortSellingTrade() {
         if (!schedulerEnabled) return;
         if (marketCalendar.isMarketClosed()) { log.debug("[공매도수집] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.short-collect", Duration.ofMinutes(20))) {

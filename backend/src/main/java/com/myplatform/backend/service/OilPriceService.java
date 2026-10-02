@@ -6,6 +6,7 @@ import com.myplatform.backend.dto.OilPriceDto;
 import com.myplatform.backend.entity.OilPrice;
 import com.myplatform.backend.repository.OilPriceRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -36,6 +37,8 @@ public class OilPriceService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final OilPriceRepository oilPriceRepository;
+    /** USD/KRW 출처 — 화면의 다른 환율과 같은 글로벌 시세(KRW). 순환·미가용에 안전하게 ObjectProvider. */
+    private final ObjectProvider<GlobalFuturesService> globalFutures;
 
     private static final String YAHOO_FINANCE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1d&range=1d";
     private static final String WTI_SYMBOL = "CL=F";
@@ -157,17 +160,18 @@ public class OilPriceService {
 
             OilPriceDto dto = new OilPriceDto();
             dto.setPricePerBarrel(currentPrice.setScale(2, RoundingMode.HALF_UP));
-            dto.setOpenPrice(openPrice != null ? openPrice.setScale(2, RoundingMode.HALF_UP) : currentPrice);
-            dto.setHighPrice(highPrice != null ? highPrice.setScale(2, RoundingMode.HALF_UP) : currentPrice);
-            dto.setLowPrice(lowPrice != null ? lowPrice.setScale(2, RoundingMode.HALF_UP) : currentPrice);
+            // 시가·고가·저가가 응답에 없으면 null(모름) — 예전엔 현재가로 채워 '시가 = 현재가'가 찍혔다(2026-10-02, §4c)
+            dto.setOpenPrice(openPrice != null ? openPrice.setScale(2, RoundingMode.HALF_UP) : null);
+            dto.setHighPrice(highPrice != null ? highPrice.setScale(2, RoundingMode.HALF_UP) : null);
+            dto.setLowPrice(lowPrice != null ? lowPrice.setScale(2, RoundingMode.HALF_UP) : null);
             dto.setClosePrice(currentPrice.setScale(2, RoundingMode.HALF_UP));
             dto.setChangePrice(changePrice);
             dto.setChangeRate(changeRate);
             dto.setVolume(volume);
 
-            // 원화 환산 (대략 환율 1,350원 기준)
-            BigDecimal exchangeRate = new BigDecimal("1350");
-            dto.setPriceKrw(currentPrice.multiply(exchangeRate).setScale(0, RoundingMode.HALF_UP));
+            // 원화 환산 — 화면의 다른 USD/KRW 와 같은 글로벌 시세(KRW)로. 못 받으면 환산하지 않는다(null → 화면 숨김).
+            // 예전엔 고정 1,350원을 곱했다 — 환율이 움직여도 그대로였다(2026-10-02).
+            dto.setPriceKrw(toKrw(currentPrice, currentUsdKrw()));
 
             LocalDateTime now = LocalDateTime.now();
             dto.setBaseDate(now.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
@@ -186,6 +190,25 @@ public class OilPriceService {
         } catch (Exception e) {
             log.error("원유 시세 조회 실패", e);
         }
+    }
+
+    /** 실시간 USD/KRW(글로벌 시세 KRW) — 못 받으면 null. */
+    private BigDecimal currentUsdKrw() {
+        try {
+            GlobalFuturesService gf = globalFutures.getIfAvailable();
+            if (gf == null) return null;
+            GlobalFuturesService.FuturesQuote q = gf.getFuturesQuote("KRW");
+            return q != null && q.isSuccess() ? q.getCurrentPrice() : null;
+        } catch (Exception e) {
+            log.debug("[원유] USD/KRW 조회 실패 — 원화 환산 생략: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 달러 가격 × 환율(순수) — 환율을 모르면 null(가짜 환산 금지). */
+    static BigDecimal toKrw(BigDecimal usd, BigDecimal usdKrw) {
+        if (usd == null || usdKrw == null || usdKrw.signum() <= 0) return null;
+        return usd.multiply(usdKrw).setScale(0, RoundingMode.HALF_UP);
     }
 
     public OilPriceDto getOilPrice() {

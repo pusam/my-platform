@@ -12,7 +12,9 @@ public class SectorTradingDto {
     private String sectorName;      // 섹터 이름
     private String color;           // 섹터 색상
     private BigDecimal totalTradingValue;   // 총 거래대금 (원)
-    private BigDecimal percentage;  // 전체 대비 비율 (%)
+    private BigDecimal percentage;  // 전체 대비 비율 (%) — 분모는 marketTotalTradingValue(중복 종목 1번만)
+    /** 조회 섹터 전체의 거래대금 — 여러 섹터에 속한 종목은 한 번만 센다(2026-10-02). 모든 행에 같은 값. */
+    private BigDecimal marketTotalTradingValue;
     private BigDecimal changeRate;  // 섹터 평균 등락률 (%)
     private int stockCount;         // 종목 수
     private List<StockTradingInfo> topStocks; // 상위 거래 종목
@@ -69,6 +71,9 @@ public class SectorTradingDto {
 
     public BigDecimal getPercentage() { return percentage; }
     public void setPercentage(BigDecimal percentage) { this.percentage = percentage; }
+
+    public BigDecimal getMarketTotalTradingValue() { return marketTotalTradingValue; }
+    public void setMarketTotalTradingValue(BigDecimal marketTotalTradingValue) { this.marketTotalTradingValue = marketTotalTradingValue; }
 
     public BigDecimal getChangeRate() { return changeRate; }
     public void setChangeRate(BigDecimal changeRate) { this.changeRate = changeRate; }

@@ -40,7 +40,7 @@
             <div class="detail-item">
               <span class="label">등락률</span>
               <span class="value" :class="changeRateClass">
-                {{ oilPrice.changeRate > 0 ? '+' : '' }}{{ oilPrice.changeRate }}%
+                {{ signedPercentOrDash(oilPrice.changeRate) }}
               </span>
             </div>
             <div class="detail-item">
@@ -52,15 +52,15 @@
           </div>
 
           <div class="price-range">
-            <div class="range-item">
+            <div class="range-item" v-if="oilPrice.openPrice != null">
               <span class="label">시가</span>
               <span class="value">${{ formatUsd(oilPrice.openPrice) }}</span>
             </div>
-            <div class="range-item">
+            <div class="range-item" v-if="oilPrice.highPrice != null">
               <span class="label">고가</span>
               <span class="value high">${{ formatUsd(oilPrice.highPrice) }}</span>
             </div>
-            <div class="range-item">
+            <div class="range-item" v-if="oilPrice.lowPrice != null">
               <span class="label">저가</span>
               <span class="value low">${{ formatUsd(oilPrice.lowPrice) }}</span>
             </div>
@@ -113,6 +113,7 @@
 </template>
 
 <script setup>
+import { signedPercentOrDash } from '@/utils/marketDataLabels'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { oilAPI } from '../utils/api'

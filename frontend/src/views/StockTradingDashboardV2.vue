@@ -397,7 +397,7 @@
           <div class="section-title-row">
             <h2><span class="section-icon">💰</span> 외국인·기관 수급 현황</h2>
           </div>
-          <!-- 당일 순매수 (코스피/코스닥) -->
+          <!-- 순매수 상위 10종목의 합 — 시장 전체 순매수가 아니다(2026-10-02). 순매수 순위 API 를 더한 값이라 늘 + 로 나온다. -->
           <div class="supply-summary">
             <div class="supply-item" v-for="inv in supplyPanelData.daily" :key="inv.type">
               <div class="supply-item-head">
@@ -408,9 +408,10 @@
               </div>
             </div>
           </div>
-          <!-- 시장 분위기 인디케이터 -->
+          <div v-if="supplyPanelData.daily.length" class="supply-basis-note">순매수 상위 10종목의 합 — 시장 전체 순매수 아님</div>
+          <!-- 연속 순매수 종목 수(사실) — 예전 '진짜 반등 가능성' 판정은 위 합계(늘 +)로 갈려 사실상 항상 떴다 -->
           <div v-if="supplyPanelData.rallySignal" class="rally-indicator" :class="supplyPanelData.rallySignal.type">
-            <span class="rally-icon">{{ supplyPanelData.rallySignal.type === 'real' ? '🟢' : '🔴' }}</span>
+            <span class="rally-icon">📌</span>
             <span class="rally-text">{{ supplyPanelData.rallySignal.message }}</span>
           </div>
           <!-- 연속매수 종목 -->
@@ -424,9 +425,6 @@
               </span>
               <span class="supply-stock-name">{{ item.stockName }}</span>
               <span class="supply-days">{{ item.consecutiveDays }}일</span>
-              <span class="supply-signal" :class="item.isRealRally ? 'real' : 'fake'">
-                {{ item.isRealRally ? '진짜반등' : '주의' }}
-              </span>
             </div>
           </div>
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
@@ -1491,31 +1489,20 @@ export default {
           }
         }
 
-        // 진짜 반등 판단: 외국인 3일+ 연속 + 양의 등락률 + 순매수 양
-        const foreignConsecutive = consecutive.filter(c => c.investorType === 'FOREIGN')
-        const has3DayForeignBuy = foreignConsecutive.some(c => (c.consecutiveDays || 0) >= 3)
-        const foreignBuying = foreignNet > 0
-
-        let rallySignal = null
-        if (has3DayForeignBuy && foreignBuying) {
-          rallySignal = { type: 'real', message: '외국인 3일+ 연속 순매수 — 진짜 반등 가능성' }
-        } else if (!foreignBuying && instNet <= 0) {
-          rallySignal = { type: 'fake', message: '외국인·기관 모두 순매도 — 주의' }
-        } else if (!foreignBuying) {
-          rallySignal = { type: 'fake', message: '외국인 순매도 + 기관만 매수 — 주의' }
-        }
-
-        const enriched = consecutive.map(item => ({
-          ...item,
-          isRealRally: (item.consecutiveDays || 0) >= 3 && (Number(item.changeRate) || 0) > 0
-        }))
+        // 사실만 적는다(2026-10-02): 외국인 3일+ 연속 순매수 종목 수.
+        // 예전엔 위 합계(순매수 상위 10종목의 합 — 늘 +)를 '외국인 순매수'로 보고 "진짜 반등 가능성"/"순매도 — 주의"를 갈랐다.
+        // 합계가 구조적으로 + 라 순매도 분기는 닿지 않았고, 3일 연속 종목이 하나만 있어도 늘 '진짜 반등'이었다(검증된 적 없는 판정).
+        const foreign3Day = consecutive.filter(c => c.investorType === 'FOREIGN' && (c.consecutiveDays || 0) >= 3).length
+        const rallySignal = foreign3Day > 0
+          ? { type: 'info', message: `외국인 3일+ 연속 순매수 ${foreign3Day}종목` }
+          : null
 
         this.supplyPanelData = {
           daily: [
-            { type: 'foreign', label: '외국인', amount: Math.round(foreignNet) },
-            { type: 'inst', label: '기관', amount: Math.round(instNet) }
+            { type: 'foreign', label: '외국인 상위 10', amount: Math.round(foreignNet) },
+            { type: 'inst', label: '기관 상위 10', amount: Math.round(instNet) }
           ],
-          consecutive: enriched,
+          consecutive,
           rallySignal
         }
       } catch (e) {
@@ -2041,14 +2028,13 @@ export default {
 .supply-investor-badge.inst { background: rgba(59,130,246,0.15); color: var(--signal-sell, #60a5fa); }
 .supply-stock-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
 .supply-days { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; }
-.supply-signal { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
-.supply-signal.real { background: rgba(34,197,94,0.15); color: #22c55e; }
-.supply-signal.fake { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.supply-basis-note { font-size: 11px; color: rgba(255,255,255,0.55); margin: -4px 0 8px; }
 .supply-item-head { display: flex; justify-content: space-between; align-items: center; width: 100%; }
 /* 시장 반등 인디케이터 */
 .rally-indicator { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 12px; font-weight: 600; }
 .rally-indicator.real { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); color: #22c55e; }
 .rally-indicator.fake { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); color: #ef4444; }
+.rally-indicator.info { background: rgba(148,163,184,0.08); border: 1px solid rgba(148,163,184,0.25); color: rgba(255,255,255,0.85); }
 .rally-icon { font-size: 14px; }
 .rally-text { flex: 1; }
 .phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }

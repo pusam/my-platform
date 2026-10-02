@@ -1,5 +1,21 @@
 import { describe, it, expect } from 'vitest'
-import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash } from './marketDataLabels'
+import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf } from './marketDataLabels'
+
+describe('marketTotalOf — 섹터 총 거래대금은 종목을 한 번만 센다', () => {
+  it('재현: 섹터 합계를 더하면 겹치는 종목이 두 번 — 백엔드 marketTotalTradingValue 를 쓴다', () => {
+    const sectors = [
+      { totalTradingValue: 100, marketTotalTradingValue: 110 },
+      { totalTradingValue: 70, marketTotalTradingValue: 110 }
+    ]
+    expect(marketTotalOf(sectors)).toBe(110)   // 예전 합산이면 170
+  })
+
+  it('필드가 없는 옛 응답은 종전처럼 합산, 빈 목록은 0', () => {
+    expect(marketTotalOf([{ totalTradingValue: '5' }, { totalTradingValue: 7 }])).toBe(12)
+    expect(marketTotalOf([])).toBe(0)
+    expect(marketTotalOf(null)).toBe(0)
+  })
+})
 
 /**
  * 화면 점검(2026-10-02)에서 나온 이름표 오류들 — 값은 맞는데 시점·단위·이름이 틀리게 붙어 있었다.

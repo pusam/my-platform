@@ -45,10 +45,10 @@ flags:
     body: >
       KRX 건(죽은 엔드포인트가 몇 달 조용히 썩음)을 계기로 코드 안 외부 HTTP 엔드포인트를
       전수 시험했다(2026-08-31, 키 필요한 DART·네이버검색·KIS 는 로그로 생존 확인).
-      죽은 곳 — ① CNN 공포탐욕(418 "You're a bot" 봇차단): GlobalFuturesPage 표시 전용,
+      죽은 곳 — ① CNN 공포탐욕(418 "You're a bot" 봇차단 — 2026-10-02 재확인 시 정상 응답, 점수 28 표시): GlobalFuturesPage 표시 전용,
       실패 처리 정직(success:false, 카드 숨김), 산식 무관. 살리려면 대체 소스가 필요하다.
       ② 한경 RSS(403 Cloudflare): NewsService 3개 피드 중 하나 — 매경·etnews 는 정상이라
-      뉴스 흐름 유지. 살아있는 곳 — wisereport(분기재무 크롤 92KB)·m.stock API·
+      뉴스 흐름 유지. 살아있는 곳 — wisereport(분기재무 크롤 92KB — 이후 2026-09-23 은퇴)·m.stock API·
       야후차트(간밤미국장)·네이버 시세크롤(ADR — 이후 9/11 사망, 10/2 KIS 국내업종 현재지수로 교체)·구글뉴스RSS·매경·etnews·KIS마스터·KIND.
       조치 불요 — 둘 다 §4c 준수 확인됨. 대체 소스를 찾으면 그때 별건으로.
     recorded_on: 2026-08-31
@@ -120,16 +120,6 @@ flags:
     recorded_on: 2026-08-05
     ref: VERIFICATION_BACKLOG P2-20
 
-  - id: judgment-layer-p1
-    severity: warning
-    title: 매수 판단 계층 P1 3건 미수정 (R13 / R14 / R15)
-    key: R13-R15
-    body: >
-      R13 결론카드가 30일 노후 스냅샷에 오늘 가격을 합성. R14 룰3 이 총점 없이 수급 역상관 축만으로 BUY 승격.
-      R15 체크리스트가 노후 연속매수·공매도·fail-open 상태를 ✅ 로 표시. 셋 다 화면이 실제보다 확신을 준다.
-    recorded_on: 2026-08-21
-    ref: VERIFICATION_BACKLOG "AUDIT 2026-08-21" R13~R15
-
   - id: outage-2026-08-20-measurement-gap
     severity: warning
     title: 2026-08-20~24 서버 다운으로 수집·측정에 5일 공백
@@ -173,36 +163,6 @@ flags:
       ⚠ 9월 하순 첫 판정 후 이 항목을 지울 것.
     recorded_on: 2026-08-31
     ref: ControlGroupService, StockPriceHistoryRepository.findActiveStockCodesWithMinHistory
-  - id: growth-batch-step4-silent-skip
-    severity: warning
-    title: 성장률 배치(올인원 4단계)가 수집일의 27% 에서 조용히 빠진다
-    key: AsyncCrawlerService
-    body: >
-      2026-09-22 실측. stock_financial_data 일별 스냅샷에서 eps_growth / revenue_growth /
-      profit_growth / peg 네 컬럼이 같은 날 통째로 0 이 되는 날이 있다 — 최근 11 수집일 중
-      2026-09-21, 09-17, 09-11 세 날(27%). 같은 날 영업이익률 2,295행 · 매출 2,192행은 정상이라
-      1~3단계는 완주했고 4단계(calculateAndUpdateGrowthRates)만 빠진 것이다.
-      ⚠ 이 실패는 로그에 흔적이 없다 — 08:30/15:38 스케줄러는 시작 줄만 남기고,
-      비동기 본체(collectAllInOneAsync)는 진행상황을 sseEmitterService 로만 보낸다.
-      즉 화면을 보고 있지 않으면 어느 단계에서 죽었는지 아무도 모른다(§4c 침묵 금지).
-      ⚠ 2026-09-22 08:30 에 원인 하나를 직접 관찰했다 — 배포로 컨테이너가 재생성되자
-      진행 중이던 올인원이 통째로 사라졌고, 재기동 후 로그에는 그 회차의 흔적이 한 줄도 없다.
-      재시도도 없다(다음 기회는 15:38). 즉 배치 시간대의 배포·재시작·OOM 이 같은 결과를 낸다.
-      ① ②는 2026-09-22 에 처리했다 — 단계별 INFO 로그 4줄(4단계는 0건도 찍는다)과
-      비동기 본체의 catch 에서 batchMonitor.alertFailure. 다음 회차부터 어디서 멈췄는지 보인다.
-      ⚠ 남은 것은 ③ — 컨테이너가 죽으면 catch 도 안 돈다. '시작했는데 끝나지 않았다'는
-      시작/완료 심박이 있어야 잡힌다. 지금은 시작 로그만 있고 완료가 없으면 침묵이다.
-      ⚠ 2026-09-23: ①②가 실제로 일을 했다 — 첫 회차(9/22 15:38) 로그에서 2·3단계(네이버 크롤)가 100% 실패
-      중인 것이 드러나 둘 다 은퇴시켰다(분기→V55, 영업이익률→KIS 1단계). 배치는 이제 2단계, 82분→약 38분.
-      그때도 배치는 예외 없이 '완료'였다:
-      '배치는 도는데 특정 단계만 0건'을 보는 규칙은 아직 없다 — ③과 같이 다룰 것.
-      그리고 값 자체(성장률 분포 -286,725%~240,600%)는 이 플래그와 별개로 남아 있다.
-      ⚠ 별개 사안 — 성장률 값 자체가 채워진 날에도 쓸 수 없다. 과거 행 분포가
-      -286,725% ~ 240,600% 이고(적자·소액 분모) 이 때문에 2026-09-21 에 Forward 지표를
-      껐다. 배치를 고쳐도 그 분포 문제는 그대로다.
-    recorded_on: 2026-09-22
-    ref: AsyncCrawlerService.collectAllInOneAsync 4단계, FinancialDataScheduler 08:30/15:38
-
   - id: forecast-fallback-fixed-probabilities
     severity: info
     title: AI 예측 fallback 의 시나리오 확률·근거 문구가 상수다

@@ -126,8 +126,8 @@
               </div>
               <div class="stat-row">
                 <span class="label">승률</span>
-                <span class="value" :class="getWinRateClass(account.winRate)">
-                  {{ formatPercent(account.winRate) }}
+                <span class="value" :class="getWinRateClass(winRateOrNull(account.winRate, account.totalTradeCount))">
+                  {{ formatWinRate(winRateOrNull(account.winRate, account.totalTradeCount)) }}
                 </span>
               </div>
               <div class="stat-row">
@@ -518,8 +518,8 @@
                 </div>
                 <div class="stat-row">
                   <span class="label">승률</span>
-                  <span class="value" :class="getWinRateClass(botPerf.winRate)">
-                    {{ formatPercent(botPerf.winRate) }}
+                  <span class="value" :class="getWinRateClass(winRateOrNull(botPerf.winRate, botPerf.totalTrades))">
+                    {{ formatWinRate(winRateOrNull(botPerf.winRate, botPerf.totalTrades)) }}
                   </span>
                 </div>
                 <div class="stat-row">
@@ -658,7 +658,7 @@
                     <td class="stock-name">{{ stock.stockName }}</td>
                     <td class="stock-code">{{ stock.stockCode }}</td>
                     <td class="right">{{ stock.tradeCount }}건</td>
-                    <td class="right" :class="getWinRateClass(stock.winRate)">{{ formatPercent(stock.winRate) }}</td>
+                    <td class="right" :class="getWinRateClass(stock.winRate)">{{ formatWinRate(stock.winRate) }}</td>
                     <td class="right" :class="getProfitClass(stock.totalPnl)">{{ formatProfitLoss(stock.totalPnl) }}</td>
                   </tr>
                 </tbody>
@@ -740,7 +740,7 @@
               <div class="weekly-stat">
                 <span class="stat-label">승률</span>
                 <span class="stat-value" :class="getWinRateClass(getWeeklyWinRate(weeklyLatest))">
-                  {{ formatPercent(getWeeklyWinRate(weeklyLatest)) }}
+                  {{ formatWinRate(getWeeklyWinRate(weeklyLatest)) }}
                 </span>
               </div>
               <div class="weekly-stat">
@@ -789,7 +789,7 @@
                     </td>
                     <td class="right">{{ r.totalBuys }} / {{ r.totalSells }}</td>
                     <td class="right" :class="getWinRateClass(getWeeklyWinRate(r))">
-                      {{ formatPercent(getWeeklyWinRate(r)) }}
+                      {{ formatWinRate(getWeeklyWinRate(r)) }}
                     </td>
                     <td class="right">{{ r.blockedCount }}</td>
                   </tr>
@@ -1140,9 +1140,10 @@ const generateWeeklyReport = async () => {
 };
 
 const getWeeklyWinRate = (r) => {
-  if (!r) return 0;
+  // 매매가 없으면 승률은 없다(null → '-') — 예전엔 0 을 돌려 "+0.00%"가 찍혔다(2026-10-02)
+  if (!r) return null;
   const total = (r.winCount || 0) + (r.lossCount || 0);
-  if (total === 0) return 0;
+  if (total === 0) return null;
   return ((r.winCount || 0) / total) * 100;
 };
 
@@ -1549,6 +1550,10 @@ const formatPercent = (value) => {
   const sign = value >= 0 ? '+' : '';
   return sign + Number(value).toFixed(2) + '%';
 };
+
+// 승률은 증감이 아니라 비율이라 부호를 붙이지 않는다(예전 "+49.12%") · 매매 0건이면 '-'(2026-10-02)
+const formatWinRate = (value) => (value === null || value === undefined ? '-' : Number(value).toFixed(2) + '%');
+const winRateOrNull = (rate, tradeCount) => (Number(tradeCount) > 0 ? rate : null);
 
 const formatDateTime = (dateStr) => {
   if (!dateStr) return '-';

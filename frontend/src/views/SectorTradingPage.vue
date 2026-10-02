@@ -88,7 +88,7 @@
               </div>
             </div>
             <div class="sector-badge" :style="{ background: sector.color + '20', color: sector.color }">
-              전체 대비 {{ sector.percentage?.toFixed(1) || 0 }}%
+              전체 대비 {{ sector.percentage != null ? Number(sector.percentage).toFixed(1) + '%' : '-' }}
             </div>
           </div>
 
@@ -100,9 +100,9 @@
             </div>
             <div class="total-chart">
               <div class="chart-track">
-                <div class="mini-bar" :style="{ width: Math.min(sector.percentage * 2, 100) + '%', background: sector.color }"></div>
+                <div class="mini-bar" :style="{ width: Math.min((Number(sector.percentage) || 0) * 2, 100) + '%', background: sector.color }"></div>
               </div>
-              <span class="chart-percentage" :style="{ color: sector.color }">{{ sector.percentage?.toFixed(1) || 0 }}%</span>
+              <span class="chart-percentage" :style="{ color: sector.color }">{{ sector.percentage != null ? Number(sector.percentage).toFixed(1) + '%' : '-' }}</span>
             </div>
           </div>
 
@@ -152,6 +152,7 @@
 </template>
 
 <script setup>
+import { marketTotalOf } from '@/utils/marketDataLabels';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { sectorAPI } from '../utils/api';
@@ -181,12 +182,9 @@ const periodTabs = [
   { value: 'MIN_30', label: '30분파워', icon: '🔥' }
 ];
 
-const totalTradingValue = computed(() => {
-  return sectors.value.reduce((sum, s) => {
-    const val = parseFloat(s.totalTradingValue) || 0;
-    return sum + val;
-  }, 0);
-});
+// 총 거래대금 — 백엔드가 종목 단위로 한 번만 센 값(marketTotalTradingValue, 2026-10-02).
+// 섹터 합계를 더하면 여러 섹터에 속한 종목(삼성전자 등)이 섹터 수만큼 더해진다. 옛 응답(필드 없음)만 합산으로 폴백.
+const totalTradingValue = computed(() => marketTotalOf(sectors.value));
 
 // 정규장 개장(09:00) 전 평일 — 사용자에게 "곧 시작" 안내 노출.
 // 백엔드 스냅샷 스케줄러가 09:00부터 시작하므로 8~9시는 의도적으로 빈 상태.

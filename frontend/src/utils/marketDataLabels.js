@@ -88,6 +88,18 @@ export function signedPercentOrDash(v) {
   return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`
 }
 
+/**
+ * 섹터 거래대금 '총 거래대금' — 백엔드가 종목 단위로 한 번만 센 marketTotalTradingValue 를 쓴다(2026-10-02).
+ * 섹터 합계를 더하면 여러 섹터에 속한 종목이 섹터 수만큼 더해진다(통신에 들어 있던 삼성전자·SK하이닉스 → 23.58조).
+ * 그 필드가 없는 옛 응답만 합산으로 폴백한다.
+ */
+export function marketTotalOf(sectors) {
+  const list = Array.isArray(sectors) ? sectors : []
+  const withTotal = list.find((s) => s && s.marketTotalTradingValue != null && Number.isFinite(Number(s.marketTotalTradingValue)))
+  if (withTotal) return Number(withTotal.marketTotalTradingValue)
+  return list.reduce((sum, s) => sum + (parseFloat(s && s.totalTradingValue) || 0), 0)
+}
+
 /** 종목 이름 칸 — 이름이 비었거나 코드와 같으면 한 번만(예전엔 "003490003490"). */
 export function stockNameOnce(name, code) {
   const n = typeof name === 'string' ? name.trim() : ''
