@@ -47,6 +47,9 @@ tmpclaude-*-cwd
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+# 프론트 빌드를 백엔드 소스에 두지 않는다(2026-10-02 은퇴 — 3월 빌드가 추적돼 운영 jar 에 실려 있었다).
+# 화면은 nginx 가 frontend/dist 로 서빙하고, 로컬 단일 jar 는 Gradle copyFrontend 가 build/ 로 넣는다.
+backend/src/main/resources/static/
 
 ### File Uploads ###
 uploads/
