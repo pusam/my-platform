@@ -161,6 +161,21 @@ public class StockMasterService {
         return n;
     }
 
+    /**
+     * KRX 시드 유령 행 삭제 + 캐시 정리(2026-10-02). 어떤 코드를 지울지는 호출측이 순수 함수로 정한다
+     * ({@code KrxStockMasterSeeder.legacyMangledCodes}).
+     */
+    @Transactional
+    public int removeKrxRows(java.util.Collection<String> codes) {
+        if (codes == null || codes.isEmpty()) return 0;
+        int n = repository.deleteKrxRowsByCodes(codes);
+        for (String c : codes) {
+            nameCache.remove(c);
+            marketCache.remove(c);
+        }
+        return n;
+    }
+
     /** KRX 시드 row carrier. */
     public static record KrxRow(String stockCode, String stockName, String market,
                                 String sector, LocalDate listedDate) {}

@@ -78,6 +78,14 @@ public interface StockMasterRepository extends JpaRepository<StockMaster, String
                 @Param("listedDate") java.time.LocalDate listedDate,
                 @Param("source") String source);
 
+    /**
+     * KRX 시드가 만든 행만 지운다(2026-10-02 — 예전 코드 정규화 버그가 남긴 유령 행 정리용).
+     * MANUAL·KIS 출처 행은 건드리지 않는다.
+     */
+    @Modifying
+    @Query(value = "DELETE FROM stock_master WHERE source = 'KRX' AND stock_code IN (:codes)", nativeQuery = true)
+    int deleteKrxRowsByCodes(@Param("codes") java.util.Collection<String> codes);
+
     @Modifying
     @Query(value = """
         INSERT INTO stock_master (stock_code, stock_name, source, updated_at)

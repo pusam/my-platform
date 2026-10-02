@@ -156,8 +156,10 @@ public class KrxStockMasterSeeder {
             return 0;
         }
         try {
-            int kospi = seedMarket("stockMkt", "KOSPI");
-            int kosdaq = seedMarket("kosdaqMkt", "KOSDAQ");
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            int kospi = seedMarket("stockMkt", "KOSPI", seen);
+            int kosdaq = seedMarket("kosdaqMkt", "KOSDAQ", seen);
+            pruneLegacyMangledRows(kospi, kosdaq, seen);
             lastKospiCount.set(kospi);
             lastKosdaqCount.set(kosdaq);
             lastSeedEpochSeconds = System.currentTimeMillis() / 1000;
@@ -175,7 +177,7 @@ public class KrxStockMasterSeeder {
         }
     }
 
-    private int seedMarket(String marketType, String marketLabel) {
+    private int seedMarket(String marketType, String marketLabel, java.util.Set<String> seen) {
         // KRX corpList 응답은 charset 헤더가 일관적이지 않아 한글이 깨질 수 있음 → byte 받아 EUC-KR 디코드.
         // EUC-KR 로 깨진 문자가 보이면 UTF-8 폴백.
         byte[] bytes;
@@ -246,6 +248,7 @@ public class KrxStockMasterSeeder {
 
             batch.add(new StockMasterService.KrxRow(code, name, marketLabel,
                     emptyToNull(sector), listed));
+            seen.add(code);
         }
 
         int upserted = stockMasterService.upsertBatchFromKrx(batch);
@@ -267,13 +270,50 @@ public class KrxStockMasterSeeder {
         return n;
     }
 
-    /** KRX는 종목코드를 정수형으로 떨굴 때가 있어서 6자리 zero-pad. */
-    private static String padCode(String code) {
+    /** KRX는 종목코드를 정수형으로 떨굴 때가 있어서 6자리 zero-pad(숫자만인 코드). */
+    static String padCode(String code) {
+        // 2026-10-02: 예전엔 숫자 아닌 글자를 지운 뒤 zero-pad 해서 영숫자 코드 "0009K0" → "000090", "0039P0" → "000390" 이
+        // 됐다. 그 숫자 코드를 이미 쓰는 상장사(000390 삼화페인트·000080 하이트진로·000880 한화 등 42행)의 마스터 행이 신규
+        // 상장사의 이름·시장으로 덮였고, 이름 폴백을 쓰는 화면이 그 회사 시세 옆에 다른 회사 이름을 띄웠다.
+        // 숫자만이면 6자리 zero-pad, 영문이 섞인 6자리 코드는 대문자로 그대로, 그 밖의 형식은 건너뛴다("").
         if (code == null) return "";
-        String digits = code.replaceAll("\\D", "");
-        if (digits.isEmpty()) return "";
-        if (digits.length() >= 6) return digits;
-        return String.format("%6s", digits).replace(' ', '0');
+        String c = code.trim().toUpperCase();
+        if (c.matches("\\d{1,6}")) return String.format("%6s", c).replace(' ', '0');
+        if (c.matches("[0-9A-Z]{6}")) return c;
+        return "";
+    }
+
+    /** 유령 행 정리는 두 시장 목록이 다 받아졌을 때만(일부만 받은 날 진짜 상장사 행을 지우지 않게). 실측 KOSPI ~840 / KOSDAQ ~1,800. */
+    static final int PRUNE_MIN_KOSPI = 500;
+    static final int PRUNE_MIN_KOSDAQ = 1000;
+
+    /**
+     * 예전 {@code padCode} 가 영숫자 코드에서 만들었을 숫자 코드 중, 이번 목록의 어떤 종목도 실제로 쓰지 않는 것(순수).
+     * 그 코드의 KRX 행은 존재하지 않는 종목(유령)이라 지운다 — 실제 상장사가 쓰는 코드는 시드가 이미 바른 이름으로 덮었다.
+     */
+    static java.util.Set<String> legacyMangledCodes(java.util.Set<String> seenCodes) {
+        java.util.Set<String> out = new java.util.TreeSet<>();
+        for (String c : seenCodes) {
+            if (c == null || !c.matches("[0-9A-Z]{6}") || c.matches("\\d{6}")) continue;   // 영숫자 코드만
+            String digits = c.replaceAll("\\D", "");
+            if (digits.isEmpty()) continue;
+            String mangled = digits.length() >= 6 ? digits : String.format("%6s", digits).replace(' ', '0');
+            if (!seenCodes.contains(mangled)) out.add(mangled);
+        }
+        return out;
+    }
+
+    void pruneLegacyMangledRows(int kospi, int kosdaq, java.util.Set<String> seen) {
+        if (kospi < PRUNE_MIN_KOSPI || kosdaq < PRUNE_MIN_KOSDAQ) {
+            log.info("KRX 유령 행 정리 생략 — 목록이 덜 받아짐(KOSPI {} / KOSDAQ {})", kospi, kosdaq);
+            return;
+        }
+        java.util.Set<String> ghosts = legacyMangledCodes(seen);
+        if (ghosts.isEmpty()) return;
+        int removed = stockMasterService.removeKrxRows(ghosts);
+        if (removed > 0) {
+            log.warn("KRX 유령 행 {}건 정리 — 예전 코드 정규화가 영숫자 코드를 숫자로 뭉갠 행: {}", removed, ghosts);
+        }
     }
 
     private static LocalDate parseDate(String s) {

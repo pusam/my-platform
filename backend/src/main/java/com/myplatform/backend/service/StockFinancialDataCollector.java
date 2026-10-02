@@ -75,6 +75,44 @@ public class StockFinancialDataCollector {
     private final DartCompanyRepository dartCompanyRepository;
 
     /**
+     * 시장 구분 — 순수 함수(회귀 {@code FinancialCollectorMarketTest}, 2026-10-02).
+     *
+     * <p>예전엔 KIS 대표시장명에 '코스닥'·'KOSDAQ' 이 없으면 <b>코드 첫 글자</b>(3·4·9 → KOSDAQ, 나머지 KOSPI)로 짐작했다.
+     * 10/2 운영 최신 행 264종목이 틀렸다 — LG에너지솔루션(373220)·SK스퀘어(402340)·HD현대중공업이 KOSDAQ,
+     * 알테오젠·에코프로·에코프로비엠(KOSDAQ150 — 대표시장명이 'KSQ150' 류라 '코스닥'이 없다)이 KOSPI.
+     *
+     * <p>순서: <b>종목마스터</b>(KIND 상장법인목록 — 시장별 목록이라 확정) → KIS 대표시장명 → 보통주의 마스터 시장
+     * (우선주는 KIND 목록에 없다 — 같은 회사 보통주와 같은 시장) → 끝까지 모르면 {@code "UNKNOWN"}(칸이 NOT NULL —
+     * 짐작한 시장을 넣지 않는다, §4c). 마스터 조회 예외는 다음 단계로 넘어간다.
+     */
+    static String resolveMarket(String stockCode, java.util.function.Function<String, String> masterMarket,
+                                String kisRepresentativeMarket) {
+        String fromMaster = knownMarket(safeLookup(masterMarket, stockCode));
+        if (fromMaster != null) return fromMaster;
+        String k = kisRepresentativeMarket == null ? "" : kisRepresentativeMarket.toUpperCase(java.util.Locale.ROOT);
+        if (k.contains("코스닥") || k.contains("KOSDAQ") || k.contains("KSQ")) return "KOSDAQ";
+        if (k.contains("코스피") || k.contains("KOSPI")) return "KOSPI";
+        if (stockCode != null && stockCode.matches("\\d{5}[1-9]")) {
+            String fromCommon = knownMarket(safeLookup(masterMarket, stockCode.substring(0, 5) + "0"));
+            if (fromCommon != null) return fromCommon;
+        }
+        return "UNKNOWN";
+    }
+
+    private static String knownMarket(String market) {
+        return "KOSPI".equals(market) || "KOSDAQ".equals(market) ? market : null;
+    }
+
+    private static String safeLookup(java.util.function.Function<String, String> lookup, String code) {
+        if (lookup == null || code == null) return null;
+        try {
+            return lookup.apply(code);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * 수집 시점의 표시용 종목명 — 순수 함수(회귀 {@code FinancialCollectorNameFallbackTest}).
      *
      * <p>KIS 현재가 응답의 {@code hts_kor_isnm} 이 <b>자주 비어 온다</b> — prod 실측 2026-09-21
@@ -165,13 +203,8 @@ public class StockFinancialDataCollector {
                 stockMasterService.cacheName(stockCode, rawName, "KIS");
             }
 
-            String market = "KOSPI";
-            String rprs_mrkt_kor_name = output.path("rprs_mrkt_kor_name").asText("");
-            if (rprs_mrkt_kor_name.contains("코스닥") || rprs_mrkt_kor_name.contains("KOSDAQ")) {
-                market = "KOSDAQ";
-            } else if (stockCode.startsWith("3") || stockCode.startsWith("4") || stockCode.startsWith("9")) {
-                market = "KOSDAQ";
-            }
+            String market = resolveMarket(stockCode, stockMasterService::getMarket,
+                    output.path("rprs_mrkt_kor_name").asText(""));
 
             BigDecimal currentPrice = parseBigDecimal(output.path("stck_prpr").asText());
 
