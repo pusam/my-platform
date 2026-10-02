@@ -206,6 +206,13 @@ class FlywayMigrationTest {
         }
         // 엔티티 ↔ 스키마(새 컬럼 포함) — 운영은 ddl-auto: validate
         validateEntitiesAgainstSchema("com.myplatform.backend.youtubeopinion");
+
+        // --- 검증 18 (V67): 공매도 거래 비중 표(KIS 상위종목 일별 스냅샷) — 종목·기준일 한 행(재수집이 중복을 못 만든다) ---
+        assertThat(uniqueConstraintCount("short_selling_trade", "uk_sst_stock_date"))
+                .as("V67 short_selling_trade UNIQUE(stock_code, trade_date)").isEqualTo(1);
+        assertThat(columnCount("short_selling_trade", "short_volume_share"))
+                .as("V67 거래량 비중 칸 — 잔고 비율이 아니다").isEqualTo(1);
+        validateEntitiesAgainstSchema("com.myplatform.backend.shortselling");
     }
 
     /** V63 검증용 행 — 오독 행(증가율·파싱 실패 0), TTM 행, 네이버 분기 행. */

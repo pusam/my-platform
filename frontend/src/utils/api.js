@@ -874,17 +874,17 @@ export const tradingSafetyAPI = {
   }
 };
 
-// 공매도 잔고 API
+// 공매도 거래 비중 API(2026-10-02 — 잔고 출처가 죽어 KIS 공매도 상위종목·일별추이로. 잔고 아님, 표시 전용)
 export const shortSellingAPI = {
-  // 공매도 비율 상위 종목 (기본 20개)
-  getTop(limit = 20) {
+  // 최신 기준일의 공매도 거래 비중 상위 종목 — { dataAvailable, asOf, lastCollection, data }
+  getTop(limit = 30) {
     return apiClient.get('/short-selling/top', { params: { limit } });
   },
-  // 특정 종목 공매도 이력
-  getStockHistory(stockCode) {
+  // 종목의 직전 마감일 공매도 거래 비중 — { dataAvailable, asOf, shortVolumeShare, ... }
+  getStockShare(stockCode) {
     return apiClient.get(`/short-selling/${stockCode}`);
   },
-  // 수동 수집 (admin)
+  // 수동 수집 — 18:30 크론과 같은 경로(KIS 상위종목)
   collect() {
     return apiClient.post('/short-selling/collect', null, { timeout: 120000 });
   }

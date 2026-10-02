@@ -205,14 +205,16 @@
       <!-- ===== 탭4: 공매도 ===== -->
       <div v-if="activeTab === 'shortSelling'" class="tab-content">
         <div class="section-header">
-          <h2>📉 공매도 비율 상위</h2>
+          <h2>📉 공매도 거래 비중 상위</h2>
           <div class="section-controls">
             <button class="refresh-btn" :disabled="shortLoading" @click="fetchShortSelling">
               {{ shortLoading ? '로딩...' : '🔄 갱신' }}
             </button>
           </div>
         </div>
-        <p class="hint">최근 거래일 기준 공매도 비율 상위 종목. 비율이 높을수록 하락 베팅이 많은 종목.</p>
+        <!-- 2026-10-02: 잔고 출처(KRX·네이버)가 죽어 KIS 공매도 '거래 비중'으로 옮겼다 — 잔고가 아니고, 판정에 쓰지 않는다 -->
+        <p class="hint">그날 거래량 중 공매도 몫 — <b>잔고가 아닙니다</b>. KIS 공매도 상위종목을 평일 18:30 에 수집합니다. 참고용이며 매수 판정·봇에 쓰지 않습니다.</p>
+        <p v-if="shortAsOf" class="short-asof">기준일 {{ formatShortDate(shortAsOf) }} · 출처 KIS</p>
 
         <LoadingSpinner v-if="shortLoading && shortStocks.length === 0" />
 
@@ -223,9 +225,9 @@
                 <tr>
                   <th class="rank-col">#</th>
                   <th>종목</th>
-                  <th class="right">공매도 비율</th>
-                  <th class="right">거래량</th>
-                  <th class="right">금액</th>
+                  <th class="right">공매도 비중(거래량)</th>
+                  <th class="right">공매도 수량</th>
+                  <th class="right">공매도 거래대금</th>
                   <th class="right">기준일</th>
                 </tr>
               </thead>
@@ -233,26 +235,25 @@
                 <tr v-for="(s, i) in shortStocks" :key="s.stockCode + s.tradeDate"
                     @click="goStock(s.stockCode)" class="short-row" tabindex="0"
                     @keydown.enter.self="goStock(s.stockCode)" @keydown.space.self.prevent="goStock(s.stockCode)">
-                  <td class="rank-col">{{ i + 1 }}</td>
+                  <td class="rank-col">{{ s.rank ?? i + 1 }}</td>
                   <td>
                     <div class="stock-cell">
                       <span class="name">{{ s.stockName || s.stockCode }}</span>
                       <span class="code">{{ s.stockCode }}</span>
                     </div>
                   </td>
-                  <td class="right ratio-cell" :class="getShortRatioClass(s.shortSellingRatio)">
-                    {{ formatShortRatio(s.shortSellingRatio) }}%
-                  </td>
-                  <td class="right">{{ formatShortVolume(s.shortSellingVolume) }}</td>
-                  <td class="right">{{ formatShortAmount(s.shortSellingAmount) }}</td>
+                  <!-- 판정 색 없음 — 5%·10% 는 잔고 비율용 기준이었다(거래 비중엔 검증된 기준이 없다) -->
+                  <td class="right ratio-cell">{{ formatShortRatio(s.shortVolumeShare) }}</td>
+                  <td class="right">{{ formatShortVolume(s.shortVolume) }}</td>
+                  <td class="right">{{ formatShortAmount(s.shortAmount) }}</td>
                   <td class="right date-cell">{{ formatShortDate(s.tradeDate) }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div v-else class="no-data">
-            <p>공매도 데이터가 없습니다.</p>
-            <p class="hint">매일 19시 자동 수집됩니다 (네이버 금융).</p>
+            <p>{{ shortEmptyTitle }}</p>
+            <p class="hint">{{ shortEmptyHint }}</p>
           </div>
         </template>
       </div>
@@ -470,41 +471,51 @@ const fetchConsecutive = async () => {
 // ===== 탭4: 공매도 =====
 const shortLoading = ref(false)
 const shortStocks = ref([])
+const shortAsOf = ref(null)            // 기준일 — 한 번도 수집 안 됐으면 null
+const shortDataAvailable = ref(true)   // false = 조회 실패(§4c — '데이터 없음'과 구분)
+const shortLastCollection = ref(null)  // 이 서버 프로세스의 마지막 수집 결과(재시작 직후 null)
 
 const fetchShortSelling = async () => {
   shortLoading.value = true
   try {
     const res = await shortSellingAPI.getTop(30)
-    if (res.data?.success) {
-      shortStocks.value = Array.isArray(res.data.data) ? res.data.data : []
-      shortLoaded.value = true
-    } else {
-      toast.error(res.data?.message || '공매도 데이터 조회 실패')
-    }
+    const body = res.data || {}
+    shortDataAvailable.value = body.dataAvailable !== false
+    shortAsOf.value = body.asOf || null
+    shortLastCollection.value = body.lastCollection || null
+    shortStocks.value = Array.isArray(body.data) ? body.data : []
+    shortLoaded.value = true
   } catch (e) {
     console.error('공매도 조회 실패', e)
+    shortDataAvailable.value = false
     toast.error('공매도 데이터 조회 실패')
   } finally {
     shortLoading.value = false
   }
 }
 
-const getShortRatioClass = (ratio) => {
-  const r = Number(ratio)
-  if (!Number.isFinite(r)) return ''
-  if (r >= 10) return 'ratio-very-high'
-  if (r >= 5) return 'ratio-high'
-  if (r >= 2) return 'ratio-medium'
-  return ''
-}
+// 빈 상태 문구 — 조회 실패·마지막 수집 실패·아직 수집 전·기준일만 있고 빈 목록을 서로 다르게(§4c)
+const shortEmptyTitle = computed(() => {
+  if (!shortDataAvailable.value) return '공매도 데이터를 불러오지 못했습니다.'
+  if (!shortAsOf.value) return '아직 수집된 공매도 거래 비중이 없습니다.'
+  return `기준일 ${formatShortDate(shortAsOf.value)} 데이터가 비어 있습니다.`
+})
+const shortEmptyHint = computed(() => {
+  if (!shortDataAvailable.value) return '조회 실패 — "데이터 없음"과 다릅니다. 잠시 후 다시 시도하세요.'
+  const last = shortLastCollection.value
+  if (last && last.ok === false) return `마지막 수집 실패: ${last.message}`
+  return '평일 장 마감 뒤 18:30 에 KIS 공매도 상위종목을 수집합니다.'
+})
 
 const formatShortRatio = (v) => {
+  if (v === null || v === undefined || v === '') return '-'
   const n = Number(v)
   if (!Number.isFinite(n)) return '-'
-  return n.toFixed(2)
+  return n.toFixed(2) + '%'
 }
 
 const formatShortVolume = (v) => {
+  if (v === null || v === undefined || v === '') return '-'
   const n = Number(v)
   if (!Number.isFinite(n)) return '-'
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
@@ -513,9 +524,10 @@ const formatShortVolume = (v) => {
 }
 
 const formatShortAmount = (v) => {
+  if (v === null || v === undefined || v === '') return '-'
   const n = Number(v)
   if (!Number.isFinite(n)) return '-'
-  // 단위: 원 → 억으로 표시
+  // 단위: KIS 원본(원 — 평균가 × 수량과 대조해 확인) → 억으로 표시
   const eok = n / 100_000_000
   if (eok >= 1) return eok.toFixed(1) + '억'
   const man = n / 10_000
@@ -1033,9 +1045,7 @@ td {
 .short-table .stock-cell .code { font-family: monospace; font-size: 11px; color: var(--text-muted, #7878a0); }
 
 .ratio-cell { font-weight: 800; font-family: monospace; }
-.ratio-cell.ratio-very-high { color: #ef4444; }
-.ratio-cell.ratio-high { color: #f59e0b; }
-.ratio-cell.ratio-medium { color: var(--text-muted, #7878a0); }
+.short-asof { font-size: 12px; color: var(--text-secondary, #aab3bf); margin: -4px 0 10px; }
 
 .date-cell { font-family: monospace; color: var(--text-muted, #7878a0); font-size: 12px; }
 

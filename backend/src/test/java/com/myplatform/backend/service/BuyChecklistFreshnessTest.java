@@ -4,6 +4,7 @@ import com.myplatform.backend.dto.BuyChecklistDto;
 import com.myplatform.backend.dto.BuyChecklistDto.ChecklistItem;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.StockConclusionDto;
+import com.myplatform.backend.shortselling.ShortSellingTradeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -31,7 +32,8 @@ import static org.mockito.Mockito.when;
  *       fail-open</b>이 섞여 있어 "차단할 근거 없음"과 "거래 가능 확인"이 구분되지 않았다.</li>
  *   <li>연속매수는 목록에 코드가 있는지만 봤다. 목록은 <b>DB 최신일</b> 기준이라 수집이 멈추면 며칠 전
  *       연속매수가 계속 통과한다.</li>
- *   <li>공매도는 비율만 보고 <b>기준일</b>을 몰랐다. 死피드의 낮은 비율이 통과로 표시된다.</li>
+ *   <li>공매도는 비율만 보고 <b>기준일</b>을 몰랐다. 死피드의 낮은 비율이 통과로 표시된다.
+ *       (2026-10-02 부터 공매도는 KIS 거래 비중 <b>참고 항목</b>이다 — 판정하지 않고 값과 기준일만 보인다.)</li>
  *   <li>조회 실패({@code errorItem})가 {@code dataMissing} 없이 {@code passed=false} 라 "미확인"과
  *       "실제 미충족"이 분모에서 같게 취급됐다.</li>
  * </ul>
@@ -47,7 +49,7 @@ class BuyChecklistFreshnessTest {
             ZonedDateTime.of(2026, 9, 17, 14, 0, 0, 0, KST).toInstant(), KST);
 
     private StockStatusService statusService;
-    private ShortSellingService shortSellingService;
+    private ShortSellingTradeService shortSellingTradeService;
     private InvestorTradeService investorTradeService;
     private CompositeSignalService compositeSignalService;
     private StockConclusionService conclusionService;
@@ -56,15 +58,14 @@ class BuyChecklistFreshnessTest {
     @BeforeEach
     void setUp() {
         statusService = mock(StockStatusService.class);
-        shortSellingService = mock(ShortSellingService.class);
+        shortSellingTradeService = mock(ShortSellingTradeService.class);
         investorTradeService = mock(InvestorTradeService.class);
         compositeSignalService = mock(CompositeSignalService.class);
         conclusionService = mock(StockConclusionService.class);
 
         // 기본은 전부 "정상·신선" — 각 테스트가 관심 항목만 바꾼다.
         when(statusService.activeStatus(anyString())).thenReturn(StockStatusService.ActiveStatus.ACTIVE);
-        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("1.00"));
-        when(shortSellingService.getShortSellingAsOf()).thenReturn(LocalDate.of(2026, 9, 16));
+        when(shortSellingTradeService.stockShare(anyString())).thenReturn(share("1.00", LocalDate.of(2026, 9, 16)));
         when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
                 .thenReturn(List.of(consecutive(LocalDate.of(2026, 9, 16))));
         when(compositeSignalService.evaluate(anyString())).thenReturn(null);
@@ -72,8 +73,13 @@ class BuyChecklistFreshnessTest {
                 StockConclusionDto.builder().stockCode(CODE).stockName("삼성전자")
                         .level(StockConclusionDto.Level.BUY).dataAvailable(true).currentlyValid(true).build());
 
-        service = new BuyChecklistService(statusService, shortSellingService, investorTradeService,
+        service = new BuyChecklistService(statusService, shortSellingTradeService, investorTradeService,
                 compositeSignalService, conclusionService, new MarketCalendarService(), NOW);
+    }
+
+    private static ShortSellingTradeService.StockShare share(String volumeShare, LocalDate asOf) {
+        return new ShortSellingTradeService.StockShare(true, asOf,
+                volumeShare == null ? null : new BigDecimal(volumeShare), 1_000L, null, null);
     }
 
     private static ConsecutiveBuyDto consecutive(LocalDate endDate) {
@@ -179,70 +185,67 @@ class BuyChecklistFreshnessTest {
         }
     }
 
-    // ==================== 공매도 ====================
+    // ==================== 공매도 (거래 비중 · 참고) ====================
 
     @Nested
-    @DisplayName("공매도 비율")
+    @DisplayName("공매도 거래 비중 — 참고 항목(2026-10-02)")
     class ShortSelling {
 
         @Test
-        @DisplayName("신선하면 기준일을 붙여 통과 — 값만 두고 언제 기준인지 숨기지 않는다")
-        void freshRatioCarriesAsOf() {
+        @DisplayName("값과 기준일을 보여 주되 판정하지 않는다 — 언제 기준인지 숨기지 않는다")
+        void showsValueAndAsOfWithoutJudging() {
             ChecklistItem it = item("shortSelling");
 
-            assertThat(it.isPassed()).isTrue();
+            assertThat(it.isInformational()).isTrue();
+            assertThat(it.isPassed()).isFalse();
+            assertThat(it.isDataMissing()).isFalse();
+            assertThat(it.getValue()).isEqualTo("1.00%");
             assertThat(it.getAsOf()).contains("2026-09-16");
+            assertThat(it.getNote()).contains("잔고가 아니다").contains("판정에 쓰지 않는다");
         }
 
         @Test
-        @DisplayName("기준일이 공시 지연 허용치를 넘으면 낮은 비율이어도 통과로 치지 않는다")
-        void staleRatioIsNotPassed() {
-            when(shortSellingService.getShortSellingAsOf()).thenReturn(LocalDate.of(2026, 8, 20));
+        @DisplayName("오래된 값도 그대로 기준일과 함께 — 참고 표시라 노후로 '판정 불가'를 늘리지 않는다")
+        void oldValueKeepsItsDate() {
+            when(shortSellingTradeService.stockShare(anyString())).thenReturn(share("3.00", LocalDate.of(2026, 8, 20)));
 
             ChecklistItem it = item("shortSelling");
 
-            assertThat(it.isPassed()).isFalse();
-            assertThat(it.isDataMissing()).isTrue();
+            assertThat(it.isInformational()).isTrue();
             assertThat(it.getAsOf()).contains("2026-08-20");
-            assertThat(it.getNote()).contains("노후");
-        }
-
-        @Test
-        @DisplayName("공시 지연(2영업일)은 노후가 아니다 — 수급과 같은 당일 기준을 적용하지 않는다")
-        void publicationDelayIsNotStale() {
-            when(shortSellingService.getShortSellingAsOf()).thenReturn(LocalDate.of(2026, 9, 14));
-
-            assertThat(item("shortSelling").isPassed()).isTrue();
-        }
-
-        @Test
-        @DisplayName("기준일을 모르면 판정 불가 — 비율이 있어도 통과로 치지 않는다")
-        void unknownAsOfIsMissing() {
-            when(shortSellingService.getShortSellingAsOf()).thenReturn(null);
-
-            ChecklistItem it = item("shortSelling");
-
-            assertThat(it.isDataMissing()).isTrue();
-            assertThat(it.isPassed()).isFalse();
-        }
-
-        @Test
-        @DisplayName("실측 0% 는 결측이 아니다 — 신선하면 통과")
-        void measuredZeroPasses() {
-            when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(BigDecimal.ZERO);
-
-            ChecklistItem it = item("shortSelling");
-
-            assertThat(it.isPassed()).isTrue();
             assertThat(it.isDataMissing()).isFalse();
         }
 
         @Test
-        @DisplayName("비율 자체가 null 이면 기존대로 판정 불가")
-        void nullRatioStaysMissing() {
-            when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(null);
+        @DisplayName("실측 0% 는 0.00% — 결측과 다르게 보인다")
+        void measuredZeroIsShown() {
+            when(shortSellingTradeService.stockShare(anyString())).thenReturn(share("0", LocalDate.of(2026, 9, 16)));
 
-            assertThat(item("shortSelling").isDataMissing()).isTrue();
+            assertThat(item("shortSelling").getValue()).isEqualTo("0.00%");
+        }
+
+        @Test
+        @DisplayName("조회는 됐는데 값이 없으면 '값 없음' — 0% 로 보이지 않게")
+        void noValueIsSaidSo() {
+            when(shortSellingTradeService.stockShare(anyString())).thenReturn(share(null, null));
+
+            ChecklistItem it = item("shortSelling");
+
+            assertThat(it.getValue()).isEqualTo("값 없음");
+            assertThat(it.getAsOf()).isNull();
+        }
+
+        @Test
+        @DisplayName("조회 실패는 '조회 실패' — 판정 불가 개수에는 안 들어간다(참고 항목)")
+        void failureIsSaidSo() {
+            when(shortSellingTradeService.stockShare(anyString())).thenReturn(
+                    new ShortSellingTradeService.StockShare(false, null, null, null, null, "KIS 응답 없음"));
+
+            BuyChecklistDto dto = service.evaluate(CODE);
+            ChecklistItem it = dto.getItems().stream().filter(i -> "shortSelling".equals(i.getKey())).findFirst().orElseThrow();
+
+            assertThat(it.getValue()).isEqualTo("조회 실패");
+            assertThat(dto.getSummary()).doesNotContain("판정 불가");
         }
     }
 
@@ -255,10 +258,10 @@ class BuyChecklistFreshnessTest {
         @Test
         @DisplayName("예외로 체크 불가면 dataMissing — '미확인'과 '실제 미충족'을 분모에서 구분한다")
         void exceptionBecomesDataMissing() {
-            when(shortSellingService.getShortSellingRatio(anyString()))
+            when(compositeSignalService.evaluate(anyString()))
                     .thenThrow(new IllegalStateException("DB down"));
 
-            ChecklistItem it = item("shortSelling");
+            ChecklistItem it = item("compositeSignal");
 
             assertThat(it.isDataMissing()).isTrue();
             assertThat(it.isPassed()).isFalse();
@@ -269,13 +272,16 @@ class BuyChecklistFreshnessTest {
         @DisplayName("판정 불가 항목은 분모에서 빠지고 요약 문구와 숫자가 일치한다")
         void summaryMatchesDenominator() {
             when(statusService.activeStatus(anyString())).thenReturn(StockStatusService.ActiveStatus.UNVERIFIED);
-            when(shortSellingService.getShortSellingAsOf()).thenReturn(null);
+            when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
+                    .thenReturn(List.of(consecutive(LocalDate.of(2026, 8, 20))));
 
             BuyChecklistDto dto = service.evaluate(CODE);
             long missing = dto.getItems().stream().filter(ChecklistItem::isDataMissing).count();
+            long informational = dto.getItems().stream().filter(ChecklistItem::isInformational).count();
 
             assertThat(missing).isEqualTo(2);
-            assertThat(dto.getTotalCount()).isEqualTo(dto.getItems().size() - (int) missing);
+            assertThat(informational).isEqualTo(1);
+            assertThat(dto.getTotalCount()).isEqualTo(dto.getItems().size() - (int) missing - (int) informational);
             assertThat(dto.getSummary()).contains("판정 불가 2개 제외");
             assertThat(dto.getPassedCount()).isLessThanOrEqualTo(dto.getTotalCount());
         }
@@ -283,7 +289,7 @@ class BuyChecklistFreshnessTest {
         @Test
         @DisplayName("결측이 새 매수 차단이 되지는 않는다 — 판정에서 빠질 뿐")
         void missingDoesNotBecomeBlockingPolicy() {
-            when(shortSellingService.getShortSellingAsOf()).thenReturn(null);
+            when(statusService.activeStatus(anyString())).thenReturn(StockStatusService.ActiveStatus.UNVERIFIED);
 
             BuyChecklistDto dto = service.evaluate(CODE);
 

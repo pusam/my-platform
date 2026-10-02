@@ -1,6 +1,5 @@
 package com.myplatform.backend.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.entity.ShortSellingBalance;
 import com.myplatform.backend.repository.ShortSellingBalanceRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -34,14 +32,12 @@ class ShortSellingServiceTest {
 
     @Mock private ShortSellingBalanceRepository repository;
     @Mock private TelegramNotificationService telegramService;
-    @Mock private RestTemplate restTemplate;
-    @Mock private ObjectMapper objectMapper;
 
     private ShortSellingService service;
 
     @BeforeEach
     void setUp() {
-        service = new ShortSellingService(repository, telegramService, restTemplate, objectMapper);
+        service = new ShortSellingService(repository, telegramService);
     }
 
     private ShortSellingBalance balance(String code, String ratio) {

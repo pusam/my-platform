@@ -63,6 +63,14 @@ public class BuyChecklistDto {
         private boolean dataMissing = false;
 
         /**
+         * 참고 항목(판정 안 함, 2026-10-02) — 값과 기준일만 보이고 충족 개수·분모·필수 판정 어디에도 안 들어간다.
+         * 공매도 거래 비중이 그렇다: 잔고가 아니고 거래 비중용 기준은 검증된 적이 없다(사용자 결정 "표시만").
+         * "판정 불가(dataMissing)"와 다르다 — 그건 데이터가 없어 못 센 것이고, 이건 애초에 세지 않는다.
+         */
+        @Builder.Default
+        private boolean informational = false;
+
+        /**
          * 이 항목이 참조한 데이터의 기준일/시각(사람이 읽는 문자열). 모르면 null(2026-09-17 감사 F5).
          * 노후·미확인을 "정상"으로 보이지 않게 하려면 값과 함께 언제 기준인지가 있어야 한다.
          */

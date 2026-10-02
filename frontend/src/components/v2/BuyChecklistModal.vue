@@ -22,10 +22,11 @@
 
         <ul class="items">
           <li v-for="item in checklist.items" :key="item.key"
-              class="item" :class="{ passed: item.passed, missing: item.dataMissing }">
+              class="item" :class="{ passed: item.passed, missing: item.dataMissing, info: item.informational }">
             <div class="item-status">
-              <!-- dataMissing = 판정 불가(미수집) — 미충족(❌)으로 위장하지 않는다 (§4c) -->
-              <span class="check-icon">{{ item.dataMissing ? '➖' : (item.passed ? '✅' : '❌') }}</span>
+              <!-- dataMissing = 판정 불가(미수집) — 미충족(❌)으로 위장하지 않는다 (§4c).
+                   informational = 참고 항목(판정 안 함, 2026-10-02 공매도 거래 비중) — 통과·미충족처럼 보이지 않게 ℹ️ -->
+              <span class="check-icon">{{ item.informational ? 'ℹ️' : (item.dataMissing ? '➖' : (item.passed ? '✅' : '❌')) }}</span>
             </div>
             <div class="item-body">
               <div class="item-header">
@@ -37,7 +38,7 @@
               </div>
               <div class="item-meta">
                 <span class="item-value">{{ item.value }}</span>
-                <span v-if="item.threshold" class="item-threshold">기준 {{ item.threshold }}</span>
+                <span v-if="item.threshold" class="item-threshold">{{ item.informational ? item.threshold : '기준 ' + item.threshold }}</span>
                 <!-- F5(2026-09-17): 값만 두고 "언제 기준인지"를 숨기지 않는다 — 노후를 정상으로 읽지 않게 -->
                 <span v-if="item.asOf" class="item-asof">{{ item.asOf }}</span>
               </div>
@@ -47,7 +48,7 @@
         </ul>
 
         <div class="modal-footer">
-          <span class="hint">이 체크리스트는 자동매매 봇이 진입 전에 검증하는 룰을 노출한 것입니다.</span>
+          <span class="hint">이 체크리스트는 자동매매 봇이 진입 전에 검증하는 룰을 노출한 것입니다. ℹ️ 참고 항목은 판정에 쓰지 않습니다.</span>
           <button class="journal-btn" @click="showJournal = true"
                   title="수동 매수 기록 (실주문 아님 — 신호 스냅샷 + 3거래일 평가)">
             📔 매수 기록

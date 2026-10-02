@@ -9,6 +9,7 @@ import com.myplatform.backend.service.QuantScreenerService;
 import com.myplatform.backend.service.SchedulerLockService;
 import com.myplatform.backend.service.ShortSellingService;
 import com.myplatform.backend.service.WatchlistService;
+import com.myplatform.backend.shortselling.ShortSellingTradeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +47,7 @@ public class StockAlertScheduler {
     private final MorningBriefingService morningBriefingService;
     private final QuantScreenerService quantScreenerService;
     private final ShortSellingService shortSellingService;
+    private final ShortSellingTradeService shortSellingTradeService;
     private final WatchlistService watchlistService;
     private final SchedulerLockService schedulerLockService;
     private final MarketCalendarService marketCalendar;
@@ -231,29 +233,32 @@ public class StockAlertScheduler {
     }
 
     /**
-     * 공매도 잔고 수집 (평일 18:30, 장 마감 후)
-     * - 네이버 금융에서 공매도 잔고 데이터 크롤링
+     * 공매도 <b>거래 비중</b> 수집 (평일 18:30, 장 마감 후) — KIS 공매도 상위종목(국내주식-133).
+     *
+     * <p>2026-10-02 에 잔고(KRX·네이버, 둘 다 死)에서 바꿨다 — KIS 에는 잔고 API 가 없다. 표시 전용(시장 탭 공매도 화면).
+     * 초 필드는 :00 을 피한다(KIS 를 부르는 크론 — 잔고 모니터·워머가 :00 에 몰려 EGW00215, §4b).
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "40 30 18 * * MON-FRI", zone = "Asia/Seoul")
     public void collectShortSellingBalance() {
         if (!schedulerEnabled) return;
         if (marketCalendar.isMarketClosed()) { log.debug("[공매도수집] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.short-collect", Duration.ofMinutes(20))) {
-            log.debug("공매도 잔고 수집 다른 인스턴스에서 진행 중 — 스킵");
+            log.debug("공매도 거래 비중 수집 다른 인스턴스에서 진행 중 — 스킵");
             return;
         }
         try {
-            log.info("=== 공매도 잔고 수집 시작 (18:30) ===");
-            shortSellingService.collectShortSellingData();
-            log.info("=== 공매도 잔고 수집 완료 ===");
+            ShortSellingTradeService.CollectionStatus status = shortSellingTradeService.collect();
+            log.info("=== 공매도 거래 비중 수집 (18:30) — {} ===", status.message());
         } catch (Exception e) {
-            log.error("공매도 잔고 수집 실패: {}", e.getMessage(), e);
+            log.error("공매도 거래 비중 수집 실패: {}", e.getMessage(), e);
         }
     }
 
     /**
-     * 공매도 경보 발송 (평일 19:00)
-     * - 공매도 비율 5% 이상 종목 텔레그램 알림
+     * 공매도 <b>잔고</b> 경보 발송 (평일 19:00) — 잔고 비율 5% 이상 종목 텔레그램 알림.
+     *
+     * <p>⚠ 잔고 출처가 없어(2026-10-02) 잔고 표가 비어 있으면 "데이터 없음 — 알림 생략"으로 끝난다. 거래 비중으로
+     * 바꾸지 않은 것은 의도다(사용자 결정 "표시만") — 거래 비중용 기준은 검증된 적이 없다.
      */
     @Scheduled(scheduler = "batchScheduler", cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkShortSellingAlert() {

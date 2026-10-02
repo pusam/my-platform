@@ -159,17 +159,25 @@ dbq "SELECT stock_code, trading_mode, acquired_at, expires_at, holder,
 
 ---
 
-## 9. short_selling_balance — 死피드 확정 상태 (신규 유입 0 = 현재 기대값)
+## 9. 공매도 — 거래 비중(`short_selling_trade`)은 매일 유입, 잔고(`short_selling_balance`)는 0행이 정상
 
-공매도 피드는 **死 확정**(KRX LOGOUT + 네이버 404, `SHORT_SELLING_DEAD_FEED_DIAGNOSIS.md`). 복구 전까지 **신규 유입 0 이 기대값**.
+2026-10-02 부터 공매도는 **KIS 거래 비중**(상위종목, 평일 18:30)을 `short_selling_trade` 에 쌓는다 — 표시 전용. 잔고는 출처가 없어(KRX LOGOUT · 네이버 폐지 · KIS 잔고 API 없음) **0행이 기대값**이다.
+```bash
+dbq "SELECT MAX(trade_date) AS latest, COUNT(DISTINCT trade_date) AS days_last30, COUNT(*) AS rows_last30
+     FROM myplatform.short_selling_trade WHERE trade_date >= CURDATE() - INTERVAL 30 DAY;"
+```
+- **기대**: `latest` = 직전 거래일(18:30 뒤면 당일). 하루 행 수는 KIS 상위종목 응답 크기(연속조회 최대 10페이지).
+- **이상 시**: `latest` 가 2거래일 넘게 멈춤 → 백엔드 로그 `[공매도 거래 비중] 수집 실패` 의 사유(rt_cd·msg1)부터 본다. 화면(시장 탭 → 수급 → 공매도)도 '마지막 수집 실패: …' 를 보여 준다(재시작 전까지).
+
+잔고 표(아래)는 출처가 생기기 전까지 그대로 0행이어야 한다.
 ```bash
 dbq "SELECT MAX(trade_date) AS latest, COUNT(DISTINCT trade_date) AS days_last30
      FROM myplatform.short_selling_balance
      WHERE trade_date >= CURDATE() - INTERVAL 30 DAY;"
 ```
 - **기대(死 상태)**: `latest` 가 死피드 시점(2026-06 말경)에 고정, 최근 30일 신규일 0. **이게 정상** — `getShortSellingRatio` 는 결측을 null 로 정직하게 반환하고(§4c, AUDIT P1-3 수정), 체크리스트는 "미수집" 표기라 위장 없음.
-- **복구 신호(좋은 이상)**: `latest` 가 최근 거래일로 갱신되기 시작 → 피드 복구됨. 이땐 체크리스트 공매도 항목이 "미수집"→실값으로 자동 전환되는지 확인.
-- **이상 시**: 死 상태인데 어딘가 `0.00%` 를 "충족"으로 표시하면 → §4c 회귀(구 코드 배포). `curl -s localhost:8080/api/stock/005930/checklist` 로 `dataMissing:true` 확인.
+- **복구 신호(좋은 이상)**: `latest` 가 최근 거래일로 갱신되기 시작 → 잔고 출처가 생겼다는 뜻이다(2026-10-02 기준 출처 없음). 봇 고공매도 차단·19시 잔고 경보가 다시 켜지므로 사람이 확인할 것.
+- **이상 시**: 체크리스트 공매도 항목이 ✅/❌ 로 판정되면 → 회귀(2026-10-02 부터 `informational:true` 참고 항목). `curl -s localhost:8080/api/stock/005930/checklist` 로 확인.
 
 ---
 

@@ -6,11 +6,11 @@ import com.myplatform.backend.dto.BuyChecklistDto.Recommendation;
 import com.myplatform.backend.dto.CompositeSignalDto;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.StockConclusionDto;
+import com.myplatform.backend.shortselling.ShortSellingTradeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,7 +19,8 @@ import java.util.List;
  *
  * 자동매매 봇(AutoTradingBotService)이 적용하는 hard rule 을 그대로 사용자 화면에 노출:
  *  1. 거래 가능 상태 — StockStatusService.isActive
- *  2. 공매도 비율 < 5% — ShortSellingService.getShortSellingRatio
+ *  2. 공매도 거래 비중 — <b>참고 항목</b>(판정 안 함, 2026-10-02 사용자 결정). 봇의 공매도 <b>잔고</b> 5% 차단은
+ *     잔고 출처가 없어 작동하지 않는다 — 거래 비중(ShortSellingTradeService)은 값과 기준일만 보인다.
  *  3. 외국인/기관 3일+ 연속매수 — InvestorTradeService.getConsecutiveBuyStocks
  *  4. 복합 신호 3/5 이상 — CompositeSignalService.evaluate
  *  5. 종합 결론 BUY 이상 — StockConclusionService
@@ -33,7 +34,7 @@ import java.util.List;
 public class BuyChecklistService {
 
     private final StockStatusService stockStatusService;
-    private final ShortSellingService shortSellingService;
+    private final ShortSellingTradeService shortSellingTradeService;
     private final InvestorTradeService investorTradeService;
     private final CompositeSignalService compositeSignalService;
     private final StockConclusionService stockConclusionService;
@@ -42,7 +43,6 @@ public class BuyChecklistService {
     private final java.time.Clock clock;
 
     // 임계값 — 봇 룰과 동기화 필요.
-    private static final BigDecimal SHORT_SELLING_LIMIT = new BigDecimal("5.0");
     private static final int CONSECUTIVE_BUY_MIN_DAYS = 3;
     private static final int COMPOSITE_SIGNAL_MIN_MATCHES = 3;
 
@@ -51,13 +51,6 @@ public class BuyChecklistService {
      * 1 은 "수집이 하루 늦어도 통과"라는 뜻이고, 그보다 오래면 수집 정체로 본다(§4c 노후 가드와 같은 정신).
      */
     static final int CONSECUTIVE_BUY_MAX_LAG_TRADING_DAYS = 1;
-    /**
-     * 공매도 잔고 허용 지연(거래일) — <b>공시 지연이 있는 데이터</b>다. 잔고는 발생일로부터 며칠 뒤
-     * 공표되므로 수급(당일 기준)과 같은 신선도를 적용하면 상시 "노후"가 된다. 공시 지연 + 수집 여유를
-     * 합쳐 3 거래일로 둔다. ⚠ 이 값은 실측으로 다시 잡을 대상이다 — 운영에서 최신 기준일 분포를
-     * 확인한 뒤 조정할 것(지금은 "당일 기준을 무작정 적용하지 않는다"가 목적).
-     */
-    static final int SHORT_SELLING_MAX_LAG_TRADING_DAYS = 3;
 
     public BuyChecklistDto evaluate(String stockCode) {
         List<ChecklistItem> items = new ArrayList<>();
@@ -66,7 +59,7 @@ public class BuyChecklistService {
         // 1) 거래 가능
         items.add(checkTradable(stockCode));
 
-        // 2) 공매도 비율
+        // 2) 공매도 거래 비중 — 참고(판정 안 함)
         items.add(checkShortSelling(stockCode));
 
         // 3) 외국인 또는 기관 연속매수
@@ -86,9 +79,11 @@ public class BuyChecklistService {
         // 판정 불가(미수집) 항목은 분모에서 제외한다(2026-08-05 감사) — 예전엔 미수집을 분모에
         // 남긴 채 "필수+가산 전부 통과"라고 써서 "4/5 충족 — 전부 통과" 같은 자기모순이 났다.
         // decideRecommendation 은 이미 dataMissing 을 판정에서 빼고 있어(§4c) 문구만 어긋나 있었다.
-        int passed = (int) items.stream().filter(ChecklistItem::isPassed).count();
-        int decidable = (int) items.stream().filter(i -> !i.isDataMissing()).count();
-        int missing = items.size() - decidable;
+        // 참고 항목(informational)은 애초에 세지 않는다 — 충족 개수·분모·'판정 불가' 어디에도 안 들어간다.
+        int passed = (int) items.stream().filter(i -> !i.isInformational()).filter(ChecklistItem::isPassed).count();
+        int missing = (int) items.stream().filter(i -> !i.isInformational()).filter(ChecklistItem::isDataMissing).count();
+        int informational = (int) items.stream().filter(ChecklistItem::isInformational).count();
+        int decidable = items.size() - informational - missing;
         Recommendation recommendation = decideRecommendation(items);
         String summary = summary(recommendation, passed, decidable, missing);
 
@@ -148,55 +143,38 @@ public class BuyChecklistService {
         return at == null ? null : at.toLocalDate().toString() + " 동기화";
     }
 
+    /**
+     * 공매도 거래 비중 — <b>참고 항목</b>(2026-10-02, 사용자 결정 "거래 비중으로, 표시만").
+     *
+     * <p>잔고 출처(KRX·네이버)가 죽었고 KIS 에는 잔고 API 가 없다. KIS 일별추이의 <b>직전 마감일 거래 비중</b>을
+     * 값과 기준일로 보여 주되 판정하지 않는다 — 기존 5% 는 잔고 비율용 기준이고 거래 비중용 기준은 검증된 적이 없다.
+     * 그래서 높든 낮든·조회 실패든 충족 개수와 필수 판정에 들어가지 않는다(예전에도 잔고 데이터가 없어 늘 '판정 불가'였다).
+     */
     private ChecklistItem checkShortSelling(String stockCode) {
+        String note = "그날 거래량 중 공매도 몫(KIS) — 잔고가 아니다. 거래 비중용 기준이 검증되지 않아 판정에 쓰지 않는다"
+                + "(봇의 공매도 잔고 5% 차단은 잔고 출처가 없어 작동하지 않는다).";
+        ChecklistItem.ChecklistItemBuilder item = ChecklistItem.builder()
+                .key("shortSelling")
+                .label("공매도 거래 비중")
+                .passed(false)
+                .informational(true)
+                .threshold("참고(판정 안 함)")
+                .note(note)
+                .dimension("SHORT");
         try {
-            BigDecimal ratio = shortSellingService.getShortSellingRatio(stockCode);
-            // §4c: 결측(null)은 "0.00% 충족"으로 위장하지 않는다(AUDIT 2026-07-07 P1-3).
-            if (ratio == null) {
-                return ChecklistItem.builder()
-                        .key("shortSelling")
-                        .label("공매도 비율")
-                        .passed(false)
-                        .dataMissing(true)
-                        .value("미수집")
-                        .threshold("< 5%")
-                        .note("공매도 데이터 미수집 — 충족/미충족 판정 불가. 이 항목은 권고 산출에서 제외.")
-                        .dimension("SHORT")
-                        .build();
+            ShortSellingTradeService.StockShare share = shortSellingTradeService.stockShare(stockCode);
+            if (share == null || !share.dataAvailable()) {
+                return item.value("조회 실패").build();
             }
-            // ★ F5: 기준일을 함께 본다. 死피드의 낮은 비율이 "공매도 낮음 충족"으로 보이면 안 된다.
-            //    ⚠ 공매도 잔고는 공시 지연이 있어 수급(당일 기준)과 같은 신선도를 적용하지 않는다.
-            java.time.LocalDate asOf = shortSellingService.getShortSellingAsOf();
-            boolean fresh = marketCalendar.isFreshWithin(
-                    asOf, java.time.LocalDateTime.now(clock), SHORT_SELLING_MAX_LAG_TRADING_DAYS);
-            if (!fresh) {
-                return ChecklistItem.builder()
-                        .key("shortSelling")
-                        .label("공매도 비율")
-                        .passed(false)
-                        .dataMissing(true)
-                        .value(ratio.setScale(2, java.math.RoundingMode.HALF_UP) + "%")
-                        .threshold("< 5%")
-                        .note(asOf == null
-                                ? "공매도 기준일 미상 — 노후 여부를 알 수 없어 판정에서 제외."
-                                : "공매도 데이터 노후(" + asOf + " 기준) — 판정에서 제외.")
-                        .asOf(asOf == null ? null : asOf + " 기준")
-                        .dimension("SHORT")
-                        .build();
+            if (share.shortVolumeShare() == null) {
+                return item.value("값 없음").build();
             }
-            boolean passed = ratio.compareTo(SHORT_SELLING_LIMIT) < 0;
-            return ChecklistItem.builder()
-                    .key("shortSelling")
-                    .label("공매도 비율")
-                    .passed(passed)
-                    .value(ratio.setScale(2, java.math.RoundingMode.HALF_UP) + "%")
-                    .threshold("< 5%")
-                    .note(passed ? "" : "공매도 압력 높음 — 진입 시 손절선 짧게.")
-                    .asOf(asOf + " 기준")
-                    .dimension("SHORT")
+            return item.value(share.shortVolumeShare().setScale(2, java.math.RoundingMode.HALF_UP) + "%")
+                    .asOf(share.asOf() == null ? null : share.asOf() + " 기준")
                     .build();
         } catch (Exception e) {
-            return errorItem("shortSelling", "공매도 비율", e);
+            log.warn("[BuyChecklist] 공매도 거래 비중 조회 실패: {}", e.getMessage());
+            return item.value("조회 실패").build();
         }
     }
 
@@ -362,7 +340,7 @@ public class BuyChecklistService {
      *
      * 필수 항목 (1개라도 미충족 → 즉시 NOT_RECOMMENDED, 가산 점수 무관):
      *   - tradable (거래정지/상폐 아님)
-     *   - shortSelling (공매도 < 5%)
+     *   (공매도 잔고 5% 는 2026-10-02 부터 빠졌다 — 잔고 출처가 없고, 거래 비중은 참고 항목이다)
      *
      * 가산 항목 (3개 중 충족 개수에 따라 등급):
      *   - consecutiveBuy / compositeSignal / conclusion
@@ -373,13 +351,14 @@ public class BuyChecklistService {
      *   - 가산 1/3 → CAUTION
      *   - 가산 0/3 → NOT_RECOMMENDED (필수만 통과는 진입 근거 부족)
      */
-    private static final java.util.Set<String> REQUIRED_KEYS = java.util.Set.of("tradable", "shortSelling");
+    private static final java.util.Set<String> REQUIRED_KEYS = java.util.Set.of("tradable");
 
     private Recommendation decideRecommendation(List<ChecklistItem> items) {
         // 필수 항목 검사 — 1개라도 fail 이면 즉시 NOT_RECOMMENDED.
         // 단 dataMissing(미수집)은 판정 불가이지 미충족이 아님 — 결측을 근거로 차단하지 않는다
         // (§4c, 봇 isHighShortSellingStock 결측=통과와 동일 극성).
         boolean requiredAllPassed = items.stream()
+                .filter(i -> !i.isInformational())
                 .filter(i -> REQUIRED_KEYS.contains(i.getKey()))
                 .filter(i -> !i.isDataMissing())
                 .allMatch(ChecklistItem::isPassed);
@@ -388,6 +367,7 @@ public class BuyChecklistService {
         }
         // 가산 항목 충족 개수
         long bonusPassed = items.stream()
+                .filter(i -> !i.isInformational())
                 .filter(i -> !REQUIRED_KEYS.contains(i.getKey()))
                 .filter(ChecklistItem::isPassed)
                 .count();

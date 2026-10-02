@@ -899,6 +899,103 @@ public class KoreaInvestmentService {
         });
     }
 
+    // ==================== 공매도 거래 비중 (2026-10-02) ====================
+    // ⚠ 둘 다 '거래 비중'(그날 거래량 중 공매도 몫)이다 — 잔고가 아니다. KIS 에 공매도 잔고 API 는 없다.
+    //   파라미터는 공식 샘플(koreainvestment/open-trading-api) 그대로 — KIS 는 틀린 요청에도 200 을 준다.
+
+    /** 응답 본문 + 응답 헤더 {@code tr_cont}(연속조회: F·M = 다음 데이터 있음, D·E = 마지막). */
+    public record KisPage(JsonNode body, String trCont) {
+    }
+
+    /**
+     * 공매도 상위종목[국내주식-133] URL — {@code examples_llm/domestic_stock/short_sale/short_sale.py} 의 10개.
+     * 전체 시장(0000)·일(D)·1일(0). 가격·거래량 범위는 비워 둔다 — 샘플 시험값(0~1,000,000)을 쓰면 100만원 넘는
+     * 종목이 조용히 빠진다(빈값이 거부되면 rt_cd≠0 으로 드러나 수집 실패로 남는다 — 조용한 누락보다 낫다).
+     */
+    static String buildShortSaleRankingUrl(String baseUrl) {
+        return baseUrl + "/uapi/domestic-stock/v1/ranking/short-sale"
+                + "?FID_APLY_RANG_VOL="
+                + "&FID_COND_MRKT_DIV_CODE=J"
+                + "&FID_COND_SCR_DIV_CODE=20482"
+                + "&FID_INPUT_ISCD=0000"
+                + "&FID_PERIOD_DIV_CODE=D"
+                + "&FID_INPUT_CNT_1=0"
+                + "&FID_TRGT_EXLS_CLS_CODE="
+                + "&FID_TRGT_CLS_CODE="
+                + "&FID_APLY_RANG_PRC_1="
+                + "&FID_APLY_RANG_PRC_2=";
+    }
+
+    /** 공매도 일별추이[국내주식-134] URL — {@code examples_llm/domestic_stock/daily_short_sale/daily_short_sale.py} 의 4개. */
+    static String buildDailyShortSaleUrl(String baseUrl, String stockCode,
+                                         java.time.LocalDate from, java.time.LocalDate to) {
+        java.time.format.DateTimeFormatter ymd = java.time.format.DateTimeFormatter.BASIC_ISO_DATE;
+        return baseUrl + "/uapi/domestic-stock/v1/quotations/daily-short-sale"
+                + "?FID_COND_MRKT_DIV_CODE=J"
+                + "&FID_INPUT_ISCD=" + stockCode
+                + "&FID_INPUT_DATE_1=" + from.format(ymd)
+                + "&FID_INPUT_DATE_2=" + to.format(ymd);
+    }
+
+    /**
+     * 공매도 상위종목 한 페이지(FHPST04820000) — 배경 수집용(LOW). {@code continuation} 이면 요청 헤더
+     * {@code tr_cont=N}(다음 페이지). 실패(토큰·HTTP·예외)면 null, rt_cd≠0 은 본문을 그대로 돌려준다(호출부가 사유를 남긴다).
+     */
+    public KisPage getShortSaleRankingPage(boolean continuation) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.LOW, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                log.error("[공매도 상위] 토큰 발급 실패");
+                return null;
+            }
+            try {
+                HttpHeaders headers = createHeaders(token, "FHPST04820000");
+                if (continuation) {
+                    headers.set("tr_cont", "N");
+                }
+                ResponseEntity<String> response = restTemplate.exchange(
+                        buildShortSaleRankingUrl(baseUrl), HttpMethod.GET, new HttpEntity<>(headers), String.class);
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return new KisPage(objectMapper.readTree(response.getBody()),
+                            response.getHeaders().getFirst("tr_cont"));
+                }
+                log.warn("[공매도 상위] 응답 실패: status={}", response.getStatusCode());
+            } catch (Exception e) {
+                handleKisApiException(e, token);
+                log.warn("[공매도 상위] 조회 실패: {}", e.getMessage());
+            }
+            return null;
+        });
+    }
+
+    /**
+     * 종목 공매도 일별추이(FHPST04830000) — 체크리스트 참고 표시용(NORMAL). 실패면 null,
+     * rt_cd≠0 은 본문을 그대로 돌려준다.
+     */
+    public JsonNode getDailyShortSale(String stockCode, java.time.LocalDate from, java.time.LocalDate to) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                log.error("[공매도 일별] 토큰 발급 실패");
+                return null;
+            }
+            try {
+                HttpHeaders headers = createHeaders(token, "FHPST04830000");
+                ResponseEntity<String> response = restTemplate.exchange(
+                        buildDailyShortSaleUrl(baseUrl, stockCode, from, to), HttpMethod.GET,
+                        new HttpEntity<>(headers), String.class);
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                }
+                log.warn("[공매도 일별] 응답 실패 [{}]: status={}", stockCode, response.getStatusCode());
+            } catch (Exception e) {
+                handleKisApiException(e, token);
+                log.warn("[공매도 일별] 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            }
+            return null;
+        });
+    }
+
     /**
      * 주식 일봉 데이터 조회 (기술적 분석용)
      * KIS API FHKST03010100 - 국내주식기간별시세(일/주/월/년)
