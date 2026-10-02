@@ -1274,12 +1274,13 @@ public class QuantScreenerService {
             JsonNode response = koreaInvestmentService.getStockInfo(stockCode);
             if (response != null && response.has("output")) {
                 JsonNode output = response.get("output");
-                // hts_avls: 시가총액 (원 단위)
+                // ⚠ 주식기본조회(CTPF1002R) 응답엔 hts_avls 가 없다(공식 샘플 chk_search_stock_info.py) — 그래서 이 조회는
+                // 늘 null 이다. 이 값을 채우게 바꾸지 말 것: 호출부(데이터 품질 보완)가 시가총액이 빈 행 = 네이버 분기 행에
+                // 써서 writer 구분자(market_cap IS NULL)를 깬다(§4c). 모멘텀 스크리너는 거래량순위 응답으로 따로 계산한다.
                 if (output.has("hts_avls")) {
                     String avlsStr = output.get("hts_avls").asText();
                     if (avlsStr != null && !avlsStr.isEmpty()) {
                         BigDecimal avls = new BigDecimal(avlsStr);
-                        // 원 -> 억원 변환
                         return avls.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP);
                     }
                 }
@@ -1288,6 +1289,19 @@ public class QuantScreenerService {
             log.debug("KIS API 시가총액 조회 실패 - {}: {}", stockCode, e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * 시가총액(억원) = 상장 주식수 × 현재가 — 순수 함수(회귀 {@code QuantScreenerMomentumMarketCapTest}, 2026-10-02).
+     *
+     * <p>거래량순위 응답(FHPST01710000)에 둘 다 있다({@code lstn_stcn}·{@code stck_prpr}, 공식 샘플 chk_volume_rank.py).
+     * 예전엔 종목마다 주식기본조회를 불러 {@code hts_avls} 를 읽었는데 그 응답엔 그 필드가 없어 시가총액이 늘 '모름'이었고,
+     * 모멘텀 스크리너가 거래량 상위 30종목을 전부 버렸다 — AI 스캘핑이 30일 164회 모두 대체 목록(시총 상위 대형주)으로
+     * 채워진 원인. 하나라도 없거나 0 이하면 모름(null) — 짐작하지 않는다.
+     */
+    static BigDecimal marketCapEokFromShares(BigDecimal listedShares, BigDecimal price) {
+        if (listedShares == null || price == null || listedShares.signum() <= 0 || price.signum() <= 0) return null;
+        return listedShares.multiply(price).divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP);
     }
 
     // ========== 모멘텀 스크리너 (수급 주도형 단타용) ==========
@@ -1363,13 +1377,14 @@ public class QuantScreenerService {
                     // 거래량
                     BigDecimal volume = getJsonBigDecimal(item, "acml_vol");
 
-                    // 시가총액 조회 (억원 단위) - 조회 실패 시 스킵 (소형주 유입 방지)
-                    BigDecimal marketCap = null;
-                    try {
-                        marketCap = fetchMarketCapFromKis(stockCode);
-                    } catch (Exception e) {
-                        log.debug("[모멘텀 스크리너] {} - 시가총액 조회 실패", stockName);
+                    // 거래정지·상폐 게이트 — 새 스크리너 소비처는 이 게이트를 거친다(§4)
+                    if (!stockStatusService.isActive(stockCode)) {
+                        log.debug("[모멘텀 스크리너] {} - 거래정지/상폐 제외", stockName);
+                        continue;
                     }
+
+                    // 시가총액(억원) = 상장 주식수 × 현재가 — 같은 응답의 값으로(종목별 추가 호출 없음). 모르면 스킵(소형주 유입 방지)
+                    BigDecimal marketCap = marketCapEokFromShares(getJsonBigDecimal(item, "lstn_stcn"), currentPrice);
                     if (marketCap == null) {
                         log.debug("[모멘텀 스크리너] {} - 시가총액 미확인 → 소형주 방지를 위해 스킵", stockName);
                         continue;
@@ -1393,9 +1408,6 @@ public class QuantScreenerService {
 
                     log.debug("[모멘텀 스크리너] 후보 추가: {} - 등락률 {}%, 거래량비율 {}%, 시총 {}억",
                             stockName, changeRate, volumeRatio, marketCap);
-
-                    // API 호출 제한 방지
-                    Thread.sleep(100);
 
                 } catch (Exception e) {
                     log.debug("[모멘텀 스크리너] 종목 처리 실패: {}", e.getMessage());

@@ -336,31 +336,32 @@ const strategyTabs = [
   { key: 'value', icon: '💎', label: '장기투자', period: '1개월+' }
 ];
 
-// 전략별 설명
+// 전략별 설명 — 백엔드(AiStrategySnapshotService)가 실제로 고르는 규칙 그대로(2026-10-02).
+// 예전 문구는 체결강도 120%+·눌림목·VWAP·고배당을 말했지만 그런 조건은 어느 전략에도 없었다.
 const strategyDescriptions = {
   scalping: {
     icon: '⚡',
     title: '초단타 전략 (Scalping)',
-    description: '실시간 체결강도와 수급 급증을 포착하여 단기 모멘텀을 노립니다.',
-    criteria: '체결강도 120%+ & 실시간 수급 급증(Hot) 종목'
+    description: '거래량이 크게 늘면서 오르는 종목을 고릅니다(KIS 거래량 순위 기준).',
+    criteria: '거래량 순위 상위 중 거래량 증가율 30%+ · 등락률 −2% 이상 · 시총 3,000억+ · 주가 1,000원+'
   },
   swing: {
     icon: '📈',
     title: '단기스윙 전략 (Swing Trading)',
-    description: '기관/외국인의 연속 매수 종목 중 눌림목 구간을 포착합니다.',
-    criteria: '3일+ 연속 매수 & 단기 조정(눌림목) 구간'
+    description: '수익성에 비해 싼 종목(마법의 공식)에 수급·실적 신호를 더해 고릅니다.',
+    criteria: '마법의 공식(ROE·영업이익률·PER) 상위 + 외국인/기관 연속 순매수·실적 서프라이즈 가산'
   },
   trend: {
     icon: '🔄',
     title: '중기추세 전략 (Trend Following)',
-    description: '펀더멘털 개선(흑자전환)과 기술적 지지를 동시에 충족하는 종목입니다.',
-    criteria: '턴어라운드(흑자전환) & VWAP 상단 위치'
+    description: '적자에서 흑자로 돌아서거나 순이익이 크게 늘어난 종목입니다.',
+    criteria: '턴어라운드(흑자전환 · 순이익 급증) 스크리너 상위'
   },
   value: {
     icon: '💎',
     title: '장기가치 전략 (Value Investing)',
-    description: '저평가 우량주 중 배당과 수익성이 뛰어난 종목에 투자합니다.',
-    criteria: 'PEG 상위(저평가) & 고배당/고ROE'
+    description: '이익 성장에 비해 주가가 싼 종목을 고릅니다.',
+    criteria: 'PEG 1.0 이하 & 순이익 성장률 10%+ (PEG·ROE·PER 점수) + 연속 순매수·실적 서프라이즈 가산'
   }
 };
 
