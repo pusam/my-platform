@@ -2,7 +2,6 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.AdrHistoryResponse;
 import com.myplatform.backend.dto.InvestorSurgeDto;
-import com.myplatform.backend.dto.MarketDataCollectionResult;
 import com.myplatform.backend.dto.MarketTimingDto;
 import com.myplatform.backend.dto.NewsSummaryDto;
 import com.myplatform.backend.dto.SimpleMarketStatusResponse;
@@ -20,8 +19,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -134,55 +131,6 @@ public class MarketTimingController {
             log.error("시장 데이터 수집 오류: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError()
                     .body(new ApiResponse<>(false, "시장 데이터 수집 실패: " + e.getMessage()));
-        }
-    }
-
-    /**
-     * 기간별 시장 데이터 수집 (Backfill)
-     */
-    @PostMapping("/collect/period")
-    @Operation(
-        summary = "기간별 시장 데이터 수집",
-        description = "특정 기간의 시장 데이터를 수집합니다 (Backfill).\n\n" +
-                     "**주의사항:**\n" +
-                     "- 네이버 금융 차단 방지를 위해 요청 간 1초 딜레이 적용\n" +
-                     "- 주말(토/일)은 자동으로 스킵\n" +
-                     "- 과거 데이터의 경우 지수 정보만 수집 가능 (상승/하락 종목 수는 제한적)"
-    )
-    public ResponseEntity<ApiResponse<MarketDataCollectionResult>> collectMarketDataForPeriod(
-            @Parameter(description = "시작 날짜 (yyyy-MM-dd)", example = "2024-01-01")
-            @RequestParam String startDate,
-            @Parameter(description = "종료 날짜 (yyyy-MM-dd)", example = "2024-01-31")
-            @RequestParam String endDate) {
-
-        log.info("기간별 시장 데이터 수집 API 호출: {} ~ {}", startDate, endDate);
-
-        try {
-            LocalDate start = LocalDate.parse(startDate, DateTimeFormatter.ISO_LOCAL_DATE);
-            LocalDate end = LocalDate.parse(endDate, DateTimeFormatter.ISO_LOCAL_DATE);
-
-            // 유효성 검증
-            if (start.isAfter(end)) {
-                return ResponseEntity.badRequest()
-                        .body(new ApiResponse<>(false, "시작 날짜가 종료 날짜보다 늦습니다."));
-            }
-
-            if (end.isAfter(LocalDate.now())) {
-                end = LocalDate.now();
-            }
-
-            // 수집 실행
-            MarketDataCollectionResult result = marketTimingService.collectMarketDataForPeriod(start, end);
-
-            String message = String.format("기간별 수집 완료 (성공: %d, 실패: %d, 스킵: %d)",
-                    result.getSuccessCount(), result.getFailCount(), result.getSkipCount());
-
-            return ResponseEntity.ok(ApiResponse.success(message, result));
-
-        } catch (Exception e) {
-            log.error("기간별 시장 데이터 수집 오류: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError()
-                    .body(new ApiResponse<>(false, "기간별 수집 실패: " + e.getMessage()));
         }
     }
 

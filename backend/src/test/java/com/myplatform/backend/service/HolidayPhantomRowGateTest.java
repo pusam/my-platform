@@ -1,7 +1,6 @@
 package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.myplatform.backend.dto.MarketDataCollectionResult;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.MarketDailyStatusRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -10,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -127,15 +125,6 @@ class HolidayPhantomRowGateTest {
             verify(repo).findByMarketTypeAndTradeDate("KOSPI", LocalDate.of(2026, 9, 28));
         }
 
-        @Test
-        @DisplayName("기간 백필은 평일 공휴일도 건너뛴다 — 9/24~27(추석 목·금 + 주말) 4일 전부 스킵")
-        void backfillSkipsWeekdayHolidays() {
-            MarketDataCollectionResult r = serviceWith(new MarketCalendarService())
-                    .collectMarketDataForPeriod(LocalDate.of(2026, 9, 24), LocalDate.of(2026, 9, 27));
-
-            assertThat(r.getSkipCount()).isEqualTo(4);
-            assertThat(r.getSuccessCount() + r.getFailCount()).isZero();
-            verifyNoInteractions(repo);
-        }
+        // 기간 백필 경로(collectMarketDataForPeriod)는 2026-10-02 은퇴 — 과거 등락 수 소스가 없다(AdrBackfillRetiredTest)
     }
 }
