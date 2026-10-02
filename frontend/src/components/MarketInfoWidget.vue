@@ -102,7 +102,7 @@ let refreshInterval = null;
 const isCrash = computed(() => checkCrash(marketData.value));
 
 // 시장 상태 (공통 컴포저블 — ADR 기반 + 폭락 override)
-const statusInfo = computed(() => getMarketStatus(isCrash.value, marketData.value?.combinedAdr));
+const statusInfo = computed(() => getMarketStatus(isCrash.value, marketData.value?.combinedAdr, marketData.value != null));
 const marketStatusClass = computed(() => statusInfo.value.status);
 const marketStatusIcon = computed(() => statusInfo.value.icon);
 const marketStatusTitle = computed(() => statusInfo.value.title);

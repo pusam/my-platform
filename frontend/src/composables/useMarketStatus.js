@@ -70,10 +70,22 @@ const NO_DATA_STATUS = {
   displayText: ''
 }
 
-// ADR 값으로 시장 상태 정보 전체를 반환
-export function getMarketStatus(isCrash, adr) {
+// 데이터는 받았는데 ADR 만 계산하지 않은 상태(시장 폭 데이터 부족 — 서버가 유효일 15일 미만이면 null, 2026-10-02).
+// '불러오지 못했다'로 말하면 멀쩡한 화면이 고장 난 것처럼 보인다 — 둘을 구분한다(§4c).
+const ADR_HOLD_STATUS = {
+  status: '',
+  title: 'ADR 판단 보류',
+  icon: '📊',
+  desc: '시장 폭(상승·하락 종목 수) 데이터가 모자라 ADR 판단을 보류합니다.',
+  badgeClass: '',
+  adrClass: 'adr-cold',
+  displayText: ''
+}
+
+// ADR 값으로 시장 상태 정보 전체를 반환 — loaded: 시장 상태 응답을 받았는지(ADR null 의 이유를 가른다)
+export function getMarketStatus(isCrash, adr, loaded = false) {
   if (isCrash) return CRASH_STATUS
-  if (adr == null) return NO_DATA_STATUS
+  if (adr == null) return loaded ? ADR_HOLD_STATUS : NO_DATA_STATUS
   for (const tier of ADR_TIERS) {
     if (adr >= tier.min) return tier
   }
