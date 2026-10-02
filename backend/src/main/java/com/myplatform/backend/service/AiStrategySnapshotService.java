@@ -1155,7 +1155,7 @@ public class AiStrategySnapshotService {
 
     /**
      * 2단계: 네이버 금융 거래상위 HTML 크롤링 (KOSPI + KOSDAQ)
-     * - 참조: MarketTimingService.crawlStockCount() 동일 셀렉터
+     * - 셀렉터: table.type_2 tbody tr (네이버 거래상위 표)
      * - 거래상위는 장 마감 후에도 데이터 존재 (상승률 대비 안정적)
      */
     private List<AiStrategySnapshot> crawlNaverVolumeHtml(StrategyType strategyType, LocalDateTime createdAt) {

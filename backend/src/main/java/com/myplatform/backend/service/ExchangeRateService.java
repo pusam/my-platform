@@ -4,9 +4,6 @@ import com.myplatform.backend.dto.ExchangeRateDto;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -16,11 +13,14 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 환율 정보 서비스
- * - 1순위: 한국수출입은행 Open API (안정적, 공식)
- * - 2순위: 네이버 금융 스크래핑 (폴백)
+ * 환율 정보 서비스 — USD/KRW 매매기준율은 한국수출입은행 Open API 단일 출처(2026-10-02).
+ * - 도메인은 {@code oapi.koreaexim.go.kr} — 구 {@code www.koreaexim.go.kr} API 는 2026-04-30 종료 공지대로 응답이 없다(10/2 실측).
+ * - 키({@code KOREAEXIM_API_KEY})가 없으면 출처가 없다 — 첫 조회 때 WARN 1회, 응답은 rate=null 이라 화면이 숨긴다(§4c).
+ * - 네이버 폴백은 은퇴했다: 그 페이지가 stock.naver.com SPA 로 302 되어 매번 rate=null 을 "조회 완료"로 남겼다
+ *   (9/23 네이버 레거시 크롤 은퇴와 같은 원인, {@code NaverLegacyCrawlRetiredTest}).
  * - 외국인 수급 신호 분석
  */
 @Service
@@ -30,14 +30,14 @@ public class ExchangeRateService {
     @Value("${koreaexim.api.key:}")
     private String koreaeximApiKey;
 
-    @Value("${koreaexim.api.url:https://www.koreaexim.go.kr/site/program/financial/exchangeJSON}")
+    @Value("${koreaexim.api.url:https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON}")
     private String koreaeximApiUrl;
 
-    private static final String NAVER_EXCHANGE_URL =
-            "https://finance.naver.com/marketindex/exchangeDetail.naver?marketindexCd=FX_USDKRW";
+    /** 키 미설정 경고는 프로세스당 한 번 — 조회마다 찍으면 같은 경고가 쌓여 읽히지 않는다(§5). */
+    private final AtomicBoolean missingKeyWarned = new AtomicBoolean();
 
     // RestTemplate timeout 명시 — 외부 API hang 시 thread 무한 점유 방지.
-    // koreaexim/네이버 응답이 5초 안에 안 오면 폴백 또는 캐시 활용.
+    // koreaexim 응답이 5초 안에 안 오면 실패로 보고 캐시(성공분만)를 쓴다.
     private final RestTemplate restTemplate = createRestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -72,15 +72,13 @@ public class ExchangeRateService {
 
         ExchangeRateDto result = null;
 
-        // 1순위: 한국수출입은행 API
-        if (koreaeximApiKey != null && !koreaeximApiKey.isBlank()) {
+        if (koreaeximApiKey == null || koreaeximApiKey.isBlank()) {
+            if (missingKeyWarned.compareAndSet(false, true)) {
+                log.warn("[환율] KOREAEXIM_API_KEY 미설정 — USD/KRW 출처가 없다(화면은 숨김). "
+                        + "한국수출입은행 Open API 인증키를 .env 에 넣고 backend 를 재생성할 것");
+            }
+        } else {
             result = fetchFromKoreaExim();
-        }
-
-        // 2순위: 네이버 폴백
-        if (result == null || result.getRate() == null) {
-            log.info("한국수출입은행 API 실패 → 네이버 폴백");
-            result = fetchFromNaver();
         }
 
         if (result != null && result.getRate() != null) {
@@ -104,51 +102,49 @@ public class ExchangeRateService {
                     koreaeximApiUrl, koreaeximApiKey, searchDate);
 
             String response = restTemplate.getForObject(url, String.class);
-            if (response == null || response.isBlank()) return null;
-
-            JsonNode root = objectMapper.readTree(response);
-            if (!root.isArray()) return null;
-
-            for (JsonNode node : root) {
-                String curUnit = node.has("cur_unit") ? node.get("cur_unit").asText() : "";
-                if (!"USD".equals(curUnit)) continue;
-
-                // 매매기준율 (콤마 제거)
-                String dealBasR = node.has("deal_bas_r") ? node.get("deal_bas_r").asText().replace(",", "") : null;
-                if (dealBasR == null || dealBasR.isBlank()) return null;
-
-                BigDecimal rate = new BigDecimal(dealBasR);
-
-                // 전일 대비 변동 — AP01 응답에는 '전일 환율' 필드가 없다.
-                // (과거엔 bkpr 을 전일가로 오인해 뺐는데, bkpr 은 '장부가격'(매매기준율의 정수부)이라
-                //  change 가 항상 소수부(0~0.99)=+0.0x% 로 고정 → 급등락일에도 신호 미발화였다.)
-                // 직전 영업일자로 같은 API 를 재조회해 실제 전일 매매기준율을 구한다. 못 구하면
-                // change/changeRate = null(미수집, §4c) — DTO 가 FLAT/NEUTRAL 로 정직 처리.
-                BigDecimal prevRate = resolvePreviousRate(LocalDate.now());
-                BigDecimal change = (prevRate != null) ? rate.subtract(prevRate) : null;
-
-                // 변동률 계산
-                BigDecimal changeRate = null;
-                if (change != null && prevRate.compareTo(BigDecimal.ZERO) > 0) {
-                    changeRate = change.divide(prevRate, 4, RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal("100"))
-                            .setScale(2, RoundingMode.HALF_UP);
-                }
-
-                String trend = ExchangeRateDto.determineTrend(change);
-                String signal = ExchangeRateDto.determineSignal(changeRate);
-                String interpretation = ExchangeRateDto.generateInterpretation(changeRate, signal);
-
-                log.info("환율 조회 완료 (수출입은행): {} ({}%)", rate, changeRate);
-                return ExchangeRateDto.builder()
-                        .rate(rate).change(change).changeRate(changeRate)
-                        .trend(trend).signal(signal).interpretation(interpretation)
-                        .fetchedAt(LocalDateTime.now())
-                        .build();
+            if (response == null || response.isBlank()) {
+                log.warn("[환율] 수출입은행 빈 응답");
+                return null;
             }
 
-            log.warn("수출입은행 응답에 USD 데이터 없음");
-            return null;
+            EximParse parsed = parseUsdDealBasRate(objectMapper.readTree(response));
+            if (parsed.rate() == null) {
+                if (parsed.problem() != null) {
+                    log.warn("[환율] 수출입은행 응답 이상 — {}", parsed.problem());
+                } else {
+                    // 빈 배열 = 오늘 고시 전(영업일 오전)·비영업일 — 정상 상태라 반복 경고하지 않는다
+                    log.debug("[환율] 수출입은행 오늘 고시 없음(고시 전·비영업일) — 환율 미표시");
+                }
+                return null;
+            }
+            BigDecimal rate = parsed.rate();
+
+            // 전일 대비 변동 — AP01 응답에는 '전일 환율' 필드가 없다.
+            // (과거엔 bkpr 을 전일가로 오인해 뺐는데, bkpr 은 '장부가격'(매매기준율의 정수부)이라
+            //  change 가 항상 소수부(0~0.99)=+0.0x% 로 고정 → 급등락일에도 신호 미발화였다.)
+            // 직전 영업일자로 같은 API 를 재조회해 실제 전일 매매기준율을 구한다. 못 구하면
+            // change/changeRate = null(미수집, §4c) — DTO 가 FLAT/NEUTRAL 로 정직 처리.
+            BigDecimal prevRate = resolvePreviousRate(LocalDate.now());
+            BigDecimal change = (prevRate != null) ? rate.subtract(prevRate) : null;
+
+            // 변동률 계산
+            BigDecimal changeRate = null;
+            if (change != null && prevRate.compareTo(BigDecimal.ZERO) > 0) {
+                changeRate = change.divide(prevRate, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+
+            String trend = ExchangeRateDto.determineTrend(change);
+            String signal = ExchangeRateDto.determineSignal(changeRate);
+            String interpretation = ExchangeRateDto.generateInterpretation(changeRate, signal);
+
+            log.info("환율 조회 완료 (수출입은행): {} ({}%)", rate, changeRate);
+            return ExchangeRateDto.builder()
+                    .rate(rate).change(change).changeRate(changeRate)
+                    .trend(trend).signal(signal).interpretation(interpretation)
+                    .fetchedAt(LocalDateTime.now())
+                    .build();
         } catch (Exception e) {
             // RestTemplate I/O 예외 메시지는 요청 URL 전체(authkey 쿼리 포함)를 담으므로 키 마스킹 후 로깅
             log.warn("수출입은행 환율 조회 실패: {}", maskAuthKey(e.getMessage(), koreaeximApiKey));
@@ -184,15 +180,7 @@ public class ExchangeRateService {
                     koreaeximApiUrl, koreaeximApiKey, date.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
             String response = restTemplate.getForObject(url, String.class);
             if (response == null || response.isBlank()) return null;
-            JsonNode root = objectMapper.readTree(response);
-            if (!root.isArray()) return null;
-            for (JsonNode node : root) {
-                if (!"USD".equals(node.path("cur_unit").asText(""))) continue;
-                String v = node.path("deal_bas_r").asText("").replace(",", "");
-                if (v.isBlank()) return null;
-                return new BigDecimal(v);
-            }
-            return null;
+            return parseUsdDealBasRate(objectMapper.readTree(response)).rate();
         } catch (Exception e) {
             log.debug("[환율] {} 매매기준율 조회 실패: {}", date, maskAuthKey(e.getMessage(), koreaeximApiKey));
             return null;
@@ -205,56 +193,34 @@ public class ExchangeRateService {
         return message.replace(key, "***");
     }
 
+    /** 수출입은행 AP01 응답 한 번을 읽은 결과 — rate 가 있으면 성공, 없으면 problem 이 이유(null 이면 '고시 없음'). */
+    record EximParse(BigDecimal rate, String problem) {}
+
     /**
-     * 네이버 금융 스크래핑 (폴백)
+     * 수출입은행 AP01 응답에서 USD 매매기준율을 읽는다(순수).
+     *
+     * <p>빈 배열은 오늘 고시 전(영업일 오전)·비영업일이라 정상 상태(problem=null). 원소의 {@code result} 가 1 이 아니면
+     * 실패다 — 10/2 실측: 틀린 키에 {@code [{"result":3, "cur_unit":null, …}]} 를 200 으로 준다. 예전 코드는 이걸
+     * 'USD 없음'으로만 남겨 키 문제인지 알 수 없었다.
      */
-    private ExchangeRateDto fetchFromNaver() {
-        try {
-            Document doc = Jsoup.connect(NAVER_EXCHANGE_URL)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .timeout(10000)
-                    .get();
-
-            BigDecimal rate = null;
-            Element rateElement = doc.selectFirst("p.no_today span.blind");
-            if (rateElement != null) {
-                rate = new BigDecimal(rateElement.text().replace(",", "").trim());
+    static EximParse parseUsdDealBasRate(JsonNode root) {
+        if (root == null || !root.isArray()) return new EximParse(null, "배열이 아닌 응답");
+        if (root.isEmpty()) return new EximParse(null, null);
+        for (JsonNode node : root) {
+            JsonNode result = node.get("result");
+            String code = result == null || result.isNull() ? "" : result.asText().trim();
+            if (!code.isEmpty() && !"1".equals(code)) {
+                return new EximParse(null, "result=" + code + " (1 이 아니면 실패 — 인증키·일일 호출 한도 등, 수출입은행 Open API 안내 참조)");
             }
-
-            BigDecimal change = null;
-            Element changeElement = doc.selectFirst("p.no_exday span.no_up span.blind");
-            if (changeElement == null) {
-                changeElement = doc.selectFirst("p.no_exday span.no_down span.blind");
+            if (!"USD".equals(node.path("cur_unit").asText(""))) continue;
+            String v = node.path("deal_bas_r").asText("").replace(",", "").trim();
+            if (v.isEmpty()) return new EximParse(null, "USD 매매기준율이 비어 있음");
+            try {
+                return new EximParse(new BigDecimal(v), null);
+            } catch (NumberFormatException e) {
+                return new EximParse(null, "USD 매매기준율이 숫자가 아님: " + v);
             }
-            if (changeElement != null) {
-                change = new BigDecimal(changeElement.text().replace(",", "").trim());
-                Element downCheck = doc.selectFirst("p.no_exday span.no_down");
-                if (downCheck != null) change = change.negate();
-            }
-
-            BigDecimal changeRate = null;
-            if (rate != null && change != null) {
-                BigDecimal prevRate = rate.subtract(change);
-                if (prevRate.compareTo(BigDecimal.ZERO) > 0) {
-                    changeRate = change.divide(prevRate, 4, RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal("100"))
-                            .setScale(2, RoundingMode.HALF_UP);
-                }
-            }
-
-            String trend = ExchangeRateDto.determineTrend(change);
-            String signal = ExchangeRateDto.determineSignal(changeRate);
-            String interpretation = ExchangeRateDto.generateInterpretation(changeRate, signal);
-
-            log.info("환율 조회 완료 (네이버 폴백): {} ({}%)", rate, changeRate);
-            return ExchangeRateDto.builder()
-                    .rate(rate).change(change).changeRate(changeRate)
-                    .trend(trend).signal(signal).interpretation(interpretation)
-                    .fetchedAt(LocalDateTime.now())
-                    .build();
-        } catch (Exception e) {
-            log.error("네이버 환율 조회도 실패: {}", e.getMessage());
-            return null;
         }
+        return new EximParse(null, "USD 항목 없음");
     }
 }

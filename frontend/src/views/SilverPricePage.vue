@@ -45,21 +45,21 @@
             <div class="detail-item">
               <span class="label">등락률</span>
               <span class="value" :class="changeRateClass">
-                {{ silverPrice.changeRate > 0 ? '+' : '' }}{{ silverPrice.changeRate }}%
+                {{ signedPercentOrDash(silverPrice.changeRate) }}
               </span>
             </div>
           </div>
 
           <div class="price-range">
-            <div class="range-item">
+            <div class="range-item" v-if="silverPrice.openPrice != null">
               <span class="label">시가 (1돈)</span>
               <span class="value">{{ formatPrice(silverPrice.openPrice) }}원</span>
             </div>
-            <div class="range-item">
+            <div class="range-item" v-if="silverPrice.highPrice != null">
               <span class="label">고가 (1돈)</span>
               <span class="value high">{{ formatPrice(silverPrice.highPrice) }}원</span>
             </div>
-            <div class="range-item">
+            <div class="range-item" v-if="silverPrice.lowPrice != null">
               <span class="label">저가 (1돈)</span>
               <span class="value low">{{ formatPrice(silverPrice.lowPrice) }}원</span>
             </div>
@@ -108,6 +108,7 @@
 </template>
 
 <script setup>
+import { signedPercentOrDash } from '@/utils/marketDataLabels'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { silverAPI } from '../utils/api'

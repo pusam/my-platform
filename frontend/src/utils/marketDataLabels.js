@@ -31,30 +31,41 @@ export function tradeDataLabel(tradesByInvestor) {
   return { text: `${latest} 장 마감 집계`, status: 'status-confirmed' }
 }
 
+const numOrNull = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
+
 /**
- * 원자재·환율 카드 한 칸 — 응답 모양 차이를 흡수한다.
+ * 원자재 카드 한 칸 — 응답 모양 차이를 흡수한다.
  *
  * - 유가(/oil/price): { success, data: { pricePerBarrel, changeRate } } — 예전 화면은 없는 `price` 를 읽어 "$-"였다.
- * - 환율(/exchange-rate): 감싸지 않은 { rate, changeRate } — 예전 화면은 `success` 를 기다려 항목이 조용히 빠졌다.
  * 값이 없으면 null(칸을 만들지 않는다). 등락률이 없으면 0 이 아니라 null.
  *
  * @param {object} body axios response.data
- * @param {'OIL'|'KRW'} kind
+ * @param {'OIL'} kind
  */
 export function commodityFromResponse(body, kind) {
   if (!body || body.success === false) return null
   const d = body.data && typeof body.data === 'object' ? body.data : body
-  const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
-  const changeRate = num(d.changeRate)
+  const changeRate = numOrNull(d.changeRate)
   if (kind === 'OIL') {
-    const price = num(d.pricePerBarrel ?? d.price)
+    const price = numOrNull(d.pricePerBarrel ?? d.price)
     return price == null ? null : { symbol: 'OIL', name: 'WTI 원유', currentPrice: price, changeRate, unit: '$' }
   }
-  if (kind === 'KRW') {
-    const rate = num(d.rate ?? d.basePrice)
-    return rate == null ? null : { symbol: 'KRW', name: 'USD/KRW', currentPrice: rate, changeRate, unit: '원' }
-  }
   return null
+}
+
+/**
+ * USD/KRW 칸 — 글로벌 시세 한 건(GlobalFuturesService 의 KRW, Yahoo KRW=X)에서 읽는다(2026-10-02).
+ *
+ * 예전 출처 /exchange-rate(수출입은행)는 키가 설정된 적이 없고 네이버 폴백도 죽어 늘 비어 있었다(시장 타이밍 카드에서
+ * 항목이 빠지고 홈 위젯은 '데이터 지연'). 같은 화면의 "원/달러 1357원" 요약 문장은 이미 이 시세를 쓴다 — 출처가 둘이면
+ * 한 화면에 서로 다른 환율이 뜬다(수출입은행 매매기준율은 하루 한 번 고시, 이쪽은 실시간).
+ *
+ * @param {object} quote 시세 한 건({ currentPrice, changeRate, success })
+ */
+export function krwFromFuturesQuote(quote) {
+  if (!quote || quote.success === false) return null
+  const price = numOrNull(quote.currentPrice)
+  return price == null ? null : { symbol: 'KRW', name: 'USD/KRW', currentPrice: price, changeRate: numOrNull(quote.changeRate), unit: '원' }
 }
 
 /**
@@ -65,6 +76,16 @@ export function commodityFromResponse(body, kind) {
 export function storedPriceLabel(isoDate) {
   const md = toMonthDay(isoDate)
   return md ? `종가(${md})` : '종가'
+}
+
+/**
+ * 등락률 칸 — 값이 없으면 '-'(단위 없이). 금·은 시세는 출처가 등락률을 주지 않아 예전엔 0 으로 채워 늘 "0.00%"(보합)였고,
+ * null 을 그대로 그리면 "%"만 남는다(2026-10-02).
+ */
+export function signedPercentOrDash(v) {
+  if (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) return '-'
+  const n = Number(v)
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`
 }
 
 /** 종목 이름 칸 — 이름이 비었거나 코드와 같으면 한 번만(예전엔 "003490003490"). */

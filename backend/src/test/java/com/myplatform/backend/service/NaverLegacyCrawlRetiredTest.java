@@ -55,4 +55,14 @@ class NaverLegacyCrawlRetiredTest {
             assertThat(StockFinancialDataService.class.getMethod(name).getReturnType()).isEqualTo(long.class);
         }
     }
+
+    @Test
+    @DisplayName("환율 네이버 폴백도 은퇴했다(2026-10-02) — 같은 SPA 이전으로 매번 rate=null 을 '조회 완료'로 남겼다")
+    void exchangeRateNaverFallbackIsGone() {
+        assertThat(Arrays.stream(ExchangeRateService.class.getDeclaredMethods()).map(Method::getName).toList())
+                .as("finance.naver.com/marketindex 는 stock.naver.com SPA 로 302 — USD/KRW 출처는 수출입은행 하나")
+                .doesNotContain("fetchFromNaver");
+        assertThat(Arrays.stream(ExchangeRateService.class.getDeclaredFields()).map(f -> f.getName()).toList())
+                .doesNotContain("NAVER_EXCHANGE_URL");
+    }
 }

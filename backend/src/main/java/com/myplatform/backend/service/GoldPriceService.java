@@ -133,7 +133,8 @@ public class GoldPriceService {
     /**
      * API 응답을 DTO로 변환
      */
-    private GoldPriceDto convertToDto(GoldApiResponse response) {
+    // package-private — 결측 처리 회귀 테스트(GoldSilverPriceMissingFieldsTest)
+    GoldPriceDto convertToDto(GoldApiResponse response) {
         GoldPriceDto dto = new GoldPriceDto();
 
         // 24K 금 1g 가격 (GoldAPI.io는 트로이온스 기준 가격도 주지만 price_gram_24k가 더 정확)
@@ -141,21 +142,24 @@ public class GoldPriceService {
         dto.setPricePerGram(pricePerGram);
         dto.setPricePerDon(pricePerGram.multiply(gramPerDon).setScale(0, RoundingMode.HALF_UP));
 
-        // 시가, 고가, 저가, 종가 (1돈 기준으로 환산)
+        // 시가, 고가, 저가(1돈 환산) — 응답에 없으면 null. 종가 칸은 조회 시점 가격
         BigDecimal pricePerDon = dto.getPricePerDon();
         dto.setOpenPrice(response.getOpenPrice() != null
                 ? response.getOpenPrice().multiply(gramPerDon).setScale(0, RoundingMode.HALF_UP)
-                : pricePerDon);
+                : null);
         dto.setHighPrice(response.getHighPrice() != null
                 ? response.getHighPrice().multiply(gramPerDon).setScale(0, RoundingMode.HALF_UP)
-                : pricePerDon);
+                : null);
         dto.setLowPrice(response.getLowPrice() != null
                 ? response.getLowPrice().multiply(gramPerDon).setScale(0, RoundingMode.HALF_UP)
-                : pricePerDon);
+                : null);
         dto.setClosePrice(pricePerDon);
 
         // 변동률
-        dto.setChangeRate(response.getChp() != null ? response.getChp() : BigDecimal.ZERO);
+        // 응답에 없으면 null(모름) — 예전엔 0 으로 채워 화면이 늘 "0.00%"(보합)였다: 2026-01~10-02 저장 행 100% 가
+        // change_rate=0·시고저가=현재가(이 API 의 KRW 응답엔 chp·open/high/low 가 오지 않는다, §4c).
+        // ⚠ open/high/low 가 오게 되면 단위(트로이온스/그램)부터 확인할 것 — 위 환산은 그램 가정이고 검증된 적이 없다.
+        dto.setChangeRate(response.getChp());
 
         // 기준일/시간 (goldapi.io timestamp)
         if (response.getTimestamp() != null) {

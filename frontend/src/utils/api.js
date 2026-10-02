@@ -582,13 +582,7 @@ export const marketAPI = {
   collectData() {
     return apiClient.post('/market/collect');
   },
-  // 기간별 시장 데이터 수집 (Backfill) - 최대 3분 타임아웃
-  collectDataForPeriod(startDate, endDate) {
-    return apiClient.post('/market/collect/period', null, {
-      params: { startDate, endDate },
-      timeout: 180000  // 3분 (60일 데이터 수집에 약 1~2분 소요)
-    });
-  },
+  // (기간별 수집 collectDataForPeriod 는 2026-10-02 화면과 함께 뺐다 — 과거 등락 종목 수는 받을 소스가 없다)
   // 급등주 (당일 등락률 상위 TOP 50)
   getPriceRise() {
     return apiClient.get('/market/price-rise');
@@ -705,13 +699,8 @@ export const paperTradingAPI = {
   }
 };
 
-// Exchange Rate API (환율)
-export const exchangeRateAPI = {
-  // 현재 환율 조회 (USD/KRW)
-  getCurrentRate() {
-    return apiClient.get('/exchange-rate');
-  }
-};
+// (환율 exchangeRateAPI 는 2026-10-02 뺐다 — 화면의 USD/KRW 는 globalFuturesAPI 의 KRW 시세 한 곳에서 읽는다.
+//  /exchange-rate(수출입은행)는 키가 설정된 적이 없어 늘 비어 있었다.)
 
 // Trading Indicator API (트레이딩 지표)
 export const tradingIndicatorAPI = {

@@ -87,7 +87,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { marketAPI, exchangeRateAPI } from '@/utils/api';
+import { marketAPI, globalFuturesAPI } from '@/utils/api';
+import { krwFromFuturesQuote } from '@/utils/marketDataLabels';
 import { checkCrash, getMarketStatus } from '@/composables/useMarketStatus';
 import { formatNumber, formatChange, getChangeClass } from '@/utils/marketFormatters';
 
@@ -110,23 +111,25 @@ const adrBadgeClass = computed(() => statusInfo.value.badgeClass);
 
 const fetchData = async () => {
   try {
-    const [marketRes, exchangeRes] = await Promise.all([
+    const [marketRes, krwRes] = await Promise.all([
       marketAPI.getSimpleStatus().catch(() => ({ data: null })),
-      exchangeRateAPI.getCurrentRate().catch(() => ({ data: null }))
+      globalFuturesAPI.getQuote('KRW').catch(() => ({ data: null }))
     ]);
 
     // market API는 { success, data } 래퍼 구조
     if (marketRes.data?.success && marketRes.data?.data) {
       marketData.value = marketRes.data.data;
     }
-    // exchange rate API는 DTO 직접 반환
-    if (exchangeRes.data) {
-      exchangeData.value = exchangeRes.data;
+    // USD/KRW — 글로벌 시세(KRW) 한 곳에서(시장 탭 요약·카드와 같은 숫자). 예전 /exchange-rate 는 출처가 죽어
+    // 늘 '데이터 지연'이었다(2026-10-02).
+    const krw = krwRes.data?.success ? krwFromFuturesQuote(krwRes.data.data) : null;
+    if (krw) {
+      exchangeData.value = { rate: krw.currentPrice, changeRate: krw.changeRate };
     }
 
     // 갱신 시각은 '실제로 새 데이터를 받았을 때만' 갱신 — 조회 실패(catch 로 삼켜짐) 시에도
     // 무조건 찍으면 30분 전 stale 지수/환율이 "방금 갱신"으로 보인다(§4c).
-    if (marketRes.data?.success || exchangeRes.data) {
+    if (marketRes.data?.success || krw) {
       lastUpdated.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
     }
   } catch (error) {

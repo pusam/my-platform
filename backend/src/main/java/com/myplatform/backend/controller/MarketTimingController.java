@@ -113,7 +113,7 @@ public class MarketTimingController {
     @PostMapping("/collect")
     @Operation(
         summary = "시장 데이터 수집",
-        description = "네이버 금융에서 오늘의 코스피/코스닥 상승·하락·보합 종목 수를 수집합니다."
+        description = "KIS 국내업종 현재지수로 오늘의 코스피/코스닥 상승·하락·보합 종목 수를 수집합니다(장 마감 15:40 이후만)."
     )
     public ResponseEntity<ApiResponse<MarketTimingDto>> collectMarketData() {
         log.info("시장 데이터 수집 API 호출");
@@ -125,6 +125,11 @@ public class MarketTimingController {
             MarketTimingDto timing = marketTimingService.getCurrentMarketTiming();
             return ResponseEntity.ok(ApiResponse.success("시장 데이터 수집 완료", timing));
 
+        } catch (IllegalStateException e) {
+            // 저장하지 않은 이유(장 마감 전·등락 수 조회 실패)를 그대로 돌려준다 — 화면 토스트가 그 문장을 보인다.
+            // 예상된 거절이라 스택 없이 WARN(예전처럼 500 + ERROR 스택이면 이유가 화면에 안 닿고 로그만 시끄럽다).
+            log.warn("시장 데이터 수집 — 저장하지 않음: {}", e.getMessage());
+            return ResponseEntity.ok(new ApiResponse<>(false, e.getMessage()));
         } catch (Exception e) {
             log.error("시장 데이터 수집 오류: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError()

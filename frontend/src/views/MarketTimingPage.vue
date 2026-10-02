@@ -31,7 +31,7 @@
             ADR(20일): <strong>{{ formatNumber(marketData.combinedAdr, 1) }}</strong>
           </div>
           <div class="adr-value data-needed-hint" v-else>
-            (최소 20일 데이터 필요)
+            (최근 20거래일 중 15일 필요)
           </div>
         </div>
         <div class="status-date" v-if="marketData?.analysisDate">
@@ -97,9 +97,6 @@
           <p v-else>
             내일부터 차트가 그려집니다
           </p>
-          <button @click="scrollToBackfill" class="btn-go-collect">
-            📅 기간 수집으로 이동
-          </button>
         </div>
       </div>
     </div>
@@ -366,7 +363,7 @@
     </div>
 
     <!-- 데이터 관리 -->
-    <div class="data-management" ref="backfillSection">
+    <div class="data-management">
       <h3>데이터 관리</h3>
       <div class="management-actions">
         <button @click="collectData" :disabled="isCollecting" class="btn-collect">
@@ -384,64 +381,17 @@
           <span v-else>🔄 새로고침</span>
         </button>
       </div>
+      <!-- 기간별 수집(Backfill)은 뺐다(2026-10-02) — 과거 날짜의 등락 종목 수는 어떤 소스로도 못 받는다
+           (KRX 데이터 포털 死, KIS 는 당일 값만). 누르면 매번 '실패 N일'만 나오는 버튼이었다. -->
       <p class="management-note">
-        * 매일 장 마감 후(15:30 이후) 데이터를 수집하면 당일 시장 현황이 반영됩니다.
+        * 장 마감 확정치(15:40 이후)만 저장합니다 — 매 거래일 16:30 에 자동 수집됩니다. 지난 날짜는 다시 받을 수 없습니다.
       </p>
-
-      <!-- 기간별 수집 (Backfill) -->
-      <div class="backfill-section">
-        <h4>기간별 데이터 수집 (Backfill)</h4>
-        <div class="backfill-form">
-          <div class="date-inputs">
-            <div class="input-group">
-              <label>시작일</label>
-              <input type="date" v-model="backfillStartDate" :max="backfillEndDate || today" />
-            </div>
-            <div class="input-group">
-              <label>종료일</label>
-              <input type="date" v-model="backfillEndDate" :min="backfillStartDate" :max="today" />
-            </div>
-          </div>
-          <button
-            @click="collectBackfillData"
-            :disabled="isBackfilling || !backfillStartDate || !backfillEndDate"
-            class="btn-backfill"
-          >
-            <span v-if="isBackfilling" class="btn-loading">
-              <span class="spinner-small"></span>
-              수집 중...
-            </span>
-            <span v-else>📅 기간 수집</span>
-          </button>
-        </div>
-        <div v-if="backfillResult" class="backfill-result">
-          <p>
-            수집 완료: 성공 {{ backfillResult.successCount }}일,
-            실패 {{ backfillResult.failCount }}일,
-            스킵 {{ backfillResult.skipCount }}일
-          </p>
-        </div>
-        <p class="management-note">
-          * 과거 데이터 수집 시 네이버 금융 차단 방지를 위해 요청 간 1초 딜레이가 적용됩니다.
-        </p>
-      </div>
     </div>
 
     <!-- 로딩 -->
     <div v-if="loading && !isCollecting" class="loading-overlay">
       <div class="spinner"></div>
       <p>데이터 로딩 중...</p>
-    </div>
-
-    <!-- 기간 수집 로딩 -->
-    <div v-if="isBackfilling" class="loading-overlay backfill-loading">
-      <div class="spinner"></div>
-      <div class="backfill-progress">
-        <p class="progress-title">📅 기간별 데이터 수집 중...</p>
-        <p class="progress-detail">{{ backfillStartDate }} ~ {{ backfillEndDate }}</p>
-        <p class="progress-hint">네이버 금융에서 데이터를 가져오는 중입니다.<br>차단 방지를 위해 요청당 1초 딜레이가 적용됩니다.</p>
-        <p class="progress-warning">창을 닫지 마세요. (최대 2분 소요)</p>
-      </div>
     </div>
 
   </div>
@@ -454,8 +404,8 @@ const props = defineProps({
   embedded: { type: Boolean, default: false }
 });
 import { useRouter } from 'vue-router';
-import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI, exchangeRateAPI } from '../utils/api';
-import { commodityFromResponse } from '../utils/marketDataLabels';
+import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI } from '../utils/api';
+import { commodityFromResponse, krwFromFuturesQuote } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import GlobalNav from '../components/GlobalNav.vue';
 import DataFreshness from '../components/DataFreshness.vue';
@@ -492,7 +442,6 @@ const loading = ref(false);
 const isCollecting = ref(false);
 const marketData = ref(null);
 const adrHistory = ref([]);
-const backfillSection = ref(null);
 
 // Chart Legend Toggle 상태
 const visibleDatasets = reactive({
@@ -502,22 +451,10 @@ const visibleDatasets = reactive({
 });
 const chartKey = ref(0);
 
-// Backfill 관련 상태
-const isBackfilling = ref(false);
-const backfillStartDate = ref('');
-const backfillEndDate = ref('');
-const backfillResult = ref(null);
-const today = new Date().toISOString().split('T')[0];
-
 // 데이터셋 토글
 const toggleDataset = (dataset) => {
   visibleDatasets[dataset] = !visibleDatasets[dataset];
   chartKey.value++; // 차트 리렌더링
-};
-
-// 기간 수집 섹션으로 스크롤
-const scrollToBackfill = () => {
-  backfillSection.value?.scrollIntoView({ behavior: 'smooth' });
 };
 
 // 장 시작 전 체크 (09:00 이전)
@@ -735,35 +672,6 @@ const fetchAdrHistory = async () => {
   }
 };
 
-// 기간별 데이터 수집 (Backfill)
-const collectBackfillData = async () => {
-  if (!backfillStartDate.value || !backfillEndDate.value) return;
-
-  isBackfilling.value = true;
-  backfillResult.value = null;
-
-  try {
-    const response = await marketAPI.collectDataForPeriod(
-      backfillStartDate.value,
-      backfillEndDate.value
-    );
-
-    if (response.data.success) {
-      backfillResult.value = response.data.data;
-      // 수집 후 히스토리 새로고침
-      await fetchAdrHistory();
-      toast.success('기간별 데이터 수집이 완료되었습니다.');
-    } else {
-      toast.error('수집 실패: ' + response.data.message);
-    }
-  } catch (error) {
-    console.error('기간별 데이터 수집 실패:', error);
-    toast.error('기간별 데이터 수집에 실패했습니다.');
-  } finally {
-    isBackfilling.value = false;
-  }
-};
-
 // ===== 글로벌 선물 & 원자재 & KOSPI 영향도 =====
 const futuresLoading = ref(false);
 const futuresQuotes = ref([]);
@@ -778,18 +686,18 @@ const FUTURES_NAMES = {
 const fetchFutures = async () => {
   futuresLoading.value = true;
   try {
-    const [quotesRes, impactRes, goldRes, silverRes, oilRes, krwRes] = await Promise.allSettled([
+    const [quotesRes, impactRes, goldRes, silverRes, oilRes] = await Promise.allSettled([
       globalFuturesAPI.getAllQuotes(),
       globalFuturesAPI.getKospiImpact(),
       goldAPI.getPrice(),
       silverAPI.getPrice(),
-      oilAPI.getPrice(),
-      exchangeRateAPI.getCurrentRate()
+      oilAPI.getPrice()
     ]);
 
     // 글로벌 선물
+    let allQuotes = [];
     if (quotesRes.status === 'fulfilled' && quotesRes.value.data.success) {
-      const allQuotes = quotesRes.value.data.data;
+      allQuotes = quotesRes.value.data.data || [];
       futuresQuotes.value = FUTURES_DISPLAY_ORDER
         .map(sym => {
           const q = allQuotes.find(a => a.symbol === sym);
@@ -808,11 +716,12 @@ const fetchFutures = async () => {
       const s = silverRes.value.data.data;
       commodities.push({ symbol: 'SILVER', name: '은 (1돈)', currentPrice: s.pricePerDon || s.price, changeRate: s.changeRate ?? null, unit: '원' });
     }
-    // 원유·환율 응답 모양은 commodityFromResponse 가 맞춘다 — 유가는 pricePerBarrel(예전엔 없는 price 를 읽어 "$-"),
-    // 환율은 감싸지 않은 DTO 라 success 가 없어 항목이 조용히 빠졌다(2026-10-02 화면 점검).
+    // 유가 응답 모양은 commodityFromResponse 가 맞춘다 — pricePerBarrel(예전엔 없는 price 를 읽어 "$-", 2026-10-02 화면 점검).
     const oil = oilRes.status === 'fulfilled' ? commodityFromResponse(oilRes.value.data, 'OIL') : null;
     if (oil) commodities.push(oil);
-    const krw = krwRes.status === 'fulfilled' ? commodityFromResponse(krwRes.value.data, 'KRW') : null;
+    // USD/KRW 는 위에서 이미 받은 글로벌 시세(KRW) 한 곳에서 — 위 요약 문장 "원/달러 …원"과 같은 숫자다.
+    // 예전 /exchange-rate(수출입은행)는 키·폴백이 다 죽어 이 칸이 늘 빠져 있었다.
+    const krw = krwFromFuturesQuote(allQuotes.find(a => a.symbol === 'KRW'));
     if (krw) commodities.push(krw);
     commodityQuotes.value = commodities;
 
@@ -864,7 +773,8 @@ const collectData = async () => {
     }
   } catch (error) {
     console.error('시장 데이터 수집 실패:', error);
-    toast.error('시장 데이터 수집에 실패했습니다.');
+    // 서버가 이유를 주면 그대로(장 마감 전·조회 실패 등) — 없으면 일반 문구
+    toast.error(error?.response?.data?.message || '시장 데이터 수집에 실패했습니다.');
   } finally {
     isCollecting.value = false;
   }
@@ -1143,22 +1053,6 @@ onMounted(() => {
   margin: 0 0 1rem 0;
   color: var(--text-muted, #71717a);
   font-size: 0.9rem;
-}
-
-.btn-go-collect {
-  padding: 0.5rem 1rem;
-  background: transparent;
-  color: #f59e0b;
-  border: 1px solid #f59e0b;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-go-collect:hover {
-  background: #f59e0b;
-  color: white;
 }
 
 /* ADR 가이드 */
@@ -1580,45 +1474,6 @@ onMounted(() => {
   to { transform: rotate(360deg); }
 }
 
-/* 기간 수집 로딩 */
-.backfill-loading {
-  background: rgba(0, 0, 0, 0.85);
-}
-
-.backfill-progress {
-  margin-top: 1.5rem;
-  text-align: center;
-  max-width: 400px;
-}
-
-.backfill-progress .progress-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #f59e0b;
-  margin: 0 0 0.5rem 0;
-}
-
-.backfill-progress .progress-detail {
-  font-size: 1rem;
-  color: #d4d4d8;
-  margin: 0 0 1rem 0;
-}
-
-.backfill-progress .progress-hint {
-  font-size: 0.9rem;
-  color: #a1a1aa;
-  margin: 0 0 1rem 0;
-  line-height: 1.5;
-}
-
-.backfill-progress .progress-warning {
-  font-size: 0.85rem;
-  color: #ef4444;
-  margin: 0;
-  padding: 0.5rem 1rem;
-  background: rgba(239, 68, 68, 0.1);
-  border-radius: 6px;
-}
 
 /* ADR 차트 섹션 */
 .adr-chart-section {
@@ -1692,96 +1547,6 @@ onMounted(() => {
   box-sizing: border-box;
 }
 
-/* Backfill 섹션 */
-.backfill-section {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--border-color, #27272a);
-}
-
-.backfill-section h4 {
-  margin: 0 0 1rem 0;
-  font-size: 1rem;
-  color: var(--text-secondary, #a1a1aa);
-}
-
-.backfill-form {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
-
-.date-inputs {
-  display: flex;
-  gap: 1rem;
-}
-
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.input-group label {
-  font-size: 0.8rem;
-  color: var(--text-muted, #71717a);
-}
-
-.input-group input[type="date"] {
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-color, #3f3f46);
-  background: var(--bg-secondary, #27272a);
-  color: var(--text-primary, #e4e4e7);
-  font-size: 0.9rem;
-}
-
-.input-group input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.7);
-}
-
-.btn-backfill {
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  border: 1px solid var(--accent-color, var(--primary-start));
-  background: transparent;
-  color: var(--accent-color, var(--primary-start));
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 120px;
-  justify-content: center;
-}
-
-.btn-backfill:hover:not(:disabled) {
-  background: var(--accent-color, var(--primary-start));
-  color: white;
-}
-
-.btn-backfill:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.backfill-result {
-  width: 100%;
-  margin-top: 0.75rem;
-  padding: 0.75rem;
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  border-radius: 6px;
-}
-
-.backfill-result p {
-  margin: 0;
-  color: #22c55e;
-  font-size: 0.9rem;
-}
-
 /* 반응형 */
 @media (max-width: 768px) {
   .market-timing-page {
@@ -1831,19 +1596,6 @@ onMounted(() => {
 
   .chart-container {
     height: 250px;
-  }
-
-  .backfill-form {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .date-inputs {
-    flex-direction: column;
-  }
-
-  .btn-backfill {
-    width: 100%;
   }
 
   .alert-content {

@@ -41,21 +41,21 @@
             <div class="detail-item">
               <span class="label">등락률</span>
               <span class="value" :class="changeRateClass">
-                {{ goldPrice.changeRate > 0 ? '+' : '' }}{{ goldPrice.changeRate }}%
+                {{ signedPercentOrDash(goldPrice.changeRate) }}
               </span>
             </div>
           </div>
 
           <div class="price-range">
-            <div class="range-item">
+            <div class="range-item" v-if="goldPrice.openPrice != null">
               <span class="label">시가 (1돈)</span>
               <span class="value">{{ formatPrice(goldPrice.openPrice) }}원</span>
             </div>
-            <div class="range-item">
+            <div class="range-item" v-if="goldPrice.highPrice != null">
               <span class="label">고가 (1돈)</span>
               <span class="value high">{{ formatPrice(goldPrice.highPrice) }}원</span>
             </div>
-            <div class="range-item">
+            <div class="range-item" v-if="goldPrice.lowPrice != null">
               <span class="label">저가 (1돈)</span>
               <span class="value low">{{ formatPrice(goldPrice.lowPrice) }}원</span>
             </div>
@@ -104,6 +104,7 @@
 </template>
 
 <script setup>
+import { signedPercentOrDash } from '@/utils/marketDataLabels'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { goldAPI } from '../utils/api'

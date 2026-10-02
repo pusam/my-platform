@@ -246,7 +246,8 @@ recommendation:
 koreaexim:
   api:
     key: ${KOREAEXIM_API_KEY:}
-    url: https://www.koreaexim.go.kr/site/program/financial/exchangeJSON
+    # 2026-10-02: 구 www.koreaexim.go.kr API 는 2026-04-30 종료(무응답 실측) — oapi 도메인, 경로·파라미터는 같다
+    url: https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON
 
 # 11. DART(전자공시) API 설정
 dart:

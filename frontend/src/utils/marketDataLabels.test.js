@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toMonthDay, tradeDataLabel, commodityFromResponse, storedPriceLabel, stockNameOnce } from './marketDataLabels'
+import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash } from './marketDataLabels'
 
 /**
  * 화면 점검(2026-10-02)에서 나온 이름표 오류들 — 값은 맞는데 시점·단위·이름이 틀리게 붙어 있었다.
@@ -31,17 +31,25 @@ describe('commodityFromResponse — 원자재·환율 카드', () => {
     expect(oil).toEqual({ symbol: 'OIL', name: 'WTI 원유', currentPrice: 92.76, changeRate: -0.12, unit: '$' })
   })
 
-  it('재현: 환율은 감싸지 않은 DTO — 예전 화면은 success 를 기다려 항목이 조용히 빠졌다', () => {
-    const krw = commodityFromResponse({ rate: 1358.98, changeRate: -0.06 }, 'KRW')
-    expect(krw.currentPrice).toBe(1358.98)
-    expect(krw.name).toBe('USD/KRW')
-  })
-
   it('가격이 없으면 칸을 만들지 않는다(null) · 등락률이 없으면 0 이 아니라 null', () => {
     expect(commodityFromResponse({ success: true, data: { changeRate: 1 } }, 'OIL')).toBeNull()
     expect(commodityFromResponse({ success: false, data: { pricePerBarrel: 90 } }, 'OIL')).toBeNull()
-    expect(commodityFromResponse({ rate: 1300 }, 'KRW').changeRate).toBeNull()
-    expect(commodityFromResponse(null, 'KRW')).toBeNull()
+    expect(commodityFromResponse({ success: true, data: { pricePerBarrel: 90 } }, 'OIL').changeRate).toBeNull()
+    expect(commodityFromResponse(null, 'OIL')).toBeNull()
+  })
+})
+
+describe('krwFromFuturesQuote — USD/KRW 는 글로벌 시세 한 곳에서', () => {
+  it('재현: /exchange-rate 는 키·폴백이 다 죽어 늘 비었다 — 이미 같은 화면 요약이 쓰는 KRW 시세(10/2 실측 모양)를 쓴다', () => {
+    const q = { symbol: 'KRW', currentPrice: 1357.08, changeRate: -0.20, success: true, stale: false }
+    expect(krwFromFuturesQuote(q)).toEqual({ symbol: 'KRW', name: 'USD/KRW', currentPrice: 1357.08, changeRate: -0.2, unit: '원' })
+  })
+
+  it('시세가 없거나 실패면 칸을 만들지 않는다 · 등락률 결측은 null', () => {
+    expect(krwFromFuturesQuote(null)).toBeNull()
+    expect(krwFromFuturesQuote({ success: false, currentPrice: 1300 })).toBeNull()
+    expect(krwFromFuturesQuote({ success: true })).toBeNull()
+    expect(krwFromFuturesQuote({ success: true, currentPrice: 1300 }).changeRate).toBeNull()
   })
 })
 
@@ -55,6 +63,15 @@ describe('저장된 가격·종목 이름', () => {
     expect(stockNameOnce('003490', '003490')).toBe('003490')
     expect(stockNameOnce('', '003490')).toBe('003490')
     expect(stockNameOnce('대한항공', '003490')).toBe('대한항공')
+  })
+
+  it('재현: 금·은 등락률은 출처가 안 줘서 늘 0.00% 였다 — 이제 없으면 "-"(null 을 그대로 그리면 "%"만 남는다)', () => {
+    expect(signedPercentOrDash(null)).toBe('-')
+    expect(signedPercentOrDash(undefined)).toBe('-')
+    expect(signedPercentOrDash('')).toBe('-')
+    expect(signedPercentOrDash(0)).toBe('0.00%')      // 진짜 0 은 0 — 결측과 다르다
+    expect(signedPercentOrDash(1.234)).toBe('+1.23%')
+    expect(signedPercentOrDash(-0.5)).toBe('-0.50%')
   })
 
   it('toMonthDay 는 날짜가 아니면 null', () => {
