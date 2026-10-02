@@ -90,6 +90,8 @@ public class ShortSellingTradeService {
         List<ShortSaleRows.RankingRow> rows = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         String failure = null;
+        int responseRows = 0;   // KIS 가 준 행 수 — 저장 행 수와 다르면 그 이유가 보이게(10/2 첫 수집이 1행이었다)
+        int skippedRows = 0;    // 종목코드·기준일이 없어 건너뛴 행
         boolean continuation = false;
         for (int page = 0; page < MAX_RANKING_PAGES; page++) {
             KoreaInvestmentService.KisPage resp = kis.getShortSaleRankingPage(continuation);
@@ -105,7 +107,12 @@ public class ShortSellingTradeService {
                 break;
             }
             int added = 0;
-            for (ShortSaleRows.RankingRow r : ShortSaleRows.parseRanking(body.get("output"), rows.size())) {
+            JsonNode output = body.get("output");
+            List<ShortSaleRows.RankingRow> parsed = ShortSaleRows.parseRanking(output, rows.size());
+            int pageRows = output != null && output.isArray() ? output.size() : 0;
+            responseRows += pageRows;
+            skippedRows += pageRows - parsed.size();
+            for (ShortSaleRows.RankingRow r : parsed) {
                 if (seen.add(r.stockCode() + "|" + r.tradeDate())) {
                     rows.add(r);
                     added++;
@@ -134,8 +141,16 @@ public class ShortSellingTradeService {
             return remember(new CollectionStatus(now, false, stored, msg));
         }
         LocalDate asOf = rows.get(0).tradeDate();
-        log.info("[공매도 거래 비중] 수집 완료 — {}행 (기준일 {})", stored, asOf);
-        return remember(new CollectionStatus(now, true, stored, "수집 완료 " + stored + "행 (기준일 " + asOf + ")"));
+        String skippedNote = skippedRows > 0
+                ? " — 응답 " + responseRows + "건 중 " + skippedRows + "건은 종목코드·기준일(stnd_date1/2)이 없어 건너뜀"
+                : "";
+        if (skippedRows > 0) {
+            log.warn("[공매도 거래 비중] 수집 완료 — {}행 (기준일 {}){}", stored, asOf, skippedNote);
+        } else {
+            log.info("[공매도 거래 비중] 수집 완료 — {}행 (응답 {}건, 기준일 {})", stored, responseRows, asOf);
+        }
+        return remember(new CollectionStatus(now, true, stored,
+                "수집 완료 " + stored + "행 (기준일 " + asOf + ")" + skippedNote));
     }
 
     /** 기준일마다 그날 행을 지우고 새로 넣는다 — 한 트랜잭션. */

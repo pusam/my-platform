@@ -164,6 +164,19 @@ class ShortSellingTradeServiceTest {
         }
 
         @Test
+        @DisplayName("기준일 없는 행은 건너뛰되 몇 건인지 남긴다 — 10/2 첫 수집이 1행뿐이었는데 이유가 안 보였다")
+        void skippedRowsAreReported() {
+            String noDate = "{'mksc_shrn_iscd':'000660','hts_kor_isnm':'SK하이닉스','ssts_vol_rlim':'3.1'}";
+            when(kis.getShortSaleRankingPage(anyBoolean())).thenReturn(page("D", row("018880", "5.09"), noDate, noDate));
+
+            ShortSellingTradeService.CollectionStatus status = service.collect();
+
+            assertThat(status.ok()).isTrue();
+            assertThat(status.stored()).isEqualTo(1);
+            assertThat(status.message()).contains("응답 3건 중 2건");
+        }
+
+        @Test
         @DisplayName("행이 하나도 없으면 지우지 않는다 — 빈 응답으로 어제까지의 기록을 날리지 않게")
         void emptyResponseDeletesNothing() {
             when(kis.getShortSaleRankingPage(false)).thenReturn(page("D"));
