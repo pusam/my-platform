@@ -625,8 +625,9 @@ import {
   investorAPI, screenerAPI, newsAPI,
   // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
   globalFuturesAPI, watchlistAPI, paperTradingAPI,
-  recommendationAPI, stockDetailAPI, quantTaAPI
+  recommendationAPI, stockDetailAPI, quantTaAPI, stockAPI
 } from '../utils/api'
+import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
 function withTimeout(promise, ms = 3000) {
@@ -790,6 +791,7 @@ export default {
       phaseLoading: false,
       preMarketData: [],   // 장 전
       postMarketData: [],  // 장 후
+      phaseQuotes: {},     // 시간대 카드 등락률 — 시세 단일 경로(/api/stock/{code}) 값만(2026-10-03)
       investorTop5: [],    // 외국인/기관 TOP 5
       // 데이터 갱신 추적 — DataFreshness 컴포넌트용
       lastUpdated: null,
@@ -810,6 +812,9 @@ export default {
       if (!tab) return
       const mapped = this.mapLegacyTab(tab)
       if (mapped !== this.activeGnbTab) this.activeGnbTab = mapped
+    },
+    phaseSignalCodes(codes) {
+      this.loadPhaseQuotes(codes)
     }
   },
   mounted() {
@@ -908,12 +913,19 @@ export default {
       }
       return phases[this.currentPhaseKey]
     },
-    phaseSignals() {
+    rawPhaseSignals() {
       // 장중(during)엔 today-signals 카드 자체가 v-if로 숨김 — phaseSignals 호출 안 됨
       // (LiveSurge가 장중 신호 카드 상위호환)
       const phase = this.currentPhaseKey
       if (phase === 'pre') return this.preMarketSignals
       return this.postMarketSignals
+    },
+    // 등락률은 시세 단일 경로 값만 — 카드마다 다른 시각의 값(수급 수집 15:50·AI 스냅샷)이 섞이지 않게(utils/phaseSignals)
+    phaseSignals() {
+      return withUnifiedChange(this.rawPhaseSignals, this.phaseQuotes)
+    },
+    phaseSignalCodes() {
+      return signalCodes(this.rawPhaseSignals)
     },
     preMarketSignals() {
       const signals = []
@@ -930,8 +942,8 @@ export default {
       this.investorTop5.slice(0, 2).forEach(t => {
         signals.push({
           type: 'investor', badge: '🌍 외국인', stockCode: t.stockCode,
-          stockName: t.stockName, reason: `순매수 ${t.netBuyAmount}억`,
-          changeRate: t.changeRate
+          stockName: t.stockName, reason: investorReason(t),
+          changeRate: null
         })
       })
       return signals.slice(0, 6)
@@ -945,8 +957,8 @@ export default {
       this.investorTop5.slice(0, 3).forEach(t => {
         signals.push({
           type: 'investor', badge: '🌍 외국인', stockCode: t.stockCode,
-          stockName: t.stockName, reason: `순매수 ${t.netBuyAmount}억`,
-          changeRate: t.changeRate
+          stockName: t.stockName, reason: investorReason(t),
+          changeRate: null
         })
       })
       // AI 전략
@@ -1346,6 +1358,7 @@ export default {
     },
 
     async loadPhaseData() {
+      this.phaseQuotes = {}   // 다시 불러올 때 등락률도 새로 받는다
       // 외국인 TOP 5 (장 전 + 장 후 공통)
       try {
         const res = await investorAPI.getTopTrades('FOREIGN', 'BUY', 5)
@@ -1357,21 +1370,29 @@ export default {
         // 장 후: 봇 성과
         try {
           const res = await paperTradingAPI.getStatistics()
-          const stats = this.extractData(res)
-          if (stats && stats.totalTrades > 0) {
-            this.postMarketData = [{
-              type: 'bot', badge: '🤖 봇 성과',
-              stockName: `${stats.winCount}승 ${stats.loseCount}패 (승률 ${stats.winRate || 0}%)`,
-              reason: `손익비 ${stats.profitFactor || '-'}`,
-              stockCode: null, changeRate: null
-            }]
-          }
+          // 계좌 누적 통계다 — '오늘 결산' 안에서 누적이라고 말한다(손익비 필드는 응답에 없다)
+          const bot = botSummarySignal(this.extractData(res))
+          this.postMarketData = bot ? [bot] : []
         } catch { this.postMarketData = [] }
       }
+      this.loadPhaseQuotes(this.phaseSignalCodes)
     },
 
     goToStock(code) {
       if (code) this.$router.push(`/stock/${code}`)
+    },
+
+    // 시간대 카드 등락률 — 시세 단일 경로(StockPriceService)로 받은 종목만. 실패한 종목은 비워 둔다(옛 값 금지).
+    async loadPhaseQuotes(codes) {
+      const missing = (codes || []).filter(c => !(c in this.phaseQuotes))
+      if (!missing.length) return
+      const results = await Promise.allSettled(missing.map(c => Promise.resolve().then(() => stockAPI.getStockPrice(c))))
+      const next = { ...this.phaseQuotes }
+      results.forEach((r, i) => {
+        const d = r.status === 'fulfilled' ? this.extractData(r.value) : null
+        next[missing[i]] = { changeRate: d && d.changeRate != null ? d.changeRate : null }
+      })
+      this.phaseQuotes = next
     },
 
     // ---- 관심종목 목표 매수가 알림 설정 (기존 백엔드 checkWatchlistAlerts 파이프 재사용) ----
