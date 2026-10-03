@@ -91,7 +91,9 @@
           <h2>📊 최근 한 달 은 시세 추이</h2>
         </div>
         <div class="chart-container">
-          <canvas ref="chartCanvas"></canvas>
+          <canvas ref="chartCanvas" v-show="chartState === 'ok'"></canvas>
+          <p v-if="chartState === 'empty'" class="chart-note">저장된 은 시세 이력이 아직 없습니다.</p>
+          <p v-else-if="chartState === 'error'" class="chart-note">시세 이력을 불러오지 못했습니다 — 잠시 후 다시 시도해 주세요.</p>
         </div>
       </div>
 
@@ -163,18 +165,22 @@ const fetchSilverPrice = async () => {
 }
 
 // DB에서 차트 데이터 가져오기
+// 이력이 없거나 조회에 실패하면 차트를 비우고 이유를 말한다 — 예전엔 현재가 ±5% 난수로 30일치를 그렸다(2026-10-03, §4c)
+const chartState = ref('loading')   // loading | ok | empty | error
 const fetchChartData = async () => {
   try {
     const response = await silverAPI.getMonthlyHistory()
-    if (response.data.success && response.data.data) {
+    const rows = response.data.success ? response.data.data : null
+    if (Array.isArray(rows) && rows.length > 0) {
+      chartState.value = 'ok'
       await nextTick()
-      createChartFromData(response.data.data)
+      createChartFromData(rows)
+    } else {
+      chartState.value = response.data.success ? 'empty' : 'error'
     }
   } catch (err) {
     console.error('Chart data fetch error:', err)
-    // 실패 시 시뮬레이션 데이터로 차트 생성
-    await nextTick()
-    createChart()
+    chartState.value = 'error'
   }
 }
 
@@ -274,125 +280,6 @@ const createChartFromData = (historyData) => {
       }
     }
   })
-}
-
-// 차트 생성 함수 (시뮬레이션 데이터용 - fallback)
-const createChart = () => {
-  if (!chartCanvas.value) return
-
-  // 기존 차트가 있으면 삭제
-  if (chartInstance) {
-    chartInstance.destroy()
-  }
-
-  // 시뮬레이션 데이터 생성
-  const monthlyData = generateMonthlyData()
-
-  const ctx = chartCanvas.value.getContext('2d')
-  chartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: monthlyData.labels,
-      datasets: [{
-        label: '은 시세 (원/돈)',
-        data: monthlyData.prices,
-        backgroundColor: 'rgba(192, 192, 192, 0.7)',
-        borderColor: 'rgba(169, 169, 169, 1)',
-        borderWidth: 2,
-        borderRadius: 6,
-        hoverBackgroundColor: 'rgba(192, 192, 192, 0.9)'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          display: true,
-          position: 'top',
-          labels: {
-            color: '#b0b0c8',
-            font: {
-              size: 14,
-              family: "'Noto Sans KR', sans-serif"
-            },
-            padding: 15
-          }
-        },
-        tooltip: {
-          backgroundColor: 'rgba(15, 15, 26, 0.95)',
-          titleColor: '#f0f0f5',
-          bodyColor: '#f0f0f5',
-          borderColor: 'rgba(209, 213, 219, 0.4)',
-          borderWidth: 1,
-          padding: 12,
-          titleFont: {
-            size: 14
-          },
-          bodyFont: {
-            size: 13
-          },
-          callbacks: {
-            label: function(context) {
-              return '시세: ' + formatPrice(context.parsed.y) + '원'
-            }
-          }
-        }
-      },
-      scales: {
-        y: {
-          beginAtZero: false,
-          ticks: {
-            color: '#b0b0c8',
-            callback: function(value) {
-              return formatPrice(value) + '원'
-            },
-            font: {
-              size: 12
-            }
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.06)'
-          }
-        },
-        x: {
-          ticks: {
-            color: '#b0b0c8',
-            font: {
-              size: 12
-            }
-          },
-          grid: {
-            display: false
-          }
-        }
-      }
-    }
-  })
-}
-
-// 최근 한 달 데이터 생성 (시뮬레이션)
-const generateMonthlyData = () => {
-  const labels = []
-  const prices = []
-  const today = new Date()
-  const basePrice = silverPrice.value?.pricePerDon || 6000
-
-  // 30일 데이터 생성
-  for (let i = 29; i >= 0; i--) {
-    const date = new Date(today)
-    date.setDate(date.getDate() - i)
-
-    // 날짜 라벨 (MM/DD 형식)
-    labels.push(`${date.getMonth() + 1}/${date.getDate()}`)
-
-    // 가격 시뮬레이션 (기준가 ±5% 범위에서 랜덤)
-    const variation = (Math.random() - 0.5) * 0.1 // -5% ~ +5%
-    const price = Math.round(basePrice * (1 + variation))
-    prices.push(price)
-  }
-
-  return { labels, prices }
 }
 
 const updateNextUpdateTime = () => {

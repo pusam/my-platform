@@ -254,46 +254,12 @@ public class GoldPriceService {
         List<GoldPrice> history = goldPriceRepository.findByFetchedAtAfterOrderByFetchedAtAsc(thirtyDaysAgo);
 
         if (history.isEmpty()) {
-            // DB에 데이터가 없으면 현재 시세 기준으로 시뮬레이션 데이터 생성
-            return generateSimulatedMonthlyData();
+            // 저장된 이력이 없으면 빈 목록 — 예전엔 현재가 ±5% 난수로 30일치를 지어내 '최근 한 달' 차트로 그렸다(2026-10-03, §4c)
+            return List.of();
         }
 
         return history.stream()
                 .map(this::entityToDto)
                 .collect(Collectors.toList());
-    }
-
-    /**
-     * 시뮬레이션 데이터 생성 (DB에 데이터가 없을 때)
-     */
-    private List<GoldPriceDto> generateSimulatedMonthlyData() {
-        List<GoldPriceDto> result = new ArrayList<>();
-        GoldPriceDto current = getGoldPrice();
-
-        if (current == null) {
-            return result;
-        }
-
-        BigDecimal basePrice = current.getPricePerDon();
-        LocalDateTime now = LocalDateTime.now();
-
-        for (int i = 29; i >= 0; i--) {
-            GoldPriceDto dto = new GoldPriceDto();
-            LocalDateTime date = now.minusDays(i);
-
-            // 기준가 ±5% 범위에서 랜덤
-            double variation = (Math.random() - 0.5) * 0.1;
-            BigDecimal price = basePrice.multiply(BigDecimal.valueOf(1 + variation))
-                    .setScale(0, RoundingMode.HALF_UP);
-
-            dto.setPricePerDon(price);
-            dto.setPricePerGram(price.divide(gramPerDon, 0, RoundingMode.HALF_UP));
-            dto.setFetchedAt(date);
-            dto.setBaseDate(date.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
-
-            result.add(dto);
-        }
-
-        return result;
     }
 }

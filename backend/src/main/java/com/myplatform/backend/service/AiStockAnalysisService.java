@@ -237,7 +237,8 @@ public class AiStockAnalysisService {
             AiAnalysisResponseDto.MarketIndicators marketIndicators = getMarketIndicators();
 
             // 8. AI 앙상블 정보 생성
-            AiAnalysisResponseDto.AiEnsembleInfo ensembleInfo = generateEnsembleInfo(allRecommendations);
+            // AI 4대장(GPT·Claude·Gemini·Deepseek) 점수는 평균에 난수를 더해 지어낸 값이었다 — 내보내지 않는다(2026-10-03, §4c)
+            AiAnalysisResponseDto.AiEnsembleInfo ensembleInfo = null;
 
             // 9. 결과 저장
             cachedAnalysis = AiAnalysisResponseDto.builder()
@@ -841,59 +842,7 @@ public class AiStockAnalysisService {
                 .build();
     }
 
-    /**
-     * AI 4대장 앙상블 정보 생성 (Gemini 연동)
-     * - 상위 종목 기반 각 AI 점수 시뮬레이션 + Gemini 앙상블 의견
-     */
-    private AiAnalysisResponseDto.AiEnsembleInfo generateEnsembleInfo(
-            List<AiStockRecommendationDto> recommendations) {
 
-        if (recommendations.isEmpty()) {
-            return AiAnalysisResponseDto.AiEnsembleInfo.builder()
-                    .consensusOpinion("분석 대기")
-                    .build();
-        }
-
-        // 상위 종목들의 평균 점수 기반으로 각 AI 점수 계산
-        double avgScore = recommendations.stream()
-                .limit(10)
-                .mapToInt(AiStockRecommendationDto::getTotalScore)
-                .average()
-                .orElse(50);
-
-        // 각 AI마다 특성에 따른 편차 (GPT: 기술적, Claude: 기본적, Gemini: 수급, Deepseek: 모멘텀)
-        Random rand = new Random(LocalDate.now().toEpochDay());
-        int gptScore = Math.min(100, Math.max(0, (int) (avgScore + rand.nextGaussian() * 5)));
-        int claudeScore = Math.min(100, Math.max(0, (int) (avgScore + rand.nextGaussian() * 5)));
-        int geminiScore = Math.min(100, Math.max(0, (int) (avgScore + rand.nextGaussian() * 5)));
-        int deepseekScore = Math.min(100, Math.max(0, (int) (avgScore + rand.nextGaussian() * 5)));
-
-        int consensusScore = (gptScore + claudeScore + geminiScore + deepseekScore) / 4;
-
-        // 기본 의견 결정
-        String consensusOpinion;
-        if (consensusScore >= 80) {
-            consensusOpinion = "적극 매수";
-        } else if (consensusScore >= 65) {
-            consensusOpinion = "매수";
-        } else if (consensusScore >= 50) {
-            consensusOpinion = "관망";
-        } else {
-            consensusOpinion = "주의";
-        }
-
-        // Gemini AI 앙상블 의견은 비활성화 (Rate Limit 방지)
-        // 개별 종목 분석에서 이미 AI 호출하므로 추가 호출 생략
-
-        return AiAnalysisResponseDto.AiEnsembleInfo.builder()
-                .gptScore(gptScore)
-                .claudeScore(claudeScore)
-                .geminiScore(geminiScore)
-                .deepseekScore(deepseekScore)
-                .consensusScore(consensusScore)
-                .consensusOpinion(consensusOpinion)
-                .build();
-    }
 
     /**
      * 고득점 종목 텔레그램 알림 발송

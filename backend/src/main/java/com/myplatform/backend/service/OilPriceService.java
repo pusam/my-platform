@@ -173,9 +173,15 @@ public class OilPriceService {
             // 예전엔 고정 1,350원을 곱했다 — 환율이 움직여도 그대로였다(2026-10-02).
             dto.setPriceKrw(toKrw(currentPrice, currentUsdKrw()));
 
+            // 기준 시각은 시장 시각(Yahoo regularMarketTime) — 예전엔 서버 시계라 주말에도 금요일 가격에 오늘 날짜가 붙었다(2026-10-03).
+            // 응답에 없을 때만 조회 시각으로 둔다.
             LocalDateTime now = LocalDateTime.now();
-            dto.setBaseDate(now.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
-            dto.setBaseDateTime(now);
+            long marketEpoch = meta.path("regularMarketTime").asLong(0);
+            LocalDateTime asOf = marketEpoch > 0
+                    ? LocalDateTime.ofInstant(java.time.Instant.ofEpochSecond(marketEpoch), java.time.ZoneId.of("Asia/Seoul"))
+                    : now;
+            dto.setBaseDate(asOf.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
+            dto.setBaseDateTime(asOf);
             dto.setFetchedAt(now);
 
             cachedOilPrice.set(dto);
@@ -240,7 +246,8 @@ public class OilPriceService {
         List<OilPrice> history = oilPriceRepository.findByFetchedAtAfterOrderByFetchedAtAsc(thirtyDaysAgo);
 
         if (history.isEmpty()) {
-            return generateSimulatedData();
+            // 저장된 이력이 없으면 빈 목록 — 예전엔 현재가 ±4% 난수로 이력을 지어냈다(2026-10-03, §4c)
+            return List.of();
         }
 
         return history.stream()
@@ -248,29 +255,7 @@ public class OilPriceService {
                 .collect(Collectors.toList());
     }
 
-    private List<OilPriceDto> generateSimulatedData() {
-        List<OilPriceDto> result = new ArrayList<>();
-        OilPriceDto current = getOilPrice();
-        if (current == null) return result;
 
-        BigDecimal base = current.getPricePerBarrel();
-        if (base == null) return result;
-
-        LocalDateTime now = LocalDateTime.now();
-        for (int i = 29; i >= 0; i--) {
-            OilPriceDto dto = new OilPriceDto();
-            LocalDateTime date = now.minusDays(i);
-            double variation = (Math.random() - 0.5) * 0.08;
-            BigDecimal price = base.multiply(BigDecimal.valueOf(1 + variation))
-                    .setScale(2, RoundingMode.HALF_UP);
-            dto.setPricePerBarrel(price);
-            dto.setPriceKrw(price.multiply(new BigDecimal("1350")).setScale(0, RoundingMode.HALF_UP));
-            dto.setFetchedAt(date);
-            dto.setBaseDate(date.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
-            result.add(dto);
-        }
-        return result;
-    }
 
     private BigDecimal parseBd(String value) {
         if (value == null || value.isEmpty() || "null".equals(value)) return null;
