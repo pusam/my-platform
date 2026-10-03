@@ -102,7 +102,7 @@ public class BacktestService {
 
         BigDecimal overallAvgReturn = totalPicks > 0
                 ? totalReturn.divide(BigDecimal.valueOf(totalPicks), 2, RoundingMode.HALF_UP)
-                : BigDecimal.ZERO;
+                : null;   // 표본 0 — 0% 가 아니라 모름
 
         // 전체 종목 시간순 정렬 후 MDD 계산
         allPicks.sort(Comparator.comparing(BacktestDto.PickDetail::getRecommendedAt,
@@ -117,16 +117,26 @@ public class BacktestService {
                 .hitRate(totalPicks > 0
                         ? BigDecimal.valueOf(totalWins).divide(BigDecimal.valueOf(totalPicks), 4, RoundingMode.HALF_UP)
                         .multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP)
-                        : BigDecimal.ZERO)
+                        : null)
                 .avgReturn(overallAvgReturn)
                 .mdd(calculateMdd(allReturns))
                 .sharpeRatio(calculateSharpe(allReturns, overallAvgReturn))
                 .build();
 
+        // 실제 표본 시작 — 스냅샷은 보존 기간만큼만 남아 30·60·90일을 요청해도 그 앞은 없다(2026-10-03).
+        // 화면이 '최근 90일'이라고 말하지 않게 실제 시작 시각과 보존 기간을 같이 준다.
+        LocalDateTime sampleFrom = allPicks.stream()
+                .map(BacktestDto.PickDetail::getRecommendedAt)
+                .filter(java.util.Objects::nonNull)
+                .min(Comparator.naturalOrder())
+                .orElse(null);
+
         return BacktestDto.PerformanceResponse.builder()
                 .days(days)
                 .strategies(strategyResults)
                 .overall(overall)
+                .sampleFrom(sampleFrom)
+                .retentionDays(AiStrategySnapshotService.SNAPSHOT_RETENTION_DAYS)
                 .build();
     }
 
@@ -260,9 +270,13 @@ public class BacktestService {
      * MDD (최대낙폭) 계산: 누적 수익률 기반
      * 시간순 정렬된 returnRates를 받아 peak 대비 최대 하락폭을 구한다.
      */
-    private BigDecimal calculateMdd(List<BigDecimal> returnRates) {
+    /**
+     * MDD — 추천별 수익률(%)을 시간순으로 더한 곡선의 고점 대비 최대 하락(%p). 실제 계좌 곡선이 아니다.
+     * 표본 2건 미만이면 null(0 이면 '낙폭 없음'으로 읽힌다, 2026-10-03).
+     */
+    static BigDecimal calculateMdd(List<BigDecimal> returnRates) {
         if (returnRates == null || returnRates.size() < 2) {
-            return BigDecimal.ZERO;
+            return null;
         }
 
         BigDecimal cumulative = BigDecimal.ZERO;
@@ -287,9 +301,10 @@ public class BacktestService {
      * 간이 샤프비율 계산: avgReturn / stdDev(returnRates)
      * 무위험 수익률은 0으로 가정한다.
      */
-    private BigDecimal calculateSharpe(List<BigDecimal> returnRates, BigDecimal avgReturn) {
+    /** 간이 샤프 = 추천별 수익률 평균 ÷ 표준편차(연율화 없음). 표본 3건 미만·편차 0 이면 null(2026-10-03). */
+    static BigDecimal calculateSharpe(List<BigDecimal> returnRates, BigDecimal avgReturn) {
         if (returnRates == null || returnRates.size() < 3 || avgReturn == null) {
-            return BigDecimal.ZERO;
+            return null;
         }
 
         // 표준편차 계산
@@ -303,7 +318,7 @@ public class BacktestService {
 
         double stdDev = Math.sqrt(variance.doubleValue());
         if (stdDev < 0.0001) {
-            return BigDecimal.ZERO;
+            return null;
         }
 
         return avgReturn.divide(BigDecimal.valueOf(stdDev), 2, RoundingMode.HALF_UP);

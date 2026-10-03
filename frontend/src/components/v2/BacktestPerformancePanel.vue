@@ -2,11 +2,8 @@
   <div class="backtest-panel">
     <div class="bt-header">
       <h2>📊 추천 트랙레코드 <span class="bt-sub">— 과거 추천이 실제로 먹혔나 (거래비용 차감 순수익)</span></h2>
-      <div class="bt-days">
-        <button v-for="d in [30, 60, 90]" :key="d"
-                :class="['bt-day-btn', { active: days === d }]"
-                @click="changeDays(d)">{{ d }}일</button>
-      </div>
+      <!-- 30·60·90일 버튼은 지웠다(2026-10-03) — 추천 스냅샷은 7일만 보존돼 어느 버튼이든 실제 표본은 최근 7일이었다 -->
+      <span class="bt-window">최근 {{ retentionDays }}일 (추천 기록 보존 기간)</span>
     </div>
 
     <div v-if="loading" class="bt-state">트랙레코드 계산 중...</div>
@@ -19,20 +16,20 @@
       <div class="bt-overall">
         <div class="bt-stat">
           <span class="bt-label">적중률</span>
-          <span class="bt-value" :class="rateClass(overall.hitRate)">{{ overall.hitRate }}%</span>
+          <span class="bt-value" :class="rateClass(overall.hitRate)">{{ pct(overall.hitRate) }}</span>
           <span class="bt-detail">{{ overall.winCount }}/{{ overall.totalPicks }}건</span>
         </div>
         <div class="bt-stat">
           <span class="bt-label">평균 수익률</span>
-          <span class="bt-value" :class="signClass(overall.avgReturn)">{{ signed(overall.avgReturn) }}%</span>
+          <span class="bt-value" :class="signClass(overall.avgReturn)">{{ overall.avgReturn != null ? signed(overall.avgReturn) + '%' : '—' }}</span>
         </div>
         <div class="bt-stat">
           <span class="bt-label">MDD</span>
-          <span class="bt-value">-{{ overall.mdd }}%</span>
+          <span class="bt-value">{{ overall.mdd != null ? '-' + overall.mdd + '%p' : '—' }}</span>
         </div>
         <div class="bt-stat">
           <span class="bt-label">Sharpe</span>
-          <span class="bt-value">{{ overall.sharpeRatio }}</span>
+          <span class="bt-value">{{ overall.sharpeRatio != null ? overall.sharpeRatio : '—' }}</span>
         </div>
       </div>
 
@@ -46,26 +43,30 @@
           <tr v-for="s in strategies" :key="s.strategyType">
             <td class="bt-strategy">{{ s.label }}</td>
             <td>{{ s.totalPicks }}건</td>
-            <td :class="rateClass(s.hitRate)">{{ s.hitRate }}%</td>
+            <td :class="rateClass(s.hitRate)">{{ pct(s.hitRate) }}</td>
             <td :class="signClass(s.avgReturn)">{{ signed(s.avgReturn) }}%</td>
             <td class="bt-hint" :class="signClass(s.bestReturn)" :title="s.bestStock || ''">{{ s.bestReturn != null ? signed(s.bestReturn) + '%' : '—' }}</td>
             <td class="bt-hint" :class="signClass(s.worstReturn)" :title="s.worstStock || ''">{{ s.worstReturn != null ? signed(s.worstReturn) + '%' : '—' }}</td>
-            <td>-{{ s.mdd }}%</td>
+            <td>{{ s.mdd != null ? '-' + s.mdd + '%p' : '—' }}</td>
           </tr>
         </tbody>
       </table>
       <p class="bt-caption">
-        ⓘ 최근 {{ days }}일 AI 전략 TOP3 첫 추천 종목의 현재가 대비 성과. 수수료 0.015%×2 + 세금 0.18% + 전략별 슬리피지 차감 기준.
+        ⓘ <span v-if="sampleFromLabel">{{ sampleFromLabel }} 이후 </span>AI 전략 TOP3 첫 추천 종목의 현재가 대비 성과(정해진 보유 기간이 아니다).
+        수수료 0.015%×2 + 매도 세금 0.15% + 전략별 슬리피지 차감. MDD·Sharpe 는 추천별 수익률을 시간순으로 이은 값(실제 계좌 곡선 아님, Sharpe 연율화 없음)이며 표본이 적으면 '—'.
       </p>
     </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import apiClient from '../../utils/api';
 
-const days = ref(30);
+// 요청 기간 = 보존 기간 — 그보다 긴 기간을 요청해도 스냅샷이 없다(2026-10-03)
+const days = ref(7);
+const retentionDays = ref(7);
+const sampleFrom = ref(null);
 const loading = ref(false);
 const error = ref(false);
 const overall = ref(null);
@@ -79,6 +80,8 @@ const fetchPerformance = async () => {
     if (data?.success) {
       overall.value = data.data?.overall || null;
       strategies.value = data.data?.strategies || [];
+      if (data.data?.retentionDays) retentionDays.value = data.data.retentionDays;
+      sampleFrom.value = data.data?.sampleFrom || null;
     } else {
       error.value = true;
     }
@@ -95,6 +98,11 @@ const changeDays = (d) => {
   fetchPerformance();
 };
 
+const pct = (v) => (v == null ? '—' : `${v}%`);
+const sampleFromLabel = computed(() => {
+  const t = sampleFrom.value;
+  return typeof t === 'string' && t.length >= 16 ? `${t.slice(5, 7)}/${t.slice(8, 10)} ${t.slice(11, 16)}` : '';
+});
 const signed = (v) => (v == null ? '—' : `${Number(v) > 0 ? '+' : ''}${v}`);
 // ±수익률은 한국 관례색(+빨강/−파랑) — 적중률 신호등(rateClass, 초록=좋음)과 극성이 다르다.
 const signClass = (v) => (Number(v) > 0 ? 'bt-up' : Number(v) < 0 ? 'bt-down' : '');
@@ -125,7 +133,7 @@ onMounted(fetchPerformance);
 }
 .bt-header h2 { margin: 0; font-size: 17px; }
 .bt-sub { font-size: 12px; font-weight: 400; opacity: 0.6; }
-.bt-days { display: flex; gap: 6px; }
+.bt-window { font-size: 12px; opacity: 0.7; }
 .bt-day-btn {
   background: rgba(255, 255, 255, 0.06);
   color: #cbd5e1;

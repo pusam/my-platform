@@ -17,6 +17,10 @@ public class BacktestDto {
         private int days;
         private List<StrategyPerformance> strategies;
         private OverallStats overall;
+        /** 실제 표본이 시작하는 시각(집계된 첫 추천) — 없으면 null. 요청 기간보다 짧을 수 있다(2026-10-03). */
+        private java.time.LocalDateTime sampleFrom;
+        /** 추천 스냅샷 보존 기간(일) — 이보다 긴 기간을 요청해도 그 앞은 이미 지워져 없다. */
+        private int retentionDays;
     }
 
     @Getter

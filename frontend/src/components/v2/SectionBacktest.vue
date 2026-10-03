@@ -33,7 +33,7 @@
             <span class="compare-col-label">📊 AI 전략</span>
             <div class="compare-item">
               <span class="compare-metric">적중률</span>
-              <span class="compare-val" :class="hitRateClass(data.overall.hitRate)">{{ data.overall.hitRate }}%</span>
+              <span class="compare-val" :class="data.overall.hitRate != null ? hitRateClass(data.overall.hitRate) : ''">{{ data.overall.hitRate != null ? data.overall.hitRate + '%' : '-' }}</span>
             </div>
             <div class="compare-item">
               <span class="compare-metric">평균 수익률</span>
@@ -55,7 +55,8 @@
             <span class="compare-col-label">🤖 실전 봇</span>
             <div class="compare-item">
               <span class="compare-metric">승률</span>
-              <span class="compare-val" :class="hitRateClass(botStats.winRate || 0)">{{ botStats.winRate || 0 }}%</span>
+              <!-- 거래가 없으면 승률은 0% 가 아니라 '-' -->
+              <span class="compare-val" :class="botStats.winRate != null ? hitRateClass(botStats.winRate) : ''">{{ botStats.winRate != null ? botStats.winRate + '%' : '-' }}</span>
             </div>
             <div class="compare-item">
               <span class="compare-metric">손익비</span>
@@ -80,8 +81,8 @@
       <div class="overall-row" v-if="!botStats">
         <div class="stat-box">
           <span class="stat-label">전체 적중률</span>
-          <span class="stat-value" :class="hitRateClass(data.overall.hitRate)">
-            {{ data.overall.hitRate }}%
+          <span class="stat-value" :class="data.overall.hitRate != null ? hitRateClass(data.overall.hitRate) : ''">
+            {{ data.overall.hitRate != null ? data.overall.hitRate + '%' : '-' }}
           </span>
         </div>
         <div class="stat-box">
@@ -191,12 +192,11 @@ export default {
       botStats: null,
       loading: false,
       error: false,
-      selectedDays: 30,
+      // 추천 스냅샷은 7일만 보존된다 — 14·30일을 골라도 실제 표본은 최근 7일이었다(2026-10-03)
+      selectedDays: 7,
       expandedStrategy: null,
       periods: [
-        { days: 7, label: '7일' },
-        { days: 14, label: '14일' },
-        { days: 30, label: '30일' }
+        { days: 7, label: '최근 7일 (보존 기간)' }
       ]
     }
   },

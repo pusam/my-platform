@@ -347,6 +347,9 @@ public class AiStrategySnapshotService {
      * 부하 분산(2026-08-24): 06:00 -> 06:50. 풀이 cacheScheduler 라 스레드 경합은 없었지만
      * 같은 순간 디스크/CPU 를 더하던 것을 뒤로 뺐다. 요일 제한 없음 — 정리는 매일.
      */
+    /** 스냅샷 보존 기간(일) — 트랙레코드(BacktestService)가 볼 수 있는 과거의 한계도 이것이다. */
+    public static final int SNAPSHOT_RETENTION_DAYS = 7;
+
     @Scheduled(scheduler = "cacheScheduler", cron = "0 50 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldSnapshots() {
         // 안전장치: 스냅샷 생성이 살아있을 때만 정리한다 — 생성이 죽은 채로 정리만 계속 돌면
@@ -361,9 +364,9 @@ public class AiStrategySnapshotService {
             return;
         }
 
-        LocalDateTime cutoffTime = now.minusDays(7);
+        LocalDateTime cutoffTime = now.minusDays(SNAPSHOT_RETENTION_DAYS);
         int deleted = snapshotRepository.deleteOldSnapshots(cutoffTime);
-        log.info("[스냅샷 정리] {}일 이전 데이터 {}건 삭제", 7, deleted);
+        log.info("[스냅샷 정리] {}일 이전 데이터 {}건 삭제", SNAPSHOT_RETENTION_DAYS, deleted);
     }
 
     /**
