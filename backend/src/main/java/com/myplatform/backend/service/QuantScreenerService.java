@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.myplatform.backend.dto.EarningSurpriseDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.StockFinancialData;
@@ -37,6 +38,7 @@ public class QuantScreenerService {
     private final KoreaInvestmentService koreaInvestmentService;
     private final StockPriceService stockPriceService;
     private final StockStatusService stockStatusService;
+    private final EarningSurpriseService earningSurpriseService;
 
     private static final BigDecimal MAX_DEBT_RATIO = new BigDecimal("200"); // 부채비율 상한 200%
 
@@ -441,205 +443,93 @@ public class QuantScreenerService {
     public List<ScreenerResultDto> getTurnaroundStocks(Integer limit) {
         log.info("턴어라운드 스크리닝 시작 - limit: {}", limit);
 
+        // 판정은 실적 서프라이즈(분기 원본 V55 — 흑자전환은 연속 적자·전년 동기 개선 조건) 단일 출처(2026-10-03).
+        // 예전엔 종목별 최신 두 행을 '분기'로 비교했는데 8/27 이후 그 두 행은 이틀 연속 일별 행(TTM)이라 하루 차이를
+        // '이전 2026.4Q → 현재 2026.4Q'로 표기했고, 결과가 없으면 TTM 전년 대비로 조용히 바꿔 같은 이름표 아래 정의가 둘이었다.
+        List<EarningSurpriseDto> surprises = earningSurpriseService.detectEarningSurprises();
+
         LocalDate minDate = LocalDate.now().minusMonths(12);
-        List<StockFinancialData> allRecentData = excludeInactive(stockFinancialDataRepository.findAllRecentData(minDate));
-        log.info("최근 12개월 데이터: {}건 (minDate: {})", allRecentData.size(), minDate);
-
-        List<ScreenerResultDto> results = new ArrayList<>();
-
-        // 데이터 품질 개선을 위한 종목 데이터 맵 (DB 업데이트용)
-        Map<String, StockFinancialData> stockDataForUpdate = new HashMap<>();
-
-        if (!allRecentData.isEmpty()) {
-            log.info("턴어라운드 분석 대상 데이터: {}건", allRecentData.size());
-
-            // [성능 최적화] 메모리에서 종목별로 그룹화 (날짜 내림차순 정렬 유지)
-            Map<String, List<StockFinancialData>> stockDataMap = allRecentData.stream()
-                    .collect(Collectors.groupingBy(
-                            StockFinancialData::getStockCode,
-                            LinkedHashMap::new,  // 순서 유지
-                            Collectors.toList()
-                    ));
-
-            // 각 종목별로 턴어라운드 여부 판단
-            for (Map.Entry<String, List<StockFinancialData>> entry : stockDataMap.entrySet()) {
-                List<StockFinancialData> historicalData = entry.getValue();
-
-                // 최소 2개 분기 데이터 필요
-                if (historicalData.size() < 2) {
-                    continue;
-                }
-
-                // 이미 날짜 내림차순 정렬되어 있음 (쿼리에서 ORDER BY)
-                StockFinancialData current = historicalData.get(0);
-                StockFinancialData previous = historicalData.get(1);
-
-                // 순이익 데이터 확인
-                if (current.getNetIncome() == null || previous.getNetIncome() == null) {
-                    continue;
-                }
-
-                BigDecimal currentNetIncome = current.getNetIncome();
-                BigDecimal previousNetIncome = previous.getNetIncome();
-
-                // 잡주 필터링: 당 분기 순이익이 최소 30억원 이상이어야 함
-                if (currentNetIncome.compareTo(MIN_NET_INCOME) < 0) {
-                    continue;
-                }
-
-                String turnaroundType = null;
-                BigDecimal changeRate = null;
-
-                // 적자 → 흑자 전환 (단, 흑자 전환 후 30억원 이상)
-                if (previousNetIncome.compareTo(BigDecimal.ZERO) < 0 &&
-                    currentNetIncome.compareTo(BigDecimal.ZERO) > 0) {
-                    turnaroundType = "LOSS_TO_PROFIT";
-                    changeRate = new BigDecimal("999.99"); // 흑자전환 특별 표기
-                }
-                // 흑자 → 흑자 (이익 증가 50% 이상)
-                else if (previousNetIncome.compareTo(BigDecimal.ZERO) > 0 &&
-                         currentNetIncome.compareTo(BigDecimal.ZERO) > 0 &&
-                         currentNetIncome.compareTo(previousNetIncome) > 0) {
-
-                    changeRate = currentNetIncome.subtract(previousNetIncome)
-                            .divide(previousNetIncome.abs(), 4, RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal("100"));
-
-                    if (changeRate.compareTo(new BigDecimal("50")) >= 0) {
-                        turnaroundType = "PROFIT_GROWTH";
-                    }
-                }
-
-                if (turnaroundType != null) {
-                    // 데이터 품질 개선 대상 저장
-                    stockDataForUpdate.put(current.getStockCode(), current);
-
-                    results.add(ScreenerResultDto.builder()
-                            .stockCode(current.getStockCode())
-                            .stockName(current.getStockName())
-                            .market(current.getMarket())
-                            .sector(current.getSector())
-                            .currentPrice(current.getCurrentPrice())
-                            .marketCap(current.getMarketCap())
-                            .per(current.getPer())
-                            .pbr(current.getPbr())
-                            .roe(current.getRoe())
-                            .operatingMargin(current.getOperatingMargin())
-                            .netMargin(current.getNetMargin())
-                            .eps(current.getEps())
-                            .epsGrowth(current.getEpsGrowth())
-                            .peg(current.getPeg())
-                            .turnaroundType(turnaroundType)
-                            .previousNetIncome(previousNetIncome)
-                            .currentNetIncome(currentNetIncome)
-                            .netIncomeChangeRate(changeRate)
-                            .previousPeriod(formatQuarter(previous.getReportDate()))
-                            .currentPeriod(formatQuarter(current.getReportDate()))
-                            .revenueGrowth(current.getRevenueGrowth())
-                            .profitGrowth(current.getProfitGrowth())
-                            .build());
-                }
-            }
-
-            log.info("분기 비교 기반 턴어라운드 결과: {}건", results.size());
+        Map<String, StockFinancialData> latestDaily = new LinkedHashMap<>();
+        for (StockFinancialData row : excludeInactive(stockFinancialDataRepository.findAllRecentData(minDate))) {
+            if (row.getMarketCap() != null) latestDaily.putIfAbsent(row.getStockCode(), row);   // KIS 일별 행(최신순)
         }
 
-        // 분기 비교 결과가 없으면 profitGrowth 기반으로 대체
-        if (results.isEmpty()) {
-            log.info("분기 비교 데이터가 없어 profitGrowth 기반으로 턴어라운드 종목을 조회합니다.");
-            results = findTurnaroundByProfitGrowth(limit);
-        } else {
-            // ⭐ 데이터 품질 개선: 종목명/시가총액/PER/PBR 보완
-            enrichScreenerResults(results, new ArrayList<>(stockDataForUpdate.values()));
-
-            // ⭐ 데이터 클렌징: 시가총액 500억 이상 또는 시가총액 미확인 종목 포함
-            // (시가총액 데이터가 없는 경우 일단 포함 - 화면에서 확인 가능하도록)
-            int beforeFilter = results.size();
-            long nullMarketCapCount = results.stream().filter(dto -> dto.getMarketCap() == null).count();
-            log.info("시가총액 필터 전: {}건, 시가총액 null: {}건", beforeFilter, nullMarketCapCount);
-
-            results = results.stream()
-                    .filter(dto -> {
-                        // 시가총액이 null이면 일단 포함 (데이터 누락)
-                        if (dto.getMarketCap() == null) {
-                            return true;
-                        }
-                        // 시가총액 500억 이상만
-                        return dto.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0;
-                    })
-                    .collect(Collectors.toList());
-            log.info("시가총액 필터 후: {}건 (500억↑ 또는 미확인)", results.size());
-
-            // 적자→흑자 전환 우선, 그 다음 변화율 높은 순으로 정렬
-            results.sort((a, b) -> {
-                if ("LOSS_TO_PROFIT".equals(a.getTurnaroundType()) && !"LOSS_TO_PROFIT".equals(b.getTurnaroundType())) {
-                    return -1;
-                }
-                if (!"LOSS_TO_PROFIT".equals(a.getTurnaroundType()) && "LOSS_TO_PROFIT".equals(b.getTurnaroundType())) {
-                    return 1;
-                }
-                return b.getNetIncomeChangeRate().compareTo(a.getNetIncomeChangeRate());
-            });
-
-            if (limit != null && limit > 0) {
-                results = results.stream().limit(limit).collect(Collectors.toList());
-            }
+        List<ScreenerResultDto> results = turnaroundFromSurprises(surprises, latestDaily);
+        List<StockFinancialData> forEnrich = results.stream()
+                .map(r -> latestDaily.get(r.getStockCode()))
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
+        if (!results.isEmpty()) {
+            enrichScreenerResults(results, forEnrich);
         }
-
-        log.info("턴어라운드 스크리닝 완료 - 결과 {}건 (시가총액 500억 이상)", results.size());
+        if (limit != null && limit > 0) {
+            results = results.stream().limit(limit).collect(Collectors.toList());
+        }
+        log.info("턴어라운드 스크리닝 완료 - 결과 {}건 (분기 실적 판정 기준)", results.size());
         return results;
     }
 
     /**
-     * profitGrowth 기반 턴어라운드 종목 조회
-     * - 분기 비교 데이터가 없을 때 사용
-     * - profitGrowth가 높은 종목 = 실적 개선 종목으로 간주
-     * - 순이익 30억원 이상 필터 적용 (잡주 제외)
-     * - 데이터 품질 개선 및 시가총액 500억 미만 제외
+     * 실적 판정 → 턴어라운드 후보 — 순수 함수(회귀 {@code QuantScreenerTurnaroundTest}).
+     *
+     * <p>흑자전환(TURNAROUND) → LOSS_TO_PROFIT, 서프라이즈(POSITIVE) 중 분기 순이익 +50% 이상 → PROFIT_GROWTH.
+     * 당 분기 순이익 30억 미만은 잡주로 빼고(모르면 뺀다), 시가총액은 최신 일별 행 기준 500억 이상(모르면 포함 — 종전 규칙).
+     * 이전/현재 분기 이름표는 판정에 쓴 분기 말일이다. 정렬: 흑자전환 먼저, 그다음 변화율 큰 순.
      */
-    private List<ScreenerResultDto> findTurnaroundByProfitGrowth(Integer limit) {
-        // 성장률 데이터가 있는 최신 데이터 조회
-        List<StockFinancialData> allStocks = excludeInactive(stockFinancialDataRepository.findStocksWithGrowthData());
-        log.info("성장률 데이터 있는 종목: {}건", allStocks.size());
+    static List<ScreenerResultDto> turnaroundFromSurprises(List<EarningSurpriseDto> surprises,
+                                                           Map<String, StockFinancialData> latestDaily) {
+        List<ScreenerResultDto> out = new ArrayList<>();
+        if (surprises == null) return out;
+        for (EarningSurpriseDto e : surprises) {
+            if (e == null || e.getStockCode() == null || e.getSurpriseType() == null) continue;
+            String type;
+            BigDecimal rate;
+            if (e.getSurpriseType() == EarningSurpriseDto.SurpriseType.TURNAROUND) {
+                type = "LOSS_TO_PROFIT";
+                rate = new BigDecimal("999.99");   // 흑자전환 특별 표기(종전 규약)
+            } else if (e.getSurpriseType() == EarningSurpriseDto.SurpriseType.POSITIVE
+                    && e.getNetIncomeChangeRate() != null && e.getNetIncomeChangeRate().compareTo(new BigDecimal("50")) >= 0) {
+                type = "PROFIT_GROWTH";
+                rate = e.getNetIncomeChangeRate();
+            } else {
+                continue;
+            }
+            if (e.getLatestNetIncome() == null || e.getLatestNetIncome().compareTo(MIN_NET_INCOME) < 0) continue;
+            StockFinancialData d = latestDaily != null ? latestDaily.get(e.getStockCode()) : null;
+            if (d != null && d.getMarketCap() != null && d.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) < 0) continue;
 
-        // ⭐ 데이터 품질 개선
-        enrichStockDataBatch(allStocks);
-
-        // profitGrowth가 50% 이상이고 순이익 30억원 이상인 종목 조회
-        List<ScreenerResultDto> results = allStocks.stream()
-                .filter(s -> s.getProfitGrowth() != null && s.getProfitGrowth().compareTo(new BigDecimal("50")) >= 0)
-                .filter(s -> s.getNetIncome() != null && s.getNetIncome().compareTo(MIN_NET_INCOME) >= 0)
-                // ⭐ 데이터 클렌징: 시가총액 500억 이상만
-                .filter(s -> s.getMarketCap() != null && s.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0)
-                .sorted((a, b) -> b.getProfitGrowth().compareTo(a.getProfitGrowth()))
-                .map(stock -> ScreenerResultDto.builder()
-                        .stockCode(stock.getStockCode())
-                        .stockName(stock.getStockName())
-                        .market(stock.getMarket())
-                        .sector(stock.getSector())
-                        .currentPrice(stock.getCurrentPrice())
-                        .marketCap(stock.getMarketCap())
-                        .per(stock.getPer())
-                        .pbr(stock.getPbr())
-                        .roe(stock.getRoe())
-                        .operatingMargin(stock.getOperatingMargin())
-                        .netMargin(stock.getNetMargin())
-                        .eps(stock.getEps())
-                        .epsGrowth(stock.getEpsGrowth())
-                        .peg(stock.getPeg())
-                        .turnaroundType("PROFIT_GROWTH")
-                        .netIncomeChangeRate(stock.getProfitGrowth())
-                        .revenueGrowth(stock.getRevenueGrowth())
-                        .profitGrowth(stock.getProfitGrowth())
-                        .build())
-                .collect(Collectors.toList());
-
-        if (limit != null && limit > 0) {
-            results = results.stream().limit(limit).collect(Collectors.toList());
+            out.add(ScreenerResultDto.builder()
+                    .stockCode(e.getStockCode())
+                    .stockName(d != null && d.getStockName() != null ? d.getStockName() : e.getStockName())
+                    .market(d != null ? d.getMarket() : e.getMarket())
+                    .sector(d != null ? d.getSector() : null)
+                    .currentPrice(d != null ? d.getCurrentPrice() : null)
+                    .marketCap(d != null ? d.getMarketCap() : null)
+                    .per(d != null ? d.getPer() : null)
+                    .pbr(d != null ? d.getPbr() : null)
+                    .roe(d != null ? d.getRoe() : null)
+                    .operatingMargin(d != null ? d.getOperatingMargin() : null)
+                    .netMargin(d != null ? d.getNetMargin() : null)
+                    .eps(d != null ? d.getEps() : null)
+                    .epsGrowth(d != null ? d.getEpsGrowth() : null)
+                    .peg(d != null ? d.getPeg() : null)
+                    .turnaroundType(type)
+                    .previousNetIncome(e.getPreviousNetIncome())
+                    .currentNetIncome(e.getLatestNetIncome())
+                    .netIncomeChangeRate(rate)
+                    .previousPeriod(formatQuarter(e.getPreviousReportDate()))
+                    .currentPeriod(formatQuarter(e.getLatestReportDate()))
+                    .revenueGrowth(d != null ? d.getRevenueGrowth() : null)
+                    .profitGrowth(d != null ? d.getProfitGrowth() : null)
+                    .build());
         }
-
-        log.info("profitGrowth 기반 턴어라운드 결과: {}건 (시가총액 500억 이상)", results.size());
-        return results;
+        out.sort((a, b) -> {
+            boolean la = "LOSS_TO_PROFIT".equals(a.getTurnaroundType());
+            boolean lb = "LOSS_TO_PROFIT".equals(b.getTurnaroundType());
+            if (la != lb) return la ? -1 : 1;
+            return b.getNetIncomeChangeRate().compareTo(a.getNetIncomeChangeRate());
+        });
+        return out;
     }
 
     /**
@@ -1192,7 +1082,7 @@ public class QuantScreenerService {
     /**
      * 분기 날짜를 "YYYY.NQ" 형식으로 변환
      */
-    private String formatQuarter(LocalDate reportDate) {
+    private static String formatQuarter(LocalDate reportDate) {
         if (reportDate == null) return null;
         int quarter = (reportDate.getMonthValue() - 1) / 3 + 1;
         return reportDate.getYear() + "." + quarter + "Q";
