@@ -1348,9 +1348,15 @@ public class AutoTradingBotService {
      * VIX 30 이상이면 매수 일시정지 + 텔레그램 알림 (1시간에 1번만)
      * VIX 30 미만으로 회복되면 자동 해제 + 알림
      */
+    /**
+     * 글로벌 시세의 VIX 키 — Yahoo 티커("^VIX")가 아니라 맵 키다(2026-10-03). 예전엔 "^VIX" 로 물어 늘 '알 수 없는 심볼'
+     * (success=false)이 돌아왔고, 이 가드는 fail-open 이라 VIX 30 이상 매수 일시정지가 한 번도 걸린 적이 없다.
+     */
+    static final String VIX_SYMBOL = "VIX";
+
     private boolean checkVixPause() {
         try {
-            GlobalFuturesService.FuturesQuote vixData = globalFuturesService.getFuturesQuote("^VIX");
+            GlobalFuturesService.FuturesQuote vixData = globalFuturesService.getFuturesQuote(VIX_SYMBOL);
             if (vixData == null || !vixData.isSuccess() || vixData.getCurrentPrice() == null) return false;
 
             double vixPrice = vixData.getCurrentPrice().doubleValue();

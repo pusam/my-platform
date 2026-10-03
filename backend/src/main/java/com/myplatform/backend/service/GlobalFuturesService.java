@@ -139,6 +139,11 @@ public class GlobalFuturesService {
      * - KM(코스피200 선물): KIS API 우선, Yahoo 폴백
      * - 기타: Yahoo Finance
      */
+    /** 이 서비스가 아는 심볼(맵 키)인가 — 호출부가 Yahoo 티커를 넘기는 실수를 테스트로 막는다(AutoTradingBotVixSymbolTest). */
+    static boolean isKnownSymbol(String symbol) {
+        return symbol != null && FUTURES_MAP.containsKey(symbol);
+    }
+
     public FuturesQuote getFuturesQuote(String symbol) {
         // 캐시 확인
         CachedFutures cached = cache.get(symbol);
