@@ -2,7 +2,7 @@
   <div v-if="visible" class="modal-overlay" @click.self="$emit('close')" @keydown.escape="$emit('close')">
     <div class="modal-container">
       <div class="modal-header">
-        <h3>AI 시장 예측 상세 (KOSPI)</h3>
+        <h3>AI 시장 예측 상세 (KOSPI) <small class="unverified-tag">Gemini · 미검증</small></h3>
         <button class="close-btn" @click="$emit('close')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -10,7 +10,7 @@
         </button>
       </div>
 
-      <div class="modal-body" v-if="forecastData">
+      <div class="modal-body" v-if="forecastData && forecastData.scenarios">
         <!-- Large Chart -->
         <div class="detail-chart-container">
           <Line :data="chartData" :options="chartOptions" />
@@ -237,6 +237,13 @@ export default {
 </script>
 
 <style scoped>
+.unverified-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;

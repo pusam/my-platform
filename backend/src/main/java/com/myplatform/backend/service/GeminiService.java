@@ -579,12 +579,9 @@ public class GeminiService {
                     textResponse != null ? textResponse.substring(0, Math.min(100, textResponse.length())) : "null");
         }
 
-        // Gemini 완전 실패 → 기계적 fallback 예측 반환
-        log.warn("[Market Forecast] Gemini 실패 → 기계적 fallback 예측 반환 (KOSPI: {})", currentIndex);
-        Map<String, Object> fallback = buildFallbackForecast(currentIndex);
-        forecastCache = fallback;
-        forecastCacheTime = LocalDateTime.now();
-        return fallback;
+        // Gemini 완전 실패 → 예측 없음(숫자를 만들지 않는다). 실패는 캐시하지 않는다 — 다음 요청·'AI 재분석'이 다시 시도한다.
+        log.warn("[Market Forecast] Gemini 실패 → 예측 없음 반환 (KOSPI: {})", currentIndex);
+        return buildUnavailableForecast(currentIndex);
     }
 
     /**
@@ -616,6 +613,29 @@ public class GeminiService {
             log.debug("[Market Forecast] KOSPI 실지수 조회 실패: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * [시장 현황]의 시장 상태 — ADR 판단 보류(null)를 'NORMAL' 로 채우지 않는다(2026-10-03, §4c). 10/2 부터 ADR 창이
+     * 모자라면 시장 상태가 null 인데, 예전엔 그걸 'NORMAL'(정상)로 Gemini 에 넘겼다. 순수(테스트 대상).
+     */
+    static String forecastConditionText(MarketTimingDto.MarketCondition condition) {
+        return condition != null ? condition.name() : "미집계(ADR 판단 보류 — 최근 20거래일 등락 수 부족)";
+    }
+
+    /**
+     * 예측 프롬프트의 최근 헤드라인 — 감성 태그를 붙이지 않는다(2026-10-03, §4c). 뉴스 수집은 Gemini 요약을 뺀 뒤 모든 기사를
+     * 감성 NEUTRAL 로 저장해 그 '[중립]'은 분류 결과가 아니다 — 예전엔 헤드라인마다 '[중립]'을 붙이고 "센티먼트가 부정적이면
+     * Bear 확률을 높게"라고 지시해, 분류한 적 없는 감성이 확률의 근거가 됐다. 순수(테스트 대상).
+     */
+    static String newsHeadlinesForForecast(List<NewsSummaryDto> recentNews) {
+        if (recentNews == null || recentNews.isEmpty()) return "데이터 없음";
+        String text = recentNews.stream()
+                .map(NewsSummaryDto::getTitle)
+                .filter(t -> t != null && !t.isBlank())
+                .map(t -> "- " + t)
+                .collect(Collectors.joining("\n"));
+        return text.isEmpty() ? "데이터 없음" : text;
     }
 
     /** 시장 예측 기준일 줄 — LLM 날짜 발명 방지(§4c). 순수(테스트 대상). */
@@ -654,8 +674,7 @@ public class GeminiService {
             List<NewsSummaryDto> recentNews) {
 
         MarketTimingDto.MarketStatusDto kospi = marketStatus.getKospi();
-        String condition = marketStatus.getOverallCondition() != null
-                ? marketStatus.getOverallCondition().name() : "NORMAL";
+        String condition = forecastConditionText(marketStatus.getOverallCondition());
         // [시장 현황] — 장전 0/결측은 raw 0 대신 "미집계"로 정직 표기(§4c). 지수만 실측.
         String marketStatusBlock = buildMarketStatusBlock(
                 currentIndex, kospi.getIndexChangeRate(), marketStatus.getCombinedAdr(),
@@ -681,19 +700,12 @@ public class GeminiService {
                     .collect(Collectors.joining(", "));
         }
 
-        // 뉴스 센티먼트 텍스트
-        String newsText = "데이터 없음";
-        if (recentNews != null && !recentNews.isEmpty()) {
-            newsText = recentNews.stream()
-                    .map(n -> String.format("[%s] %s",
-                            n.getSentimentLabel() != null ? n.getSentimentLabel() : "중립",
-                            n.getTitle()))
-                    .collect(Collectors.joining("\n"));
-        }
+        // 최근 헤드라인 — 감성 태그 없음(newsHeadlinesForForecast)
+        String newsText = newsHeadlinesForForecast(recentNews);
 
         return forecastDateLine(LocalDate.now(KST)) + String.format("""
                 당신은 한국 주식시장 전문 애널리스트입니다.
-                현재 시장 데이터, 수급 동향, 뉴스 센티먼트를 종합하여 향후 5거래일간 KOSPI 지수 예측을 JSON으로 작성하세요.
+                현재 시장 데이터, 수급 동향, 최근 뉴스 헤드라인을 종합하여 향후 5거래일간 KOSPI 지수 예측을 JSON으로 작성하세요.
 
                 [시장 현황]
                 %s
@@ -704,13 +716,13 @@ public class GeminiService {
                 [기관 수급 - 순매수 상위]
                 %s
 
-                [뉴스 센티먼트 - 최근 헤드라인]
+                [최근 뉴스 헤드라인 — 감성 분류 없음]
                 %s
 
                 [예측 지침]
                 1. 현재 지수(%.2f)를 기준으로 현실적 변동폭 (일일 ±0.5~1.5%%) 적용
                 2. 외국인/기관 수급이 강세(대량 순매수)이면 Bull 확률을 높게 설정
-                3. 뉴스 센티먼트가 부정적이면 Bear 확률을 높게 설정
+                3. 헤드라인은 감성(긍정/부정)이 분류되지 않았다 — 제목에 드러난 사실만 근거로 쓰고 감성을 지어내지 말 것
                 4. Bull/Base/Bear 3개 시나리오 확률 합계는 반드시 100
                 5. 근거(reason)는 수급/뉴스 데이터를 인용하여 한국어 50자 이내로 작성
                 6. summary는 핵심 판단과 근거를 한국어 100자 이내로 작성
@@ -837,6 +849,10 @@ public class GeminiService {
                         norm.put("bull", toNumber(m.get("bull")));
                         norm.put("base", toNumber(m.get("base")));
                         norm.put("bear", toNumber(m.get("bear")));
+                        if (norm.containsValue(null)) {
+                            log.warn("[Market Forecast] forecasts 항목에 숫자 결측 — 파싱 실패로 처리: {}", m);
+                            return null;
+                        }
                         normalized.add(norm);
                     }
                 }
@@ -857,7 +873,12 @@ public class GeminiService {
                         if (s instanceof Map) {
                             Map<?, ?> sm = (Map<?, ?>) s;
                             Map<String, Object> ns = new HashMap<>();
-                            ns.put("probability", toNumber(sm.get("probability")));
+                            Number prob = toNumber(sm.get("probability"));
+                            if (prob == null) {
+                                log.warn("[Market Forecast] {} 시나리오 확률 결측 — 파싱 실패로 처리", key);
+                                return null;
+                            }
+                            ns.put("probability", prob);
                             ns.put("reason", sm.get("reason") != null ? sm.get("reason").toString() : "");
                             normalizedScenarios.put(key, ns);
                         }
@@ -879,39 +900,25 @@ public class GeminiService {
         }
     }
 
-    private Number toNumber(Object obj) {
+    /** 숫자 해석 — 없거나 숫자가 아니면 null(0 으로 채우면 차트가 0 으로 꺼지고 확률이 0% 가 된다, 2026-10-03). */
+    static Number toNumber(Object obj) {
         if (obj instanceof Number) return (Number) obj;
         if (obj instanceof String) {
             try { return Double.parseDouble((String) obj); }
-            catch (NumberFormatException e) { return 0; }
+            catch (NumberFormatException e) { return null; }
         }
-        return 0;
+        return null;
     }
 
-    private Map<String, Object> buildFallbackForecast(double currentIndex) {
+    /**
+     * Gemini 가 예측을 내지 못했을 때 — 숫자를 만들지 않는다(2026-10-03, §4c). 예전엔 현재 지수에 하루 ±0.5% 를 곱한
+     * 직선 세 개와 확률 30/50/20·근거 문장("외국인 매수 유입 시 상승 가능")을 지어내 예측처럼 그렸다. 순수(테스트 대상).
+     */
+    static Map<String, Object> buildUnavailableForecast(double currentIndex) {
         Map<String, Object> result = new HashMap<>();
         result.put("baseIndex", currentIndex);
-
-        List<Map<String, Object>> forecasts = new ArrayList<>();
-        for (int day = 1; day <= 5; day++) {
-            Map<String, Object> f = new HashMap<>();
-            f.put("day", day);
-            f.put("bull", Math.round(currentIndex * (1 + 0.005 * day)));
-            f.put("base", Math.round(currentIndex * (1 + 0.001 * day)));
-            f.put("bear", Math.round(currentIndex * (1 - 0.005 * day)));
-            forecasts.add(f);
-        }
-        result.put("forecasts", forecasts);
-
-        Map<String, Object> scenarios = new HashMap<>();
-        scenarios.put("bull", Map.of("probability", 30, "reason", "외국인 매수 유입 시 상승 가능"));
-        scenarios.put("base", Map.of("probability", 50, "reason", "현재 추세 유지 전망"));
-        scenarios.put("bear", Map.of("probability", 20, "reason", "글로벌 리스크 확대 시 하락"));
-        result.put("scenarios", scenarios);
-
-        result.put("summary", "AI 분석 데이터 부족으로 기본 예측을 제공합니다. 현재 지수 기반 기계적 산출입니다.");
         result.put("fallback", true);
-
+        result.put("summary", "AI 예측을 만들지 못했습니다(Gemini 응답 없음) — 예측 숫자를 만들지 않았습니다.");
         return result;
     }
 

@@ -54,3 +54,31 @@ describe('SectionMarketMap — 히트맵/예측 계산', () => {
     expect(w.vm.forecastChartData).toEqual({ labels: [], datasets: [] })
   })
 })
+
+describe('SectionMarketMap — AI 예측 실패는 숫자 없이(2026-10-03)', () => {
+  it('재현: fallback 이면 차트·확률 카드를 그리지 않는다 — 예전엔 지수 ±0.5%/일 직선과 30/50/20', async () => {
+    const w = mountMap()
+    w.vm.activeTab = 'forecast'
+    w.vm.forecastLoading = false
+    w.vm.forecastData = { baseIndex: 2750, fallback: true, summary: 'AI 예측을 만들지 못했습니다' }
+    await w.vm.$nextTick()
+    expect(w.find('.fallback-notice').exists()).toBe(true)
+    expect(w.find('.chart-stub').exists()).toBe(false)
+    expect(w.find('.scenario-cards').exists()).toBe(false)
+    expect(w.text()).not.toMatch(/30%|50%|20%/)
+  })
+
+  it('정상 예측에는 미검증 표기가 붙는다', async () => {
+    const w = mountMap()
+    w.vm.activeTab = 'forecast'
+    w.vm.forecastLoading = false
+    w.vm.forecastData = {
+      baseIndex: 2750, summary: 's',
+      forecasts: [{ day: 1, bull: 2770, base: 2755, bear: 2735 }],
+      scenarios: { bull: { probability: 35, reason: 'a' }, base: { probability: 45, reason: 'b' }, bear: { probability: 20, reason: 'c' } }
+    }
+    await w.vm.$nextTick()
+    expect(w.find('.forecast-note').text()).toContain('미검증')
+    expect(w.find('.scenario-cards').exists()).toBe(true)
+  })
+})

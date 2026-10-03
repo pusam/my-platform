@@ -121,10 +121,13 @@
         </div>
 
         <div v-else-if="forecastData" class="forecast-content">
+          <!-- Gemini 실패 시 숫자를 만들지 않는다(2026-10-03) — 예전엔 지수 ±0.5%/일 직선과 확률 30/50/20 을 그렸다 -->
           <div v-if="forecastData.fallback" class="fallback-notice">
-            <span>AI 분석 일시 불가 — 현재 지수 기반 기계적 예측입니다.</span>
+            <span>AI 예측 불가 — Gemini 응답이 없어 예측 숫자를 만들지 않았습니다.</span>
             <button class="retry-btn-sm" @click="retryForecast">AI 재분석</button>
           </div>
+          <template v-if="!forecastData.fallback && forecastData.scenarios">
+          <p class="forecast-note">Gemini 예측 · 미검증 — 이 예측의 적중률은 잰 적이 없습니다. 매수·매도 근거로 쓰지 마세요.</p>
           <div class="forecast-chart-container">
             <Line :data="forecastChartData" :options="forecastChartOptions" />
           </div>
@@ -155,6 +158,7 @@
 
           <div class="forecast-summary">{{ forecastData.summary }}</div>
           <button class="forecast-detail-btn" @click="showForecastDetail = true">자세히 보기 →</button>
+          </template>
         </div>
 
         <div v-else-if="forecastError" class="forecast-error">
@@ -675,6 +679,12 @@ export default {
   font-size: 12px;
   line-height: 1.6;
 }
+.forecast-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
 .fallback-notice {
   display: flex;
   align-items: center;
