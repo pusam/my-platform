@@ -170,3 +170,14 @@ export function latestTradeDay(rows) {
   const dates = rows.map((r) => r && r.tradeDate).filter((d) => typeof d === 'string' && d.length >= 10).sort()
   return dates.length ? toMonthDay(dates[dates.length - 1]) : null
 }
+
+/**
+ * PER·PBR 같은 배수 표시 — 없거나 0 이하이면 '-'(2026-10-03). 재무 테이블은 파싱 실패를 0 으로 적어 PER·PBR 의 0 은 결측이다
+ * (CLAUDE.md §4c). 예전 화면은 값이 없으면 '-배', 0 이면 '0.0배'였다.
+ */
+export function multipleOrDash(v, digits = 1) {
+  if (v === null || v === undefined || v === '') return '-'
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return '-'
+  return `${n.toFixed(digits)}배`
+}

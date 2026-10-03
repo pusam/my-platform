@@ -234,7 +234,8 @@
         <!-- 핵심 재무 -->
         <div class="financial-section">
           <div class="section-header">
-            <h2>핵심 재무 <span class="ttm-label">TTM</span></h2>
+            <!-- PER·PBR 의 정의는 종목마다 다르다(DART 지배주주 TTM / KIS 연결 TTM / KIS 연간 — per_basis) — 늘 TTM 이라 하지 않는다(2026-10-03) -->
+            <h2>핵심 재무 <span class="ttm-label" title="PER·PBR 기준은 종목별로 DART 지배주주 TTM · KIS 연결 TTM · KIS 연간 중 하나입니다">최근 재무</span></h2>
             <div class="investment-tags" v-if="financial?.investmentTags?.length">
               <span v-for="(tag, i) in financial.investmentTags" :key="i" class="inv-tag">{{ tag }}</span>
             </div>
@@ -243,14 +244,14 @@
             <div class="fin-card">
               <span class="fin-label">PER</span>
               <span class="fin-value" :class="getPERClass(financial?.per)">
-                {{ financial?.per?.toFixed(1) || '-' }}배
+                {{ multipleOrDash(financial?.per, 1) }}
                 <span v-if="financial?.forwardPer" class="forward-badge" :class="{ 'forward-improved': financial.forwardPer < financial.per }">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
               </span>
             </div>
             <div class="fin-card">
               <span class="fin-label">PBR</span>
               <span class="fin-value" :class="getPBRClass(financial?.pbr)">
-                {{ financial?.pbr?.toFixed(2) || '-' }}배
+                {{ multipleOrDash(financial?.pbr, 2) }}
                 <span v-if="financial?.forwardPbr" class="forward-badge" :class="{ 'forward-improved': financial.forwardPbr < financial.pbr }">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
               </span>
             </div>
@@ -591,6 +592,7 @@ import DataFreshness from '../components/DataFreshness.vue';
 import HtsChart from '../components/v2/HtsChart.vue';
 import apiClient, { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import { netBuyClass, netBuyText } from '../utils/stockFormat';
+import { multipleOrDash } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import { useChartCalculations } from '../composables/useChartCalculations';
 import { channelComment, breakoutLabel } from '../utils/trendChannel';
