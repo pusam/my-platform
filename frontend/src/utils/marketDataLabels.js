@@ -152,3 +152,21 @@ export function marketConditionText(condition) {
   const key = typeof condition === 'string' ? condition : condition.name
   return MARKET_CONDITION_TEXT[key] ?? null
 }
+
+/**
+ * 순매수 상위 N종목의 합(억원) — 조회 실패·빈 응답·값 없음은 null(2026-10-03). 예전 시장 탭 수급 패널은 0 에서 더해
+ * 실패해도 "+0억"(균형처럼)으로 보였다.
+ */
+export function topNetSum(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return null
+  const nums = rows.map((r) => numOrNull(r && r.netBuyAmount)).filter((v) => v !== null)
+  if (nums.length === 0) return null
+  return nums.reduce((a, b) => a + b, 0)
+}
+
+/** 행들의 가장 최근 거래일 'MM.DD' — 없으면 null. 브라우저 시계가 아니라 데이터의 날짜. */
+export function latestTradeDay(rows) {
+  if (!Array.isArray(rows)) return null
+  const dates = rows.map((r) => r && r.tradeDate).filter((d) => typeof d === 'string' && d.length >= 10).sort()
+  return dates.length ? toMonthDay(dates[dates.length - 1]) : null
+}

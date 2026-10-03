@@ -65,3 +65,15 @@ describe('시장 상태 문구 — 백엔드 enum 은 이름 문자열로 온다
     expect(src).toMatch(/case 'CRASH': return '🚨'/)
   })
 })
+
+describe('시장 탭 수급 패널 — 실패·빈 상태를 구분한다(2026-10-03)', () => {
+  const hub = readFileSync(join(process.cwd(), 'src/views/StockTradingDashboardV2.vue'), 'utf8')
+  it('재현: 연속 순매수가 없거나 실패해도 "로딩 중..."이 영구히 남았다', () => {
+    expect(hub).toMatch(/supplyPanelData\.state === 'loading'/)
+    expect(hub).toMatch(/연속 순매수 종목을 불러오지 못했습니다/)
+  })
+  it('재현: 합계는 topNetSum(실패=null) — 0 으로 채우지 않는다', () => {
+    expect(hub).toMatch(/topNetSum\(/)
+    expect(hub).not.toMatch(/let foreignNet = 0, instNet = 0/)
+  })
+})

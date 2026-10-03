@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf, impactLabel, impactTone, marketConditionText } from './marketDataLabels'
+import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf, impactLabel, impactTone, marketConditionText, topNetSum, latestTradeDay } from './marketDataLabels'
 
 describe('marketTotalOf — 섹터 총 거래대금은 종목을 한 번만 센다', () => {
   it('재현: 섹터 합계를 더하면 겹치는 종목이 두 번 — 백엔드 marketTotalTradingValue 를 쓴다', () => {
@@ -123,5 +123,19 @@ describe('marketConditionText — 시장 상태 enum 이름 → 문구', () => {
   it('모르면 null — 지어내지 않는다', () => {
     expect(marketConditionText(null)).toBeNull()
     expect(marketConditionText('WHATEVER')).toBeNull()
+  })
+})
+
+describe('topNetSum / latestTradeDay — 시장 탭 수급 패널(2026-10-03)', () => {
+  it('재현: 조회 실패·빈 응답은 0 이 아니라 null — 예전엔 "+0억"으로 보였다', () => {
+    expect(topNetSum(undefined)).toBeNull()
+    expect(topNetSum([])).toBeNull()
+    expect(topNetSum([{ netBuyAmount: null }])).toBeNull()
+    expect(topNetSum([{ netBuyAmount: 100.5 }, { netBuyAmount: -20 }])).toBeCloseTo(80.5)
+  })
+
+  it('데이터의 거래일로 말한다 — 가장 최근 tradeDate', () => {
+    expect(latestTradeDay([{ tradeDate: '2026-10-01' }, { tradeDate: '2026-10-02' }])).toBe('10.02')
+    expect(latestTradeDay([])).toBeNull()
   })
 })

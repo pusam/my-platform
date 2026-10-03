@@ -396,13 +396,16 @@
         <div id="briefing-section-supply" class="supply-panel section-card" v-if="activeGnbTab === 'market' && supplyPanelData">
           <div class="section-title-row">
             <h2><span class="section-icon">💰</span> 외국인·기관 수급 현황</h2>
+            <span v-if="supplyPanelData.tradeDay" class="supply-day">{{ supplyPanelData.tradeDay }} 기준</span>
           </div>
           <!-- 순매수 상위 10종목의 합 — 시장 전체 순매수가 아니다(2026-10-02). 순매수 순위 API 를 더한 값이라 늘 + 로 나온다. -->
           <div class="supply-summary">
             <div class="supply-item" v-for="inv in supplyPanelData.daily" :key="inv.type">
               <div class="supply-item-head">
                 <span class="supply-label">{{ inv.label }}</span>
-                <span class="supply-amount" :class="inv.amount >= 0 ? 'positive' : 'negative'">
+                <!-- 못 받았으면 '-' — 0 에서 더해 "+0억"(균형처럼)으로 보이던 것(2026-10-03) -->
+                <span v-if="inv.amount == null" class="supply-amount">-</span>
+                <span v-else class="supply-amount" :class="inv.amount >= 0 ? 'positive' : 'negative'">
                   {{ inv.amount >= 0 ? '+' : '' }}{{ inv.amount.toLocaleString() }}억
                 </span>
               </div>
@@ -427,7 +430,10 @@
               <span class="supply-days">{{ item.consecutiveDays }}일</span>
             </div>
           </div>
-          <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
+          <!-- 로딩·실패·없음을 구분한다 — 예전엔 연속 순매수가 없거나 실패해도 '로딩 중...'이 영구히 남았다(2026-10-03) -->
+          <div v-else-if="supplyPanelData.state === 'loading'" class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
+          <div v-else-if="supplyPanelData.consecutiveFailed" class="empty-signal" style="padding:12px">연속 순매수 종목을 불러오지 못했습니다</div>
+          <div v-else class="empty-signal" style="padding:12px">2일 이상 연속 순매수 종목 없음</div>
         </div>
 
         <!-- 시간대신호(장전/장후)·실시간 수급(장중)·관심종목 → '오늘' 탭으로 이동(2026-07-01, A 슬림화).
@@ -628,6 +634,7 @@ import {
   recommendationAPI, stockDetailAPI, quantTaAPI, stockAPI
 } from '../utils/api'
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
+import { topNetSum, latestTradeDay } from '../utils/marketDataLabels'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
 function withTimeout(promise, ms = 3000) {
@@ -1474,7 +1481,7 @@ export default {
       // 패널 즉시 노출 (v-if 통과) — 데이터는 비동기 도착 후 갱신.
       // 기존 직렬 await 3회 누적 지연 동안 v-if 가 false 라 메뉴 자체가 늦게 떴음.
       if (!this.supplyPanelData) {
-        this.supplyPanelData = { daily: [], consecutive: [], rallySignal: null }
+        this.supplyPanelData = { daily: [], consecutive: [], rallySignal: null, state: 'loading', consecutiveFailed: false, tradeDay: null }
       }
       try {
         // 3개 호출 병렬화 — 직렬 누적 시간 제거 (consecutive-buy 가 캐시 콜드면 특히 느렸음)
@@ -1489,26 +1496,20 @@ export default {
         // consecutive 응답은 Map<String, List<...>> 형태일 수 있어 flatten 필요.
         // 기존엔 raw 를 array 로 가정하고 .map() 호출 → 객체일 때 빈 catch 진입해 "로딩 중..." 표시.
         let consecutive = []
-        if (consRes.status === 'fulfilled') {
+        const consecutiveFailed = consRes.status !== 'fulfilled'
+        if (!consecutiveFailed) {
           const cd = this.extractData(consRes.value)
           consecutive = this.flattenInvestorMap(cd)
         }
 
         // 당일 순매수 금액 — realtime(Redis L2 + KIS 워머) 우선, 미스 시 DB 폴백.
         // KisInvestorDataCollector 일배치는 16시 cron 이라 장중 DB 는 비거나 어제자.
-        let foreignNet = 0, instNet = 0
-        if (fRes.status === 'fulfilled') {
-          const fData = this.extractData(fRes.value)
-          if (Array.isArray(fData)) {
-            foreignNet = fData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
-          }
-        }
-        if (iRes.status === 'fulfilled') {
-          const iData = this.extractData(iRes.value)
-          if (Array.isArray(iData)) {
-            instNet = iData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
-          }
-        }
+        // 실패·빈 응답은 null(utils/marketDataLabels.topNetSum) — 0 으로 채우면 "+0억"(균형)으로 보인다(2026-10-03)
+        const fData = fRes.status === 'fulfilled' ? this.extractData(fRes.value) : null
+        const iData = iRes.status === 'fulfilled' ? this.extractData(iRes.value) : null
+        const foreignNet = topNetSum(fData)
+        const instNet = topNetSum(iData)
+        const tradeDay = latestTradeDay([...(Array.isArray(fData) ? fData : []), ...(Array.isArray(iData) ? iData : [])])
 
         // 사실만 적는다(2026-10-02): 외국인 3일+ 연속 순매수 종목 수.
         // 예전엔 위 합계(순매수 상위 10종목의 합 — 늘 +)를 '외국인 순매수'로 보고 "진짜 반등 가능성"/"순매도 — 주의"를 갈랐다.
@@ -1520,14 +1521,17 @@ export default {
 
         this.supplyPanelData = {
           daily: [
-            { type: 'foreign', label: '외국인 상위 10', amount: Math.round(foreignNet) },
-            { type: 'inst', label: '기관 상위 10', amount: Math.round(instNet) }
+            { type: 'foreign', label: '외국인 상위 10', amount: foreignNet == null ? null : Math.round(foreignNet) },
+            { type: 'inst', label: '기관 상위 10', amount: instNet == null ? null : Math.round(instNet) }
           ],
           consecutive,
-          rallySignal
+          rallySignal,
+          state: 'ready',
+          consecutiveFailed,
+          tradeDay
         }
       } catch (e) {
-        this.supplyPanelData = { daily: [], consecutive: [], rallySignal: null }
+        this.supplyPanelData = { daily: [], consecutive: [], rallySignal: null, state: 'ready', consecutiveFailed: true, tradeDay: null }
       }
     },
     getScoreBreakdown(rec) {
@@ -2037,6 +2041,7 @@ export default {
 .supply-item { flex: 1; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); }
 .supply-label { font-size: 13px; color: rgba(255,255,255,0.5); font-weight: 600; }
 .supply-amount { font-size: 16px; font-weight: 800; }
+.supply-day { font-size: 12px; color: rgba(255,255,255,0.55); margin-left: 8px; }
 .supply-amount.positive { color: #ef4444; }
 .supply-amount.negative { color: #3b82f6; }
 .supply-sub-title { font-size: 11px; color: rgba(255,255,255,0.6); margin-bottom: 6px; font-weight: 600; }
