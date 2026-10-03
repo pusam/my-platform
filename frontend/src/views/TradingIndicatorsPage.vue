@@ -68,14 +68,17 @@
                항상 "데이터 없음"만 표시되던 죽은 카드였음(§4c). SOX 소스 확보 시 카드 복원. -->
 
           <!-- 글로벌 악재 필터 -->
-          <div class="market-card halt-check" :class="haltCheck?.shouldHaltBuying ? 'danger' : 'safe'">
+          <!-- 못 받았으면 '매수 가능'(초록)이 아니다 — 예전엔 조회 실패도 초록이었다. 악재가 없다는 것도 '매수하라'가 아니라
+               '이 필터가 막을 이유를 못 찾았다'일 뿐이다(2026-10-03) -->
+          <div class="market-card halt-check" :class="!haltCheck ? '' : (haltCheck.shouldHaltBuying ? 'danger' : 'safe')">
             <div class="market-header">
               <h3>글로벌 악재 필터</h3>
             </div>
             <div class="market-content">
               <div class="halt-status">
-                <span v-if="haltCheck?.shouldHaltBuying" class="status-danger">⚠️ 매수 보류</span>
-                <span v-else class="status-safe">✅ 매수 가능</span>
+                <span v-if="!haltCheck" class="status-unknown">확인 불가 — 필터 상태를 불러오지 못했습니다</span>
+                <span v-else-if="haltCheck.shouldHaltBuying" class="status-danger">⚠️ 매수 보류</span>
+                <span v-else class="status-safe">✅ 글로벌 악재 신호 없음</span>
               </div>
               <p class="halt-message">{{ haltCheck?.message }}</p>
             </div>
@@ -106,12 +109,13 @@
                   <div class="sector-rank">#{{ sector.rank }}</div>
                   <div class="sector-info">
                     <div class="sector-name">{{ sector.sectorName }}</div>
-                    <div class="sector-change positive">+{{ sector.averageChangeRate?.toFixed(2) }}%</div>
+                    <!-- 부호는 값대로 — 하락장의 상위 섹터가 '+-0.85%'로 보였다(2026-10-03) -->
+                    <div class="sector-change" :class="Number(sector.averageChangeRate) >= 0 ? 'positive' : 'negative'">{{ signedPercentOrDash(sector.averageChangeRate) }}</div>
                   </div>
                 </div>
                 <!-- 막대 그래프 -->
                 <div class="sector-bar-container">
-                  <div class="sector-bar positive" :style="{ width: Math.min(sector.averageChangeRate * 15, 100) + '%' }"></div>
+                  <div class="sector-bar" :class="Number(sector.averageChangeRate) >= 0 ? 'positive' : 'negative'" :style="{ width: Math.min(Math.abs(Number(sector.averageChangeRate) || 0) * 15, 100) + '%' }"></div>
                 </div>
                 <div class="leading-stock" v-if="sector.leadingStockName">
                   <span class="label">대장주:</span>
@@ -131,12 +135,12 @@
                   <div class="sector-rank">#{{ sector.rank }}</div>
                   <div class="sector-info">
                     <div class="sector-name">{{ sector.sectorName }}</div>
-                    <div class="sector-change negative">{{ sector.averageChangeRate?.toFixed(2) }}%</div>
+                    <div class="sector-change" :class="Number(sector.averageChangeRate) >= 0 ? 'positive' : 'negative'">{{ signedPercentOrDash(sector.averageChangeRate) }}</div>
                   </div>
                 </div>
                 <!-- 막대 그래프 -->
                 <div class="sector-bar-container">
-                  <div class="sector-bar negative" :style="{ width: Math.min(Math.abs(sector.averageChangeRate) * 15, 100) + '%' }"></div>
+                  <div class="sector-bar" :class="Number(sector.averageChangeRate) >= 0 ? 'positive' : 'negative'" :style="{ width: Math.min(Math.abs(Number(sector.averageChangeRate) || 0) * 15, 100) + '%' }"></div>
                 </div>
                 <div class="leading-stock" v-if="sector.leadingStockName">
                   <span class="label">대장주:</span>
@@ -394,6 +398,7 @@ import { tradingIndicatorAPI } from '../utils/api'
 import BackButton from '../components/BackButton.vue'
 import StockCodeInput from '../components/StockCodeInput.vue'
 import DataFreshness from '../components/DataFreshness.vue'
+import { signedPercentOrDash } from '../utils/marketDataLabels'
 
 export default {
   name: 'TradingIndicatorsPage',
@@ -445,6 +450,7 @@ export default {
     if (this._countdownTimer) clearInterval(this._countdownTimer)
   },
   methods: {
+    signedPercentOrDash,
     async refreshMainData() {
       this.isRefreshing = true
       try {
@@ -832,6 +838,10 @@ export default {
   color: #dc2626;
 }
 
+.status-unknown {
+  color: var(--warning-color, #eab308);
+  font-weight: 600;
+}
 .status-safe {
   color: #059669;
 }
