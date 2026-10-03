@@ -51,3 +51,17 @@ describe('USD/KRW 는 한 출처 — 같은 화면에 서로 다른 환율이 �
     }
   })
 })
+
+describe('시장 상태 문구 — 백엔드 enum 은 이름 문자열로 온다(2026-10-03)', () => {
+  it('재현: overallCondition.emoji 를 읽어 늘 undefined — 종합 시장 상태 칸이 비었다', () => {
+    const src = read('views/MarketTimingPage.vue')
+    expect(src).not.toMatch(/overallCondition\.emoji|condition\?\.emoji/)
+    expect(src).toMatch(/marketConditionText\(marketData\.overallCondition\)/)
+  })
+
+  it('급락일(CRASH)도 색·아이콘이 있다 — 예전엔 빈 색·❓', () => {
+    const src = read('views/MarketTimingPage.vue')
+    expect(src).toMatch(/case 'CRASH': return 'condition-crash'/)
+    expect(src).toMatch(/case 'CRASH': return '🚨'/)
+  })
+})

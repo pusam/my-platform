@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf, impactLabel, impactTone } from './marketDataLabels'
+import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf, impactLabel, impactTone, marketConditionText } from './marketDataLabels'
 
 describe('marketTotalOf — 섹터 총 거래대금은 종목을 한 번만 센다', () => {
   it('재현: 섹터 합계를 더하면 겹치는 종목이 두 번 — 백엔드 marketTotalTradingValue 를 쓴다', () => {
@@ -110,5 +110,18 @@ describe('impactLabel / impactTone — 종합 시장 방향성 등급(백엔드 
     expect(impactTone('WEAK_POSITIVE')).toBe('positive')
     expect(impactTone('CRISIS')).toBe('negative')
     expect(impactTone('NEUTRAL')).toBe('neutral')
+  })
+})
+
+describe('marketConditionText — 시장 상태 enum 이름 → 문구', () => {
+  it('재현: 응답의 condition 은 문자열 — 문구를 돌려준다(예전 화면은 .emoji 로 읽어 빈칸)', () => {
+    expect(marketConditionText('NORMAL')).toBe('☁️ 보통')
+    expect(marketConditionText('CRASH')).toBe('🚨 폭락/패닉 (관망 필수)')
+    expect(marketConditionText('OVERHEATED')).toContain('과열')
+  })
+
+  it('모르면 null — 지어내지 않는다', () => {
+    expect(marketConditionText(null)).toBeNull()
+    expect(marketConditionText('WHATEVER')).toBeNull()
   })
 })

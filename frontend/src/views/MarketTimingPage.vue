@@ -22,7 +22,7 @@
         <div class="status-content">
           <div class="status-label">종합 시장 상태</div>
           <div class="status-value" v-if="marketData?.overallCondition">
-            {{ marketData.overallCondition.emoji }}
+            {{ marketConditionText(marketData.overallCondition) || marketData.overallCondition }}
           </div>
           <div class="status-value data-needed" v-else>
             데이터 수집 필요
@@ -135,7 +135,7 @@
         <div class="market-header">
           <h3>KOSPI</h3>
           <span class="market-condition" :class="getConditionClass(marketData.kospi.condition)">
-            {{ marketData.kospi.condition?.emoji || '-' }}
+            {{ marketConditionText(marketData.kospi.condition) || '-' }}
           </span>
         </div>
         <div class="market-stats">
@@ -218,7 +218,7 @@
         <div class="market-header">
           <h3>KOSDAQ</h3>
           <span class="market-condition" :class="getConditionClass(marketData.kosdaq.condition)">
-            {{ marketData.kosdaq.condition?.emoji || '-' }}
+            {{ marketConditionText(marketData.kosdaq.condition) || '-' }}
           </span>
         </div>
         <div class="market-stats">
@@ -405,7 +405,7 @@ const props = defineProps({
 });
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI } from '../utils/api';
-import { commodityFromResponse, krwFromFuturesQuote, impactLabel, impactTone } from '../utils/marketDataLabels';
+import { commodityFromResponse, krwFromFuturesQuote, impactLabel, impactTone, marketConditionText } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import GlobalNav from '../components/GlobalNav.vue';
 import DataFreshness from '../components/DataFreshness.vue';
@@ -807,6 +807,7 @@ const getConditionClass = (condition) => {
     case 'NORMAL': return 'condition-normal';
     case 'OVERSOLD': return 'condition-oversold';
     case 'EXTREME_FEAR': return 'condition-extreme-fear';
+    case 'CRASH': return 'condition-crash';
     default: return '';
   }
 };
@@ -818,6 +819,7 @@ const getConditionEmoji = (condition) => {
     case 'NORMAL': return '☁️';
     case 'OVERSOLD': return '💧';
     case 'EXTREME_FEAR': return '🥶';
+    case 'CRASH': return '🚨';
     default: return '❓';
   }
 };
@@ -901,6 +903,15 @@ onMounted(() => {
 
 .main-status.condition-extreme-fear .status-value {
   color: #67e8f9;
+}
+
+.main-status.condition-crash {
+  border-color: #ef4444;
+  background: linear-gradient(135deg, #1a1a2e 0%, #2d1f1f 100%);
+}
+
+.main-status.condition-crash .status-value {
+  color: #fca5a5;
 }
 
 .status-icon {

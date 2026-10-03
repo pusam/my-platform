@@ -133,3 +133,22 @@ export function impactTone(alertLevel) {
   if (alertLevel === 'NEUTRAL') return 'neutral'
   return 'unknown'
 }
+
+/**
+ * 시장 상태(ADR 진단) 문구. 백엔드 MarketTimingDto.MarketCondition 은 JSON 에서 이름 문자열('NORMAL')로 온다 —
+ * 예전 화면은 `overallCondition.emoji` 를 읽어 늘 undefined 라 '종합 시장 상태'·시장별 상태 칸이 비었다(2026-10-03).
+ * 문구는 그 enum 의 emoji 필드와 같다(바꾸면 함께). 급락일(CRASH)도 포함 — 모르는 값은 null.
+ */
+const MARKET_CONDITION_TEXT = {
+  OVERHEATED: '🔥 과열 (현금 확보 필요)',
+  NORMAL: '☁️ 보통',
+  OVERSOLD: '💧 침체 (저점 매수 기회)',
+  EXTREME_FEAR: '🥶 극심한 공포 (적극 매수 검토)',
+  CRASH: '🚨 폭락/패닉 (관망 필수)'
+}
+
+export function marketConditionText(condition) {
+  if (condition == null) return null
+  const key = typeof condition === 'string' ? condition : condition.name
+  return MARKET_CONDITION_TEXT[key] ?? null
+}
