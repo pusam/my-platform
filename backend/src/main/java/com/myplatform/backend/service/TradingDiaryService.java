@@ -86,7 +86,7 @@ public class TradingDiaryService {
         }
 
         // 2) 통계 집계
-        Stats stats = aggregate(auditLogs, histories);
+        Stats stats = aggregate(normMode, auditLogs, histories);
 
         // 3) Gemini 프롬프트용 요약 빌드
         String summaryText = buildSummary(weekStart, weekEnd, stats, auditLogs, histories);
@@ -177,7 +177,7 @@ public class TradingDiaryService {
     // ============================================================
     //  내부 집계
     // ============================================================
-    private record Stats(
+    record Stats(
             int totalBuys, int totalSells,
             BigDecimal realizedPnl,
             int winCount, int lossCount,
@@ -188,10 +188,29 @@ public class TradingDiaryService {
             Map<String, Integer> reasonCount
     ) {}
 
-    private Stats aggregate(List<TradingAuditLog> audits, List<VirtualTradeHistory> hist) {
+    /**
+     * 주간 통계. 매수·매도 횟수·금액·매수 시간대의 출처는 모드마다 다르다 — 실전은 주문 감사 기록(trading_audit_log),
+     * 모의는 체결 기록(virtual_trade_history). 모의 매매는 감사 기록을 남기지 않아(ATR 스냅샷 외) 예전엔 모의 주간 리포트가
+     * 거래가 있어도 "매수 0회·매도 0회"였고, 10/2 의 거래 없는 주 처리와 겹쳐 "체결된 매매가 없습니다"가 됐다(2026-10-03).
+     */
+    static Stats aggregate(String mode, List<TradingAuditLog> audits, List<VirtualTradeHistory> hist) {
         int totalBuys = 0, totalSells = 0, blocked = 0;
         BigDecimal buyAmt = BigDecimal.ZERO, sellAmt = BigDecimal.ZERO;
         Map<Integer, Integer> buyHour = new HashMap<>();
+
+        if ("VIRTUAL".equals(mode)) {
+            for (VirtualTradeHistory v : hist) {
+                BigDecimal amt = v.getTotalAmount() == null ? BigDecimal.ZERO : v.getTotalAmount();
+                if ("BUY".equals(v.getTradeType())) {
+                    totalBuys++;
+                    buyAmt = buyAmt.add(amt);
+                    if (v.getTradeDate() != null) buyHour.merge(v.getTradeDate().getHour(), 1, Integer::sum);
+                } else if ("SELL".equals(v.getTradeType())) {
+                    totalSells++;
+                    sellAmt = sellAmt.add(amt);
+                }
+            }
+        }
 
         for (TradingAuditLog a : audits) {
             if (a.getBlockedReason() != null) {
