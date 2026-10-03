@@ -1962,30 +1962,10 @@ public class StockDetailService {
         // 하나는 지우고 하나는 남기면 화면이 더 헷갈린다 — "Forward" 라는 이름을 붙이려면
         // 진짜 예측 소스가 있어야 한다. 그때 두 지표를 함께 되살릴 것.
 
-        // ★ 외국인 지분율 추정 (KIS API에서 직접 못 가져올 때 업종 기반 추정)
-        if (financial.getForeignOwnership() == null) {
-            // 시가총액 기반 외국인 지분율 추정 (대형주 = 높음)
-            if (financial.getMarketCap() != null) {
-                long cap = financial.getMarketCap();
-                if (cap >= 100000) financial.setForeignOwnership(new BigDecimal("45")); // 10조+
-                else if (cap >= 50000) financial.setForeignOwnership(new BigDecimal("35")); // 5조+
-                else if (cap >= 10000) financial.setForeignOwnership(new BigDecimal("25")); // 1조+
-                else financial.setForeignOwnership(new BigDecimal("10")); // 1조 미만
-            }
-        }
-
-        // ★ TSR (총주주환원율) 추정 = 배당수익률 × 1.3~1.5 (자사주 포함)
-        if (financial.getDividendYield() != null && financial.getDividendYield().doubleValue() > 0) {
-            double divYield = financial.getDividendYield().doubleValue();
-            double tsrMultiplier = divYield > 3 ? 1.5 : 1.3; // 고배당이면 자사주도 적극적
-            BigDecimal tsr = new BigDecimal(divYield * tsrMultiplier).setScale(1, RoundingMode.HALF_UP);
-            financial.setTotalShareholderReturn(tsr);
-
-            // 자사주 매입 추정 정보
-            if (divYield > 3) {
-                financial.setBuybackInfo("자사주 매입/소각 프로그램 진행 추정");
-            }
-        }
+        // 외국인 지분율·TSR(총주주환원율)·자사주 매입은 추정하지 않는다(2026-10-03, §4c).
+        //   예전: 외국인 지분이 비면 시가총액 구간으로 45/35/25/10% 를 채웠고(시총을 모르면 0 → '10%'),
+        //   TSR 은 배당수익률 × 1.3/1.5, 배당 3% 초과면 "자사주 매입/소각 프로그램 진행 추정" 문구를 붙였다 — 근거 없는 발명.
+        //   KIS 가 준 외국인 소진율(hts_frgn_ehrt)만 쓰고, 없으면 화면이 '-'.
     }
 
     /**
@@ -2083,7 +2063,7 @@ public class StockDetailService {
                         peerPriceMap.put(code, result);
                     }
                 } catch (Exception e) {
-                    log.debug("[StockDetail] Peer {} 타임아웃/실패 - 하드코딩 폴백", code);
+                    log.debug("[StockDetail] Peer {} 타임아웃/실패 — 값 없음(상수로 채우지 않는다)", code);
                 }
             }
         }
@@ -2093,13 +2073,11 @@ public class StockDetailService {
         List<StockDetailDto.PeerComparison> peers = new ArrayList<>();
         for (String[] peer : peerList) {
             boolean isCurrent = peer[0].equals(stockCode);
+            // 값은 실시간으로 받은 것만 — 표의 숫자 칸(PBR·PER·ROE·배당)은 오래전 손으로 적은 상수라 쓰지 않는다(2026-10-03, §4c).
+            // 예전엔 그 상수로 시작해 KIS 가 5초 안에 답한 PER·PBR 만 덮었고, ROE·배당은 늘 상수였다.
             StockDetailDto.PeerComparison pc = StockDetailDto.PeerComparison.builder()
                     .stockCode(peer[0])
                     .stockName(peer[1])
-                    .pbr(new BigDecimal(peer[2]))
-                    .per(new BigDecimal(peer[3]))
-                    .roe(new BigDecimal(peer[4]))
-                    .dividendYield(new BigDecimal(peer[5]))
                     .isCurrent(isCurrent)
                     .build();
 
@@ -2131,7 +2109,7 @@ public class StockDetailService {
 
     /**
      * 섹터별 Peer Group 데이터 반환
-     * [코드, 이름, PBR, PER, ROE, 배당수익률]
+     * [코드, 이름, PBR, PER, ROE, 배당수익률] — ⚠ 숫자 칸은 쓰지 않는다(오래된 손 입력 상수, 2026-10-03). 코드·이름만 읽는다.
      */
     private List<String[]> getPeerDataBySector(String sector) {
         switch (sector) {

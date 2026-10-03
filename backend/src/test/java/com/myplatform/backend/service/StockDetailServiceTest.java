@@ -625,4 +625,45 @@ class StockDetailServiceTest {
             assertThat(sd.getVolumePower()).isNull();
         }
     }
+
+    @Nested
+    @DisplayName("지어낸 재무·Peer 값 제거 — 2026-10-03 화면 점검")
+    class NoFabricatedFinancials {
+
+        @Test
+        @DisplayName("재현: KIS 외국인 소진율이 비면 시총 구간으로 45/35/25/10% 를 채우던 것 — 이제 모름(null), TSR·자사주 추정도 없음")
+        void foreignOwnershipNotEstimated() {
+            FinancialInfo f = FinancialInfo.builder().marketCap(1_178_000L).dividendYield(new BigDecimal("3.5")).build();
+
+            org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                    stockDetailService, "enrichWithForwardMetrics", "009150", f, null);
+
+            assertThat(f.getForeignOwnership()).isNull();
+            assertThat(f.getTotalShareholderReturn()).isNull();
+            assertThat(f.getBuybackInfo()).isNull();
+        }
+
+        @Test
+        @DisplayName("재현: Peer 표가 손으로 적은 상수(PBR·PER·ROE·배당)로 시작하던 것 — KIS 가 못 주면 값 없음")
+        void peerValuesAreLiveOnly() {
+            when(kisService.getStockPrice(anyString())).thenReturn(null);   // KIS 실패
+            FinancialInfo current = FinancialInfo.builder().pbr(new BigDecimal("1.40")).per(new BigDecimal("12.0")).build();
+
+            List<StockDetailDto.PeerComparison> peers = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                    stockDetailService, "buildPeerComparisons", "005930", "삼성전자", current);
+
+            assertThat(peers).isNotEmpty();
+            for (StockDetailDto.PeerComparison p : peers) {
+                if (p.isCurrent()) {
+                    assertThat(p.getPbr()).isEqualByComparingTo("1.40");
+                } else {
+                    assertThat(p.getPbr()).as(p.getStockName()).isNull();
+                    assertThat(p.getPer()).as(p.getStockName()).isNull();
+                    assertThat(p.getRoe()).as(p.getStockName()).isNull();
+                    assertThat(p.getDividendYield()).as(p.getStockName()).isNull();
+                }
+            }
+        }
+    }
 }
+

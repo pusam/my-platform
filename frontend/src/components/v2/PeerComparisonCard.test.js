@@ -53,4 +53,11 @@ describe('PeerComparisonCard (P2-10 분리)', () => {
     expect(w.find('.sector-avg-line').exists()).toBe(false)
     expect(w.find('.sector-avg-label').exists()).toBe(false)
   })
+
+  it('PBR 을 모르면 "PBR -"(빈칸 "PBR 배"가 아니다), 막대는 0 — 2026-10-03', () => {
+    const w = mountCard({ peerComparisons: [{ stockName: 'B사', pbr: null, dividendYield: null, isCurrent: false }], sectorAvgPbr: null })
+    expect(w.find('.peer-pbr').text()).toBe('PBR -')
+    expect(w.find('.peer-div').exists()).toBe(false)
+    expect(w.find('.peer-bar-fill').attributes('style')).toContain('width: 0%')
+  })
 })

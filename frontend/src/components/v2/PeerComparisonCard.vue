@@ -25,7 +25,7 @@
             :style="{ left: getPeerBarWidth(sectorAvgPbr) + '%' }"
           ></div>
         </div>
-        <span class="peer-pbr">PBR {{ peer.pbr?.toFixed(2) }}배</span>
+        <span class="peer-pbr">PBR {{ peer.pbr != null ? Number(peer.pbr).toFixed(2) + '배' : '-' }}</span>
         <span v-if="peer.dividendYield != null" class="peer-div">배당 {{ peer.dividendYield.toFixed(1) }}%</span>
       </div>
       <div v-if="sectorAvgPbr" class="sector-avg-label">
