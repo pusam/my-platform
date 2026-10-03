@@ -405,7 +405,8 @@
           <!-- 안전 점수 게이지 (원형) -->
           <div class="risk-gauge-section" :class="safetyStatusClass">
             <div class="gauge-header">
-              <h2>안전 점수</h2>
+              <!-- 값 = 진단 종합점수 − 리스크×0.3(아래 safetyScore) — 안전성을 잰 값이 아니라 이름에 계산을 밝힌다(2026-10-03) -->
+              <h2 title="진단 종합점수에서 리스크 점수의 30%를 뺀 값 — 검증된 안전성 지표가 아닙니다">진단 점수 (리스크 감점)</h2>
               <span class="risk-badge" :class="safetyStatusClass">
                 {{ getSafetyStatusText(riskInfo?.riskStatus) }}
               </span>
@@ -1067,8 +1068,11 @@ const safetyDescriptionText = computed(() => {
   if (riskInfo.value?.riskStatus === 'WARNING') {
     return '일부 리스크 요인이 감지되었습니다. 공시/뉴스를 확인하고 신중하게 접근하세요.';
   }
-  // 기본
-  return '리스크가 높아 신중한 판단이 필요합니다.';
+  // 기본 — 점수 구간대로 말한다. 예전엔 여기서 점수와 무관하게 "리스크가 높아 신중한 판단이 필요합니다"였다(2026-10-03).
+  if (safety === null) return '점수를 계산할 데이터가 없습니다.';
+  if (safety >= 65) return '큰 감점 요인은 없습니다 — 진단 점수 기준이며 검증된 안전성 지표는 아닙니다.';
+  if (safety >= 40) return '일부 감점 요인이 있습니다 — 공시/뉴스를 확인하세요.';
+  return '감점이 커서 신중한 판단이 필요합니다.';
 });
 
 const supplySourceClass = computed(() => {
