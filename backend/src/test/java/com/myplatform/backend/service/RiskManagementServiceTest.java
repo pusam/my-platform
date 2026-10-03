@@ -61,7 +61,7 @@ class RiskManagementServiceTest {
                     .matchedKeyword("상장폐지")
                     .build();
 
-            when(dartService.searchDisclosuresByName(anyString())).thenReturn(
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(
                     List.of(dangerDisc));
             when(dartService.filterDangerousDisclosures(any())).thenReturn(
                     List.of(dangerDisc));
@@ -88,7 +88,7 @@ class RiskManagementServiceTest {
         @DisplayName("부정적 뉴스 없으면 SAFE")
         void noNegativeNews_returnsSafe() {
             // given
-            when(dartService.searchDisclosuresByName(anyString())).thenReturn(Collections.emptyList());
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(Collections.emptyList());
             when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
             when(googleNewsService.searchNews(anyString())).thenReturn(Collections.emptyList());
 
@@ -105,7 +105,7 @@ class RiskManagementServiceTest {
         @DisplayName("리스크 점수는 항상 0~100 범위")
         void riskScore_alwaysInRange() {
             // given
-            when(dartService.searchDisclosuresByName(anyString())).thenReturn(Collections.emptyList());
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(Collections.emptyList());
             when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
             when(googleNewsService.searchNews(anyString())).thenReturn(Collections.emptyList());
 
@@ -124,32 +124,64 @@ class RiskManagementServiceTest {
     class DisclosureRoutingTests {
 
         @Test
-        @DisplayName("stockCode 가 있으면 코드 기반 공시 조회를 탄다 — 이름 매칭 실패 시 KOSPI 한정 폴백으로 " +
-                "KOSDAQ 공시가 조용히 빈 결과가 되던 경로 차단")
+        @DisplayName("stockCode 가 있으면 코드를 넘긴다 — 이름 매칭 실패 시 KOSPI 한정 폴백으로 KOSDAQ 공시가 조용히 빈 결과가 되던 경로 차단")
         void analyzeRisk_withStockCode_usesCodePath() {
-            when(dartService.isAvailable()).thenReturn(true);
-            when(dartService.searchDisclosuresByStockCode(anyString(), anyString()))
-                    .thenReturn(Collections.emptyList());
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(Collections.emptyList());
             when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
             when(googleNewsService.searchNews(anyString())).thenReturn(Collections.emptyList());
 
             riskService.analyzeRisk(STOCK_NAME, STOCK_CODE);
 
-            verify(dartService).searchDisclosuresByStockCode(STOCK_CODE, STOCK_NAME);
+            verify(dartService).searchDisclosuresOrNull(STOCK_CODE, STOCK_NAME);
             verify(dartService, never()).searchDisclosuresByName(anyString());
         }
 
         @Test
-        @DisplayName("stockCode 없으면 기존 이름 기반 경로 유지 (회귀 방지)")
-        void analyzeRisk_withoutStockCode_keepsNamePath() {
-            when(dartService.isAvailable()).thenReturn(true);
-            when(dartService.searchDisclosuresByName(anyString())).thenReturn(Collections.emptyList());
+        @DisplayName("공시 조회 실패(미가용·매핑 실패 = null)는 '확인 안 함'으로 표시 — 빈 목록('공시 없음')과 구분(2026-10-03)")
+        void unknownDisclosuresAreMarked() {
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(null);
             when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
             when(googleNewsService.searchNews(anyString())).thenReturn(Collections.emptyList());
 
-            riskService.analyzeRisk(STOCK_NAME);
+            RiskAnalysisDto result = riskService.analyzeRisk(STOCK_NAME, STOCK_CODE);
 
-            verify(dartService).searchDisclosuresByName(STOCK_NAME);
+            assertThat(result.getDisclosuresChecked()).isFalse();
+            assertThat(result.getReason()).contains("공시 조회 실패");
+        }
+
+        @Test
+        @DisplayName("공시를 실제로 조회했으면 '확인함'")
+        void checkedDisclosuresAreMarked() {
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(Collections.emptyList());
+            when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
+            when(googleNewsService.searchNews(anyString())).thenReturn(Collections.emptyList());
+
+            assertThat(riskService.analyzeRisk(STOCK_NAME, STOCK_CODE).getDisclosuresChecked()).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("빠른 체크 3상태 — 2026-10-03")
+    class QuickStatusTests {
+
+        @Test
+        @DisplayName("재현: 공시를 확인하지 못하면 null(확인 불가) — 예전엔 false 로 내려가 화면이 '🟢 안전'")
+        void unknownIsNull() {
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(null);
+            assertThat(riskService.quickDangerStatus(STOCK_CODE, STOCK_NAME)).isNull();
+            // 추천 페널티 경로는 종전대로 fail-open(false) — 결측은 차단 근거가 아니다(§4c)
+            assertThat(riskService.quickDangerCheck(STOCK_CODE, STOCK_NAME)).isFalse();
+        }
+
+        @Test
+        @DisplayName("위험 공시가 있으면 true, 확인했는데 없으면 false")
+        void knownStates() {
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(Collections.emptyList());
+            when(dartService.hasDangerousDisclosure(any())).thenReturn(false);
+            assertThat(riskService.quickDangerStatus("000660", "SK하이닉스")).isFalse();
+
+            when(dartService.hasDangerousDisclosure(any())).thenReturn(true);
+            assertThat(riskService.quickDangerStatus("373220", "LG에너지솔루션")).isTrue();
         }
     }
 
@@ -163,7 +195,7 @@ class RiskManagementServiceTest {
         @DisplayName("Google News 실패 → 네이버 폴백 시도")
         void googleFail_fallbackToNaver() {
             // given
-            when(dartService.searchDisclosuresByName(anyString())).thenReturn(Collections.emptyList());
+            when(dartService.searchDisclosuresOrNull(any(), any())).thenReturn(Collections.emptyList());
             when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
             when(googleNewsService.searchNews(anyString()))
                     .thenThrow(new RuntimeException("Google News timeout"));
@@ -180,10 +212,10 @@ class RiskManagementServiceTest {
         }
 
         @Test
-        @DisplayName("모든 외부 API 실패 시에도 예외 없이 SAFE 반환")
+        @DisplayName("모든 외부 API 실패 시에도 예외 없이 결과 — 단 공시는 '확인 안 함'으로 표시(2026-10-03, 예전엔 그냥 SAFE)")
         void allApiFail_returnsSafe() {
             // given
-            when(dartService.searchDisclosuresByName(anyString()))
+            when(dartService.searchDisclosuresOrNull(any(), any()))
                     .thenThrow(new RuntimeException("DART timeout"));
             when(googleNewsService.searchNews(anyString()))
                     .thenThrow(new RuntimeException("Google timeout"));
@@ -195,8 +227,9 @@ class RiskManagementServiceTest {
 
             // then
             assertThat(result).isNotNull();
-            // 데이터 없으면 안전 기본값
+            // 상태 값은 종전대로지만 공시를 확인하지 못했다는 표시가 붙는다 — 화면은 이걸 '확인 불가'로 그린다
             assertThat(result.getStatus()).isEqualTo(RiskStatus.SAFE);
+            assertThat(result.getDisclosuresChecked()).isFalse();
         }
     }
 }

@@ -82,7 +82,8 @@ export default {
   data() {
     return {
       quickLoading: false,
-      hasDangerousQuick: null,   // null=미체크, true=위험, false=안전
+      hasDangerousQuick: null,   // null=미체크·확인 불가, true=위험, false=없음(확인함)
+      quickUnknown: false,       // 빠른 체크를 했지만 공시를 확인하지 못함(DART 미가용·매핑 실패·조회 실패)
       deepLoading: false,
       detail: null,              // 상세 분석 결과 RiskAnalysisDto
       // 요청 시퀀스 토큰 — 종목 전환 시 늦게 도착한 이전 종목 응답이 현재 종목 결과를 덮어쓰는 것 방지
@@ -92,7 +93,8 @@ export default {
   },
   computed: {
     statusValue() {
-      // 상세 결과 우선, 없으면 quick check 결과
+      // 상세 결과 우선, 없으면 quick check 결과. 상세라도 공시를 확인하지 못했으면 '안전'으로 칠하지 않는다(2026-10-03)
+      if (this.detail && this.detail.disclosuresChecked === false && this.detail.status !== 'DANGER') return 'UNKNOWN'
       if (this.detail?.status) return this.detail.status
       if (this.hasDangerousQuick === true) return 'WARNING'
       if (this.hasDangerousQuick === false) return 'SAFE'
@@ -123,8 +125,10 @@ export default {
       return m[this.statusValue]
     },
     subLabel() {
+      if (this.detail && this.detail.disclosuresChecked === false) return '공시 조회 실패 — 공시 위험 확인 불가'
       if (this.detail) return '상세 분석 완료'
       if (this.quickLoading) return '빠른 체크 중...'
+      if (this.quickUnknown) return '공시 조회 실패 — 위험 여부 확인 불가'
       if (this.hasDangerousQuick === true) return '위험 공시 발견 — 상세 분석 권장'
       if (this.hasDangerousQuick === false) return '위험 공시 없음 — 상세 분석은 버튼 클릭'
       return '버튼을 눌러 분석을 시작하세요'
@@ -142,6 +146,7 @@ export default {
       if (v && v !== prev) {
         this.detail = null
         this.hasDangerousQuick = null
+        this.quickUnknown = false
         this.runQuickCheck()
       }
     }
@@ -156,15 +161,20 @@ export default {
       const forStock = this.stockName
       this.quickLoading = true
       try {
-        const res = await riskAPI.quickCheck(forStock)
+        const res = await riskAPI.quickCheck(forStock, this.stockCode)
         if (seq !== this.reqSeq || forStock !== this.stockName) return   // 종목 전환됨 — 폐기
         const body = res?.data || res
         if (body?.success) {
-          this.hasDangerousQuick = !!body.hasDangerousDisclosure
+          // checked=false 는 확인 불가 — '안전(false)'으로 바꾸지 않는다(2026-10-03)
+          this.quickUnknown = body.checked === false
+          this.hasDangerousQuick = body.checked === false ? null : !!body.hasDangerousDisclosure
+        } else {
+          this.quickUnknown = true
         }
       } catch (e) {
-        // 실패 시 사용자에게 부담 안 주기 — 에러 무시, UI는 unknown
+        // 실패는 확인 불가로 표시 — '안전'으로 보이지 않게
         console.warn('[Risk] quick check 실패', e?.message)
+        if (seq === this.reqSeq) this.quickUnknown = true
       } finally {
         if (seq === this.reqSeq) this.quickLoading = false
       }
@@ -175,7 +185,7 @@ export default {
       const forStock = this.stockName
       this.deepLoading = true
       try {
-        const res = await riskAPI.checkRisk(forStock)
+        const res = await riskAPI.checkRisk(forStock, this.stockCode)
         if (seq !== this.reqSeq || forStock !== this.stockName) return   // 종목 전환됨 — 폐기
         const body = res?.data || res
         if (body?.success && body?.data) {

@@ -67,25 +67,27 @@ public class RiskManagementService {
         // 전체검색 폴백으로 흘러 KOSDAQ 종목 공시가 조용히 빈 결과("위험 없음" 위장)가 된다 — 코드 우선.
         CompletableFuture<List<DartDisclosure>> disclosuresFuture =
                 CompletableFuture.supplyAsync(() -> fetchDisclosures(stockCode, stockName), stockDetailExecutor)
-                        .exceptionally(ex -> List.of());
+                        .exceptionally(ex -> null);   // 실패 = 미확인(null) — 빈 목록('공시 없음')과 구분
         CompletableFuture<List<NewsItem>> newsFuture =
                 CompletableFuture.supplyAsync(() -> fetchNews(stockName, stockCode), stockDetailExecutor)
                         .exceptionally(ex -> List.of());
 
-        List<DartDisclosure> disclosures = List.of();
+        List<DartDisclosure> disclosures = null;
         List<NewsItem> news = List.of();
 
         try {
             // 두 조회 합산 20초 상한 — 이전엔 get(20s) 2회 직렬이라 최악 40초 대기였다
             CompletableFuture.allOf(disclosuresFuture, newsFuture).get(20, TimeUnit.SECONDS);
-            disclosures = disclosuresFuture.getNow(List.of());
+            disclosures = disclosuresFuture.getNow(null);
             news = newsFuture.getNow(List.of());
         } catch (Exception e) {
             log.warn("[RiskManagement] 데이터 조회 타임아웃/오류: {}", e.getMessage());
-            // 완료된 쪽 결과만 회수, 미완료는 빈 리스트로 진행(부분 데이터 분석)
-            if (disclosuresFuture.isDone()) disclosures = disclosuresFuture.getNow(List.of());
+            // 완료된 쪽 결과만 회수, 미완료 공시는 미확인(null)으로 진행(부분 데이터 분석)
+            if (disclosuresFuture.isDone()) disclosures = disclosuresFuture.getNow(null);
             if (newsFuture.isDone()) news = newsFuture.getNow(List.of());
         }
+        boolean disclosuresChecked = disclosures != null;
+        if (disclosures == null) disclosures = List.of();
 
         log.info("[RiskManagement] 데이터 조회 완료: 공시 {}건, 뉴스 {}건, {}ms",
                 disclosures.size(), news.size(), System.currentTimeMillis() - startTime);
@@ -94,11 +96,18 @@ public class RiskManagementService {
         List<DartDisclosure> dangerousDisclosures = dartService.filterDangerousDisclosures(disclosures);
         if (!dangerousDisclosures.isEmpty()) {
             log.warn("[RiskManagement] 위험 공시 발견: {} - {}건", stockName, dangerousDisclosures.size());
-            return buildDangerResult(stockName, dangerousDisclosures, news);
+            RiskAnalysisDto danger = buildDangerResult(stockName, dangerousDisclosures, news);
+            danger.setDisclosuresChecked(true);
+            return danger;
         }
 
         // 3. 규칙 기반 리스크 분석
         RiskAnalysisDto result = performRuleBasedAnalysis(stockName, disclosures, news);
+        result.setDisclosuresChecked(disclosuresChecked);
+        if (!disclosuresChecked) {
+            String why = "공시 조회 실패 — 공시 위험은 확인하지 못했습니다";
+            result.setReason(result.getReason() == null || result.getReason().isBlank() ? why : why + " · " + result.getReason());
+        }
 
         long elapsed = System.currentTimeMillis() - startTime;
         log.info("[RiskManagement] 리스크 분석 완료: {} - Score: {}, Status: {}, 총 {}ms",
@@ -112,19 +121,17 @@ public class RiskManagementService {
      * stockCode 가 null 이면 stockName 으로 fallback (기존 동작).
      */
     private List<DartDisclosure> fetchDisclosures(String stockCode, String stockName) {
-        if (!dartService.isAvailable()) {
-            log.warn("[RiskManagement] DART API 사용 불가");
-            return List.of();
-        }
-
+        // 조회 실패·DART 미가용·종목 매핑 실패는 null(미확인) — 빈 목록('공시 없음')으로 흘리면 '안전'이 된다(2026-10-03, §4c).
+        // 코드 우선 + 실패=null 규약은 quickDangerCheck 와 같은 searchDisclosuresOrNull 단일 경로.
         try {
-            if (stockCode != null && !stockCode.isBlank()) {
-                return dartService.searchDisclosuresByStockCode(stockCode, stockName);
+            List<DartDisclosure> found = dartService.searchDisclosuresOrNull(stockCode, stockName);
+            if (found == null) {
+                log.warn("[RiskManagement] DART 공시 미확인(미가용·매핑 실패·조회 실패): {} ({})", stockName, stockCode);
             }
-            return dartService.searchDisclosuresByName(stockName);
+            return found;
         } catch (Exception e) {
             log.error("[RiskManagement] DART 공시 조회 실패: {}", e.getMessage());
-            return List.of();
+            return null;
         }
     }
 
@@ -314,8 +321,17 @@ public class RiskManagementService {
      * 캐시 key 는 stockCode 우선 — 코드별로 캐싱되어 다른 호출에서도 재사용.
      */
     public boolean quickDangerCheck(String stockCode, String stockName) {
+        // 추천 페널티용 — 미확인(null)은 차단 근거가 아니라 false(fail-open, §4c 결측 근거 차단 금지). 화면은 quickDangerStatus 를 쓴다.
+        return Boolean.TRUE.equals(quickDangerStatus(stockCode, stockName));
+    }
+
+    /**
+     * 빠른 위험 체크 3상태 — true=위험 공시 있음, false=없음(확인함), <b>null=확인 불가</b>(DART 미가용·매핑 실패·조회 실패).
+     * 화면이 미확인을 '🟢 안전'으로 그리지 않게(2026-10-03).
+     */
+    public Boolean quickDangerStatus(String stockCode, String stockName) {
         String cacheKey = (stockCode != null && !stockCode.isBlank()) ? stockCode : stockName;
-        if (cacheKey == null) return false;
+        if (cacheKey == null) return null;
         DangerCheckCacheEntry cached = dangerCheckCache.get(cacheKey);
         if (cached != null && cached.isValid()) {
             return cached.result;
@@ -330,7 +346,7 @@ public class RiskManagementService {
         if (disclosures == null) {
             // DART 미가용·corpCode 미해결·조회 실패 = '미확인'. 페널티는 못 주지만(§4c — 결측 근거 차단 금지)
             // '안전'으로 1시간 캐시하면 장애 동안 위험 종목이 무페널티 고정되므로 캐시하지 않는다.
-            return false;
+            return null;
         }
         boolean result = dartService.hasDangerousDisclosure(disclosures);
         dangerCheckCache.put(cacheKey, new DangerCheckCacheEntry(result));

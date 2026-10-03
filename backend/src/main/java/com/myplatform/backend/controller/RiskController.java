@@ -36,7 +36,8 @@ public class RiskController {
      */
     @GetMapping("/check")
     public ResponseEntity<Map<String, Object>> checkRisk(
-            @RequestParam String stockName) {
+            @RequestParam String stockName,
+            @RequestParam(required = false) String stockCode) {
 
         log.info("[RiskController] 리스크 분석 요청: {}", stockName);
 
@@ -46,7 +47,9 @@ public class RiskController {
         }
 
         try {
-            RiskAnalysisDto result = riskManagementService.analyzeRisk(stockName.trim());
+            // 종목코드 우선 — 이름만이면 corpCode 이름 매칭 실패 시 KOSPI 한정 폴백이라 KOSDAQ 공시가 빈 결과였다(§4c, 2026-10-03)
+            RiskAnalysisDto result = riskManagementService.analyzeRisk(stockName.trim(),
+                    stockCode != null && !stockCode.isBlank() ? stockCode.trim() : null);
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
@@ -83,7 +86,8 @@ public class RiskController {
      */
     @GetMapping("/quick")
     public ResponseEntity<Map<String, Object>> quickCheck(
-            @RequestParam String stockName) {
+            @RequestParam String stockName,
+            @RequestParam(required = false) String stockCode) {
 
         log.info("[RiskController] 빠른 위험 체크: {}", stockName);
 
@@ -93,12 +97,16 @@ public class RiskController {
         }
 
         try {
-            boolean hasDanger = riskManagementService.quickDangerCheck(stockName.trim());
+            // 3상태 — null 은 확인 불가(DART 미가용·매핑 실패·조회 실패). 예전엔 false 로 내려가 화면이 '🟢 안전'이었다(2026-10-03)
+            Boolean status = riskManagementService.quickDangerStatus(
+                    stockCode != null && !stockCode.isBlank() ? stockCode.trim() : null, stockName.trim());
+            boolean hasDanger = Boolean.TRUE.equals(status);
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("stockName", stockName);
-            response.put("hasDangerousDisclosure", hasDanger);
+            response.put("checked", status != null);
+            response.put("hasDangerousDisclosure", status);
             response.put("tradingAllowed", !hasDanger);
 
             if (hasDanger) {

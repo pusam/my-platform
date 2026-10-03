@@ -953,12 +953,12 @@ export const investorAPI = {
 // Risk Analysis API (리스크 분석)
 export const riskAPI = {
   // 종합 리스크 분석 (최대 90초 - DART/뉴스/AI 분석 포함)
-  checkRisk(stockName) {
-    return apiClient.get('/risk/check', { params: { stockName }, timeout: 90000 });
+  checkRisk(stockName, stockCode) {
+    return apiClient.get('/risk/check', { params: { stockName, stockCode: stockCode || undefined }, timeout: 90000 });
   },
   // 빠른 위험 체크 (공시만)
-  quickCheck(stockName) {
-    return apiClient.get('/risk/quick', { params: { stockName } });
+  quickCheck(stockName, stockCode) {
+    return apiClient.get('/risk/quick', { params: { stockName, stockCode: stockCode || undefined } });
   },
   // 매수 가능 여부 확인
   isSafeToBuy(stockName) {

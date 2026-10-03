@@ -95,16 +95,25 @@ public class DartDisclosureMonitorService {
         }
 
         try {
-            Set<String> stockNames = collectTargetStockNames();
+            java.util.Map<String, String> codeByName = new java.util.HashMap<>();
+            Set<String> stockNames = collectTargetStockNames(codeByName);
             if (stockNames.isEmpty()) return;
 
             int newCount = 0;
+            List<String> unchecked = new ArrayList<>();
             for (String name : stockNames) {
-                newCount += processStock(name);
+                int sent = processStock(name, codeByName.get(name));
+                if (sent < 0) unchecked.add(name); else newCount += sent;
             }
             if (newCount > 0) {
                 log.info("[DART monitor:{}] 대상 {}개 중 신규 공시 {}건 알림",
                         mode, stockNames.size(), newCount);
+            }
+            // 공시를 확인하지 못한 종목은 알림이 빠진 것이다 — 조용히 넘기지 않는다(목록이 바뀔 때만 WARN, 5분마다 반복 금지)
+            String key = String.join(",", unchecked);
+            if (!key.equals(lastUncheckedKey.getAndSet(key)) && !unchecked.isEmpty()) {
+                log.warn("[DART monitor:{}] 공시 미확인 {}종목(코드 매핑 실패·조회 실패) — 이 종목들의 공시 알림은 빠졌다: {}",
+                        mode, unchecked.size(), unchecked);
             }
         } catch (Exception e) {
             log.warn("[DART monitor:{}] 실패: {}", mode, e.getMessage());
@@ -116,7 +125,14 @@ public class DartDisclosureMonitorService {
      * (2026-07-07 확장: 기존 실잔고 단독 → 봇 포지션·관심 추가), 상한 {@value #TARGET_MAX_NAMES}
      * (초과 시 뒤 그룹부터 잘림 + 로그 — DART rate 근거는 클래스 javadoc). 각 소스 best-effort.
      */
-    private Set<String> collectTargetStockNames() {
+    /** 직전 회차의 '공시 미확인' 종목 목록 — WARN 반복 억제용(판정 아님). */
+    private final java.util.concurrent.atomic.AtomicReference<String> lastUncheckedKey =
+            new java.util.concurrent.atomic.AtomicReference<>("");
+
+    /**
+     * @param codeByName 채워 돌려준다 — 이름 → 종목코드(공시 조회를 코드로 하기 위해, 2026-10-03). 코드를 모르면 넣지 않는다.
+     */
+    private Set<String> collectTargetStockNames(java.util.Map<String, String> codeByName) {
         List<String> kisNames = new ArrayList<>();
         try {
             if (kisService.isRealTradingConfigured()) {
@@ -128,6 +144,7 @@ public class DartDisclosureMonitorService {
                     for (PortfolioItemDto p : portfolio) {
                         if (p.getStockName() != null && !p.getStockName().isBlank()) {
                             kisNames.add(p.getStockName());
+                            if (p.getStockCode() != null) codeByName.putIfAbsent(p.getStockName(), p.getStockCode());
                         }
                     }
                 }
@@ -141,6 +158,7 @@ public class DartDisclosureMonitorService {
             for (BotTradingPosition p : botPositionRepository.findAll()) {
                 if (p != null && p.getStockName() != null && !p.getStockName().isBlank()) {
                     positionNames.add(p.getStockName());
+                    if (p.getStockCode() != null) codeByName.putIfAbsent(p.getStockName(), p.getStockCode());
                 }
             }
         } catch (Exception e) {
@@ -152,6 +170,7 @@ public class DartDisclosureMonitorService {
             for (StockWatchlist w : watchlistRepository.findByIsActiveTrue()) {
                 if (w != null && w.getStockName() != null && !w.getStockName().isBlank()) {
                     watchNames.add(w.getStockName());
+                    if (w.getStockCode() != null) codeByName.putIfAbsent(w.getStockName(), w.getStockCode());
                 }
             }
         } catch (Exception e) {
@@ -193,12 +212,16 @@ public class DartDisclosureMonitorService {
 
     /**
      * 특정 종목의 신규 공시를 알림 — 위험(기존 DANGER, 경고 톤) 우선, 그 외 주요(NOTABLE) 공시는
-     * <b>중립 톤</b>(§4c: 키워드만으로 악재 단정 금지). 반환: 새로 알린 건수.
+     * <b>중립 톤</b>(§4c: 키워드만으로 악재 단정 금지). 반환: 새로 알린 건수, <b>공시를 확인하지 못했으면 -1</b>.
+     *
+     * <p>조회는 종목코드 우선(searchDisclosuresOrNull) — 예전엔 이름만으로 찾아, 이름이 매핑되지 않으면(우선주·표기 차이)
+     * KOSPI 한정 최근 100건 전체검색으로 흘러 KOSDAQ 보유 종목의 중대 공시가 조용히 빠졌다(2026-10-03, §4c).
      */
-    private int processStock(String stockName) {
+    int processStock(String stockName, String stockCode) {
         try {
-            List<DartDisclosure> all = dartService.searchDisclosuresByName(stockName);
-            if (all == null || all.isEmpty()) return 0;
+            List<DartDisclosure> all = dartService.searchDisclosuresOrNull(stockCode, stockName);
+            if (all == null) return -1;
+            if (all.isEmpty()) return 0;
 
             int sent = 0;
             for (DartDisclosure d : all) {
@@ -222,7 +245,7 @@ public class DartDisclosureMonitorService {
             return sent;
         } catch (Exception e) {
             log.debug("[DART monitor] {} 처리 실패: {}", stockName, e.getMessage());
-            return 0;
+            return -1;
         }
     }
 

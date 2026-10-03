@@ -66,6 +66,12 @@ public class RiskAnalysisDto {
     private LocalDateTime analyzedAt;
 
     /**
+     * 공시 조회를 실제로 했는가(2026-10-03) — false 면 DART 미가용·종목 매핑 실패·조회 오류로 공시 위험은 확인하지 못한 것이다.
+     * 예전엔 실패가 빈 목록으로 흘러 '위험 공시 없음 · 안전'으로 보였다(§4c). 화면은 false 면 '확인 불가'로 그린다.
+     */
+    private Boolean disclosuresChecked;
+
+    /**
      * 리스크 상태 Enum
      */
     public enum RiskStatus {
