@@ -18,14 +18,17 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 실전 보유 종목 급락 감지 + AI 이유 요약 + 텔레그램 알림.
+ * 실전 보유 종목 평가손실 경고 + 관련 뉴스 + 텔레그램 알림.
  *
  * 흐름:
- *   1) 장중 2분마다 실전 포트폴리오 조회
- *   2) 손익률 -3% 이하 + 쿨다운(30분) 통과한 종목 선별
+ *   1) 장중(거래일만) 2분마다 실전 포트폴리오 조회
+ *   2) 평단 대비 손익률 -3% 이하 + 쿨다운(30분) 통과한 종목 선별
  *   3) 최근 6시간 뉴스 중 해당 종목명이 제목/요약에 포함된 것 추림
- *   4) Gemini 에게 "왜 떨어졌나" 한 줄 요약 요청
+ *   4) Gemini 에게 관련 여부 요약 요청(실패하면 제목 그대로)
  *   5) 텔레그램 리스크 채널로 발송
+ *
+ * <p>이름표(2026-10-03): 트리거는 <b>평단 대비 평가손실</b>이지 그날의 급락이 아니다 — 예전 제목 "보유 종목 급락"은
+ * 그날 오른 종목에도 붙었다. 오늘 등락률은 시세 단일 경로에서 따로 붙인다(모르면 생략).
  *
  * 이 서비스는 프론트 요청과 무관 — 백그라운드 모니터로만 동작.
  */
@@ -45,6 +48,7 @@ public class PositionDropMonitorService {
     private final TelegramNotificationService telegramService;
     private final KoreaInvestmentService kisService;
     private final SchedulerLockService schedulerLockService;
+    private final MarketCalendarService marketCalendarService;
 
     // 종목별 마지막 알림 시각 — 서버 재기동 시 초기화 (쿨다운 리셋은 허용)
     private final Map<String, LocalDateTime> lastAlertTime = new ConcurrentHashMap<>();
@@ -55,6 +59,8 @@ public class PositionDropMonitorService {
     @Scheduled(cron = "0 */2 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkDrops() {
         if (!kisService.isRealTradingConfigured()) return;
+        // MON-FRI cron 은 공휴일을 모른다 — KIS 는 휴장일에도 직전 값을 주므로 그대로 두면 휴장일에 알림이 나간다
+        if (marketCalendarService.isMarketClosed(DateTimeUtil.kstNow().toLocalDate())) return;
         // 2분 cron — TTL 90초. 알림 쿨다운(30분)은 lastAlertTime 으로 별도 관리이므로
         // 락은 한 인스턴스만 KIS 호출/Gemini 호출하도록 보호하는 용도.
         if (!schedulerLockService.tryLock("position-drop.check", Duration.ofSeconds(90))) {
@@ -91,21 +97,19 @@ public class PositionDropMonitorService {
         }
 
         try {
-            // 현재가 보강 — 포트폴리오 DTO 에 currentPrice 없을 수 있음
+            // 오늘 등락률은 시세 단일 경로에서(§1) — 예전엔 현재가가 비었을 때만 붙어 거의 늘 빠졌다. 현재가 보강도 같은 값으로.
             BigDecimal currentPrice = item.getCurrentPrice();
             BigDecimal dailyChangeRate = null;
-            if (currentPrice == null || currentPrice.signum() == 0) {
-                StockPriceDto price = stockPriceService.getStockPrice(code);
-                if (price != null) {
-                    currentPrice = price.getCurrentPrice();
-                    dailyChangeRate = price.getChangeRate();
-                }
+            StockPriceDto price = stockPriceService.getStockPrice(code);
+            if (price != null) {
+                dailyChangeRate = price.getChangeRate();
+                if (currentPrice == null || currentPrice.signum() == 0) currentPrice = price.getCurrentPrice();
             }
 
             String reason = buildReason(item, currentPrice, dailyChangeRate);
             telegramService.sendRisk(reason);
             lastAlertTime.put(code, DateTimeUtil.kstNow());
-            log.info("[PositionDrop] 급락 알림 발송: {} ({}) 손익률 {}%",
+            log.info("[PositionDrop] 평가손실 경고 발송: {} ({}) 손익률 {}%",
                     item.getStockName(), code, rate);
         } catch (Exception e) {
             log.warn("[PositionDrop] {} 알림 실패: {}", code, e.getMessage());
@@ -117,12 +121,12 @@ public class PositionDropMonitorService {
         BigDecimal rate = item.getProfitRate();
 
         StringBuilder msg = new StringBuilder();
-        msg.append("🔴 <b>보유 종목 급락</b>\n\n");
+        msg.append("🔴 <b>보유 종목 평가손실 −3% 이하</b> (평단 대비)\n\n");
         msg.append(String.format("<b>%s</b> (%s)\n", stockName, item.getStockCode()));
         if (currentPrice != null) {
             msg.append(String.format("현재가: %,d원\n", currentPrice.longValue()));
         }
-        msg.append(String.format("손익률: %.2f%%", rate.doubleValue()));
+        msg.append(String.format("평단 대비 손익률: %.2f%%", rate.doubleValue()));
         if (dailyRate != null) {
             msg.append(String.format(" (당일 %+.2f%%)", dailyRate.doubleValue()));
         }
@@ -136,20 +140,21 @@ public class PositionDropMonitorService {
             msg.append("\n");
         }
 
-        // 뉴스 기반 이유 요약
+        // 관련 뉴스 — Gemini 요약은 '추정'(미검증)이라고 밝히고, 실패하면 제목을 그대로 둔다
         String newsReason = summarizeRelatedNews(stockName);
         if (newsReason != null && !newsReason.isBlank()) {
-            msg.append("\n📰 <b>추정 이유</b>\n").append(newsReason);
+            msg.append("\n📰 <b>관련 뉴스</b>\n").append(newsReason);
         } else {
-            msg.append("\n📰 관련 최근 뉴스 없음 — 시장 전반 요인 가능");
+            msg.append("\n📰 최근 6시간 수집 뉴스 중 종목명이 들어간 기사 없음");
         }
 
         return msg.toString();
     }
 
     /**
-     * 종목명이 제목/요약에 포함된 최근 뉴스를 찾아 Gemini 로 한 줄 요약.
-     * 뉴스 없으면 null. Gemini 실패 시 뉴스 제목만 3개 반환.
+     * 종목명이 제목/요약에 포함된 최근 뉴스를 찾아 Gemini 로 한 줄 요약('Gemini 추정' 표기).
+     * 뉴스 없으면 null. Gemini 실패 시 뉴스 제목 최대 3개 — 예전엔 주석만 그렇고 코드는 null 을 돌려 "관련 최근 뉴스 없음"이
+     * 나갔다(2026-10-03, 관련 기사가 있는데 없다고 말함).
      */
     private String summarizeRelatedNews(String stockName) {
         if (stockName == null || stockName.isBlank()) return null;
@@ -188,11 +193,30 @@ public class PositionDropMonitorService {
                     뉴스가 주가 하락과 직접 관련이 없으면 "직접적 악재 없음, 시장 전반 요인 가능" 이라고만 답변.
                     """);
 
-            String ai = geminiService.chat(promptBody.toString());
-            if (ai != null && !ai.isBlank()) return ai.trim();
+            String ai = null;
+            try {
+                ai = geminiService.chat(promptBody.toString());
+            } catch (Exception e) {
+                log.debug("[PositionDrop] Gemini 요약 실패: {}", e.getMessage());
+            }
+            if (ai != null && !ai.isBlank()) return "(Gemini 추정 · 미검증) " + ai.trim();
+            return titlesOnly(related);
         } catch (Exception e) {
-            log.debug("[PositionDrop] 뉴스 요약 실패: {}", e.getMessage());
+            log.debug("[PositionDrop] 뉴스 조회 실패: {}", e.getMessage());
         }
         return null;
+    }
+
+    /** 관련 기사 제목 최대 3개 — 요약 없이 사실만. */
+    static String titlesOnly(List<NewsSummaryDto> related) {
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (NewsSummaryDto r : related) {
+            if (r.getTitle() == null || r.getTitle().isBlank()) continue;
+            if (n > 0) sb.append("\n");
+            sb.append("- ").append(r.getTitle());
+            if (++n >= 3) break;
+        }
+        return n == 0 ? null : sb.toString();
     }
 }
