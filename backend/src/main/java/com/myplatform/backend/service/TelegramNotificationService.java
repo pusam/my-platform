@@ -266,18 +266,26 @@ public class TelegramNotificationService {
         sendSignal(message);
     }
 
+    /**
+     * 시장 상태 문구 — 화면과 같은 {@link com.myplatform.backend.dto.MarketTimingDto.MarketCondition} 문구 하나(2026-10-03).
+     * 예전엔 알림만 따로 적어 극심한 공포가 "적극 매수!"(화면은 '적극 매수 검토')였고, 모르는 상태(급락일 CRASH 등)는
+     * "☁️ 보통"이었다. 모르는 값은 이름 그대로. 순수(테스트 대상).
+     */
+    static String marketConditionLabel(String condition) {
+        if (condition == null) return "판단 보류";
+        try {
+            return com.myplatform.backend.dto.MarketTimingDto.MarketCondition.valueOf(condition).getEmoji();
+        } catch (IllegalArgumentException e) {
+            return condition;
+        }
+    }
+
     /** 시장 상태 알림 → 브리핑 채널 */
     @Async("notificationExecutor")
     public void sendMarketStatusAlert(String condition, BigDecimal adr, String diagnosis) {
         if (!isEnabled()) return;
 
-        String conditionEmoji;
-        switch (condition) {
-            case "OVERHEATED" -> conditionEmoji = "🔥 과열";
-            case "OVERSOLD" -> conditionEmoji = "💧 침체 (매수 기회)";
-            case "EXTREME_FEAR" -> conditionEmoji = "🥶 극심한 공포 (적극 매수!)";
-            default -> conditionEmoji = "☁️ 보통";
-        }
+        String conditionEmoji = marketConditionLabel(condition);
 
         String message = String.format(
             """
