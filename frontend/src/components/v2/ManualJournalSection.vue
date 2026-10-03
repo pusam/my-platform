@@ -19,12 +19,14 @@
         <span class="stat-sub">보유 {{ stats.openTrades }} · 매도 {{ stats.closedTrades }}</span>
       </div>
       <div class="mj-stat">
-        <span class="stat-label">3일 적중률</span>
+        <!-- 평가는 3거래일 뒤 19:40 배치가 그 시각 시세로 한다(NXT 시간대 가격일 수 있고 배치가 밀리면 더 늦다) — 시그널의
+             교정 D+3 종가 평가(V59)와 다른 정의라 이름에 밝힌다(2026-10-03) -->
+        <span class="stat-label" title="매수 3거래일 뒤 19:40 평가 배치 시점의 시세 기준 — D+3 종가 기준이 아닙니다">~3일 적중률 (평가 시점 시세)</span>
         <span class="stat-value">{{ pctOrDash(stats.hitRate) }}</span>
         <span class="stat-sub">{{ stats.hitCount }}/{{ stats.evaluatedTrades }}건 평가</span>
       </div>
       <div class="mj-stat">
-        <span class="stat-label">평균 α (3일)</span>
+        <span class="stat-label">평균 α (~3일, 평가 시점)</span>
         <span class="stat-value" :class="signClass(stats.avgAlpha3d)">{{ signedPctOrDash(stats.avgAlpha3d) }}</span>
         <span class="stat-sub">vs KOSPI</span>
       </div>
