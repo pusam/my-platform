@@ -408,6 +408,30 @@ public class InvestorTradeService {
      * 과거 날짜를 지정해도 당일 데이터가 반환되므로, 오늘 날짜로만 수집합니다.
      */
     @Transactional
+    /**
+     * 수동 수집(관리자 버튼·API)이 지금 저장해도 되는가 — 안 되면 그 이유, 되면 null. 순수 함수(2026-10-03).
+     *
+     * <p>정규 수집(15:50·16:00·18:00·부팅)은 휴장일과 장 마감 전을 거르는데 수동 경로만 주말만 봤다. KIS 는 당일 값만 주고
+     * 장중엔 그 시각까지의 잠정 집계라, 장중에 저장하면 그날 일별 기록이 되어 종합추천 수급 축이 잠정치로 계산되고
+     * (10/1 감사의 부팅 경로와 같은 문제), 평일 공휴일엔 직전 거래일 값이 '오늘' 날짜로 쌓인다(9/28 유령 행).
+     * 예전엔 매매 동향 화면이 조회 결과가 비면 이 수집을 <b>자동으로</b> 불렀다 — 화면을 연 것만으로 기록이 바뀌었다.
+     */
+    static String manualCollectRefusal(java.time.LocalDateTime now, boolean marketClosed) {
+        if (marketClosed) {
+            return "휴장일 — 수집하지 않습니다(KIS 는 휴장일에도 직전 거래일 값을 오늘 날짜로 줍니다).";
+        }
+        if (!InvestorDailyConfirmation.isConfirmedWindow(now)) {
+            return "장 마감 집계 전(" + InvestorDailyConfirmation.CONFIRMED_FROM + " 이전) — 잠정치는 일별 기록으로 저장하지 않습니다. "
+                    + InvestorDailyConfirmation.CONFIRMED_FROM + " 정규 수집을 기다려 주세요.";
+        }
+        return null;
+    }
+
+    public String manualCollectRefusalNow() {
+        java.time.LocalDateTime now = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
+        return manualCollectRefusal(now, marketCalendarService.isMarketClosed(now.toLocalDate()));
+    }
+
     public Map<String, Object> collectRecentData(int days) {
         Map<String, Object> result = new HashMap<>();
 
@@ -431,41 +455,6 @@ public class InvestorTradeService {
         return result;
     }
 
-    /**
-     * 전체 데이터 삭제 후 재수집
-     */
-    public Map<String, Object> deleteAllAndRecollect() {
-        Map<String, Object> result = new HashMap<>();
-        // 내부 직접 호출은 프록시 미경유라 deleteAllData 의 @Transactional 과
-        // collectInvestorTradeData 의 @CacheEvict(consecutiveBuys) 가 모두 무시됐다
-        // (전량 삭제 후에도 연속매수 캐시가 옛 데이터를 계속 서빙). self 프록시 경유로 교정.
-        InvestorTradeService self = selfProvider.getObject();
-
-        // 1. 기존 데이터 전체 삭제
-        long deletedCount = self.deleteAllData();
-        log.info("기존 데이터 삭제 완료: {}건", deletedCount);
-        result.put("deletedCount", deletedCount);
-
-        // 2. 새로 수집
-        LocalDate today = LocalDate.now();
-        if (today.getDayOfWeek().getValue() >= 6) {
-            result.put("message", "주말에는 데이터를 수집하지 않습니다.");
-            result.put("collectedCount", 0);
-            return result;
-        }
-
-        Map<String, Integer> collectResult = self.collectInvestorTradeData(today);
-        int collectedCount = collectResult.values().stream().mapToInt(Integer::intValue).sum();
-        result.put("collectResult", collectResult);
-        result.put("collectedCount", collectedCount);
-        log.info("재수집 완료: {}건", collectedCount);
-
-        return result;
-    }
-
-    /**
-     * 전체 데이터 삭제 (별도 트랜잭션)
-     */
     // ==================== 백테스트 정밀 수급 CSV export (P-백로그: 수량×종가 근사 → 실금액 대체) ====================
 
     /**
@@ -498,15 +487,6 @@ public class InvestorTradeService {
               .append(e.getValue()[1] != null ? e.getValue()[1].stripTrailingZeros().toPlainString() : "").append('\n');
         }
         return sb.toString();
-    }
-
-    @Transactional
-    public long deleteAllData() {
-        long count = investorTradeRepository.count();
-        // deleteAll() 은 전 엔티티를 영속성 컨텍스트에 로드한 뒤 행마다 DELETE 를 발행한다 —
-        // investor_daily_trade 는 (거래일×시장×투자자×매매구분×순위) 누적이라 수십만 행 규모라 OOM 위험.
-        investorTradeRepository.deleteAllInBatch();
-        return count;
     }
 
     /**

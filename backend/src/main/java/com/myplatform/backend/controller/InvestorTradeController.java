@@ -93,6 +93,10 @@ public class InvestorTradeController {
             @RequestParam(required = false) String date) {
 
         // KIS API는 당일 데이터만 반환하므로, date 파라미터는 무시하고 오늘 날짜 사용
+        String refusal = investorTradeService.manualCollectRefusalNow();
+        if (refusal != null) {
+            return ResponseEntity.ok(new ApiResponse<>(false, refusal));
+        }
         LocalDate tradeDate = LocalDate.now();
 
         Map<String, Integer> result = investorTradeService.collectInvestorTradeData(tradeDate);
@@ -105,12 +109,15 @@ public class InvestorTradeController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> collectRecentData(
             @RequestParam(required = false, defaultValue = "5") Integer days) {
 
+        String refusal = investorTradeService.manualCollectRefusalNow();
+        if (refusal != null) {
+            return ResponseEntity.ok(new ApiResponse<>(false, refusal));
+        }
         Map<String, Object> result = investorTradeService.collectRecentData(days);
 
         return ResponseEntity.ok(ApiResponse.success("최근 데이터 수집 완료", result));
     }
 
-    @Operation(summary = "전체 데이터 삭제 후 재수집", description = "기존 데이터를 모두 삭제하고 새로 수집합니다.")
     /**
      * 백테스트 정밀 수급 CSV export — python-backend run_supply_hypothesis/--flows-csv 소비용.
      * ADMIN 전용(SecurityConfig /api/investor/export/**). 범위 상한 400일(전 종목 집계 부하 가드).
@@ -126,14 +133,6 @@ public class InvestorTradeController {
         return ResponseEntity.ok()
                 .header("Content-Disposition", "attachment; filename=investor_flows_" + from + "_" + to + ".csv")
                 .body(investorTradeService.exportFlowsCsv(f, t));
-    }
-
-    @PostMapping("/recollect")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> deleteAndRecollect() {
-
-        Map<String, Object> result = investorTradeService.deleteAllAndRecollect();
-
-        return ResponseEntity.ok(ApiResponse.success("데이터 삭제 후 재수집 완료", result));
     }
 
     @Operation(summary = "연속 매수 종목 조회", description = "특정 투자자가 N일 연속 순매수 상위에 오른 종목을 조회합니다.")

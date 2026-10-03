@@ -89,7 +89,7 @@
             </table>
           </div>
           <div v-else class="no-data">
-            <p v-if="tradesCollecting">🔄 데이터를 수집하고 있습니다...</p>
+            <p v-if="tradesError">⚠ 조회 실패 — 잠시 후 다시 시도해 주세요(수집 데이터가 없다는 뜻이 아닙니다).</p>
             <p v-else>💡 데이터가 없습니다.</p>
           </div>
         </template>
@@ -302,6 +302,7 @@ const switchTab = (key) => {
 // ===== 탭1: 매매 동향 =====
 const tradesLoading = ref(false)
 const tradesCollecting = ref(false)
+const tradesError = ref(false)
 const tradeType = ref('BUY')
 const tradeInvestor = ref('FOREIGN')
 const allTrades = ref({})
@@ -348,34 +349,27 @@ const changeTradeType = (type) => {
 
 const fetchTrades = async () => {
   tradesLoading.value = true
+  tradesError.value = false
   try {
     const response = await investorAPI.getAllTopTrades(tradeType.value, 50)
     if (response.data.success) {
       allTrades.value = response.data.data
       updateTradeStatus()
       tradesLoaded.value = true
+    } else {
+      tradesError.value = true
     }
   } catch (error) {
     console.error('투자자 매매 데이터 조회 오류:', error)
+    tradesError.value = true
   } finally {
     tradesLoading.value = false
   }
 }
 
-const autoCollectTrades = async () => {
-  await fetchTrades()
-  if (Object.values(allTrades.value).every(arr => arr.length === 0)) {
-    tradesCollecting.value = true
-    try {
-      await investorAPI.collect()
-      await fetchTrades()
-    } catch (error) {
-      console.error('데이터 수집 오류:', error)
-    } finally {
-      tradesCollecting.value = false
-    }
-  }
-}
+// 비어 있어도 수집을 부르지 않는다(2026-10-03) — 예전엔 조회가 비거나 실패하면 POST /investor/collect 를 자동으로 불러
+// 장중 잠정치·휴장일 유령 행이 화면을 연 것만으로 일별 기록이 됐다. 수집은 15:50 정규 배치가 한다.
+const autoCollectTrades = fetchTrades
 
 // ===== 탭2: 연속 매수 =====
 const consecLoading = ref(false)
