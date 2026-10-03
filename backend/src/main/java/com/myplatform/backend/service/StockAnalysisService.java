@@ -405,23 +405,8 @@ public class StockAnalysisService {
                 .collect(Collectors.toList());
 
         for (LocalDate date : recentDates) {
-            // 외국인 - tradeType에 따라 BUY는 +, SELL은 - 처리!
-            BigDecimal foreignBuy = trades.stream()
-                    .filter(t -> t.getTradeDate().equals(date))
-                    .filter(t -> "FOREIGN".equals(t.getInvestorType()))
-                    .filter(t -> "BUY".equals(t.getTradeType()))
-                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            BigDecimal foreignSell = trades.stream()
-                    .filter(t -> t.getTradeDate().equals(date))
-                    .filter(t -> "FOREIGN".equals(t.getInvestorType()))
-                    .filter(t -> "SELL".equals(t.getTradeType()))
-                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            // 순매수 = 매수금액 - 매도금액
-            BigDecimal foreignDayNet = foreignBuy.subtract(foreignSell);
+            // 외국인 — 그날 행의 부호 있는 순매수 합(SELL 행은 이미 음수로 저장된다 — signedNet 참고)
+            BigDecimal foreignDayNet = dayNet(trades, date, "FOREIGN");
 
             boolean foreignHasRow = trades.stream()
                     .anyMatch(t -> t.getTradeDate().equals(date) && "FOREIGN".equals(t.getInvestorType()));
@@ -434,23 +419,8 @@ public class StockAnalysisService {
                 foreignSellDays++;
             }
 
-            // 기관 - tradeType에 따라 BUY는 +, SELL은 - 처리!
-            BigDecimal institutionBuy = trades.stream()
-                    .filter(t -> t.getTradeDate().equals(date))
-                    .filter(t -> "INSTITUTION".equals(t.getInvestorType()))
-                    .filter(t -> "BUY".equals(t.getTradeType()))
-                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            BigDecimal institutionSell = trades.stream()
-                    .filter(t -> t.getTradeDate().equals(date))
-                    .filter(t -> "INSTITUTION".equals(t.getInvestorType()))
-                    .filter(t -> "SELL".equals(t.getTradeType()))
-                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            // 순매수 = 매수금액 - 매도금액
-            BigDecimal institutionDayNet = institutionBuy.subtract(institutionSell);
+            // 기관 — 같은 규칙
+            BigDecimal institutionDayNet = dayNet(trades, date, "INSTITUTION");
 
             boolean institutionHasRow = trades.stream()
                     .anyMatch(t -> t.getTradeDate().equals(date) && "INSTITUTION".equals(t.getInvestorType()));
@@ -505,9 +475,9 @@ public class StockAnalysisService {
 
         log.debug("[수급분석] {} - 외국인: {}억({}일 매수/{}일 매도), 기관: {}억({}일 매수/{}일 매도), 평가: {}",
                 stockCode,
-                foreignNet5Days.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP),
+                foreignNet5Days.setScale(0, RoundingMode.HALF_UP),
                 foreignBuyDays, foreignSellDays,
-                institutionNet5Days.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP),
+                institutionNet5Days.setScale(0, RoundingMode.HALF_UP),
                 institutionBuyDays, institutionSellDays,
                 assessment);
 
@@ -546,8 +516,8 @@ public class StockAnalysisService {
         return dataDays > 0 ? total : null;
     }
 
-    /** 최근 5거래일 외국인/기관 순매수 누적(원). null=데이터 없음. days=실제 집계 거래일 수. */
-    public record FiveDaySupply(BigDecimal foreignNetKrw, BigDecimal institutionNetKrw, int days) {}
+    /** 최근 5거래일 외국인/기관 순매수 누적(<b>억원</b> — 저장 단위 그대로). null=데이터 없음. days=실제 집계 거래일 수. */
+    public record FiveDaySupply(BigDecimal foreignNetEok, BigDecimal institutionNetEok, int days) {}
 
     /**
      * 최근 5거래일 외국인/기관 순매수 누적 — <b>StockDetail AI 프롬프트 등 재사용</b>(장전 당일 0 대신 실수급 제공).
@@ -573,27 +543,37 @@ public class StockAnalysisService {
     }
 
     /**
-     * 지정 일자들의 (BUY금액 − SELL금액) 순매수 합(원) — 순수 함수(테스트 대상).
-     * analyzeSupplyDemand 의 per-date 순매수 정의와 동일(중복이나 산식 무접촉 위해 코어만 병렬 유지).
+     * 지정 일자들의 순매수 합(억원) — 순수 함수(테스트 대상). analyzeSupplyDemand 의 per-date 정의와 같다({@link #dayNet}).
      */
     static BigDecimal sumNet5Days(List<InvestorDailyTrade> trades, List<LocalDate> dates, String investorType) {
         BigDecimal sum = BigDecimal.ZERO;
         for (LocalDate date : dates) {
-            BigDecimal buy = trades.stream()
-                    .filter(t -> date.equals(t.getTradeDate()))
-                    .filter(t -> investorType.equals(t.getInvestorType()))
-                    .filter(t -> "BUY".equals(t.getTradeType()))
-                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            BigDecimal sell = trades.stream()
-                    .filter(t -> date.equals(t.getTradeDate()))
-                    .filter(t -> investorType.equals(t.getInvestorType()))
-                    .filter(t -> "SELL".equals(t.getTradeType()))
-                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            sum = sum.add(buy.subtract(sell));
+            sum = sum.add(dayNet(trades, date, investorType));
         }
         return sum;
+    }
+
+    /** 그날 그 투자자의 순매수(억원) — 행마다 {@link #signedNet} 을 더한다. 순수 함수. */
+    static BigDecimal dayNet(List<InvestorDailyTrade> trades, LocalDate date, String investorType) {
+        return trades.stream()
+                .filter(t -> date.equals(t.getTradeDate()))
+                .filter(t -> investorType.equals(t.getInvestorType()))
+                .map(StockAnalysisService::signedNet)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * 순매수 행의 부호 있는 금액(억원) — 매매 구분이 부호를 정한다(2026-10-03 화면 점검).
+     *
+     * <p>수집기는 순매도 순위(SELL) 행을 <b>음수</b>로 저장한다(운영 30일 SELL 2,205행 전부 음수). 예전 계산은 그날
+     * {@code BUY 합 − SELL 합} 이라 음수를 한 번 더 빼서 <b>순매도한 날이 순매수로</b> 더해졌다 — 삼성전기 외국인 5일이
+     * 실제 −1,063억인데 +3,282억으로 나왔고 '외국인+기관 동반 매수'·'동반 매도 경고 없음'이 그 값을 따랐다.
+     * 저장 부호가 바뀌어도 같은 답이 나오게 크기에 매매 구분의 부호를 붙인다.
+     */
+    static BigDecimal signedNet(InvestorDailyTrade t) {
+        BigDecimal v = t.getNetBuyAmount();
+        if (v == null) return BigDecimal.ZERO;
+        return "SELL".equals(t.getTradeType()) ? v.abs().negate() : v.abs();
     }
 
     /**
@@ -942,7 +922,7 @@ public class StockAnalysisService {
                                               int foreignBuyDays, int institutionBuyDays,
                                               int foreignSellDays, int institutionSellDays) {
         int score = 50;  // 기준점
-        BigDecimal BILLION_100 = new BigDecimal("10000000000");  // 100억
+        BigDecimal BILLION_100 = new BigDecimal("100");  // 100억 — 순매수 금액은 억원 단위(예전 1e10 은 원 단위라 이 페널티가 한 번도 안 걸렸다)
 
         // 외국인 수급
         if (foreignNet.compareTo(BigDecimal.ZERO) > 0) {

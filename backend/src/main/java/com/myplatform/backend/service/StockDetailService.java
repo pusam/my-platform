@@ -1208,11 +1208,8 @@ public class StockDetailService {
                     instNetBuy = instNetBuy.add(netBuy);
                     instHasRow = true;
                     break;
-                case "PENSION":
-                    // 연기금은 기관에 포함
-                    instNetBuy = instNetBuy.add(netBuy);
-                    instHasRow = true;
-                    break;
+                // PENSION(연기금) 행은 더하지 않는다 — KIS 기관 행(orgn_ntby_tr_pbmn = 기관 계)에 연기금이 이미 들어 있다.
+                // 예전엔 둘을 더해 연기금을 두 번 셌다(2026-10-03: 삼성전기 10/2 기관 −31.62억 + 연기금 −63.24억 → '기관 −95억').
             }
         }
 
@@ -1276,13 +1273,14 @@ public class StockDetailService {
     /**
      * 빈 수급 정보 반환 (데이터 없을 때)
      */
-    private SupplyDemand buildEmptySupplyDemand() {
+    SupplyDemand buildEmptySupplyDemand() {
+        // 장전·조회 실패 — 모르는 값은 null(화면 '-'). 예전엔 0 이라 "외국인 +0억·기관 +0억·프로그램 +0억"으로 그려졌다(2026-10-03).
         return SupplyDemand.builder()
                 .volumePower(null)  // 데이터 없음 — 100(균형) 위장 금지
                 .volumeSignal("NEUTRAL")
-                .foreignNetBuy(BigDecimal.ZERO)
-                .instNetBuy(BigDecimal.ZERO)
-                .programNetBuy(BigDecimal.ZERO)
+                .foreignNetBuy(null)
+                .instNetBuy(null)
+                .programNetBuy(null)
                 .programTrend("FLAT")
                 .build();
     }
@@ -1435,12 +1433,13 @@ public class StockDetailService {
                 log.info("[StockDetail] 네이버 투자자 매매동향 ({}) - 기관: {}억, 외국인: {}억",
                         dateText, instNetBuy, foreignNetBuy);
 
+                // 네이버 표엔 체결강도·프로그램이 없다 — 모름(null). 예전엔 체결강도 100·프로그램 0 을 채웠다(§4c).
                 return SupplyDemand.builder()
-                        .volumePower(new BigDecimal("100")) // 기본값
+                        .volumePower(null)
                         .volumeSignal("NEUTRAL")
                         .foreignNetBuy(foreignNetBuy)
                         .instNetBuy(instNetBuy)
-                        .programNetBuy(BigDecimal.ZERO)
+                        .programNetBuy(null)
                         .programTrend("FLAT")
                         .build();
             }
@@ -2438,9 +2437,9 @@ public class StockDetailService {
             if (svc == null) return null;
             StockAnalysisService.FiveDaySupply f = svc.getFiveDayNetBuy(stockCode);
             if (f == null) return null;
-            BigDecimal oneEok = BigDecimal.valueOf(100_000_000L);
-            long foreignEok = f.foreignNetKrw().divide(oneEok, 0, RoundingMode.HALF_UP).longValue();
-            long instEok = f.institutionNetKrw().divide(oneEok, 0, RoundingMode.HALF_UP).longValue();
+            // 이미 억원이다 — 예전엔 1억으로 또 나눠 늘 "+0억"이었다(2026-10-03)
+            long foreignEok = f.foreignNetEok().setScale(0, RoundingMode.HALF_UP).longValue();
+            long instEok = f.institutionNetEok().setScale(0, RoundingMode.HALF_UP).longValue();
             return String.format("최근 %d거래일 누적 수급 — 외국인 %+d억, 기관 %+d억 (당일은 장전 미거래)\n",
                     f.days(), foreignEok, instEok);
         } catch (Exception e) {

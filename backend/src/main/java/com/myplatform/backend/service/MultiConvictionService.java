@@ -116,9 +116,10 @@ public class MultiConvictionService {
             // 정상 1000억+ 순매수(예: 삼성전자 외국인 1500억)를 15억으로 100배 축소해
             // 컨빅션 정렬이 가장 큰 수급일에 정확히 왜곡된다.
 
-            // BUY는 양수, SELL은 음수로 통일
+            // BUY는 양수, SELL은 음수로 통일 — SELL 행은 이미 음수로 저장된다. 예전엔 negate() 로 한 번 더 뒤집어
+            // 순매도한 투자자가 '매수'로 잡혔다(2026-10-03). 크기에 매매 구분의 부호를 붙인다(StockAnalysisService.signedNet 과 같은 규칙).
             BigDecimal signedAmount = "SELL".equals(trade.getTradeType())
-                    ? amount.negate() : amount;
+                    ? amount.abs().negate() : amount.abs();
 
             sim.investorAmounts.merge(investorType, signedAmount, BigDecimal::add);
         }

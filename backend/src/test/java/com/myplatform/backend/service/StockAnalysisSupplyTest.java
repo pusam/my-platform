@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * StockAnalysisService.sumNet5Days 순수 함수 — StockDetail AI 프롬프트가 재사용하는 5일 누적 수급 합산.
- * per-date (BUY금액 − SELL금액), 지정 투자자만. analyzeSupplyDemand 진단 산식과 동일 정의.
+ * per-date 순매수 합(SELL 행은 음수 — 매매 구분이 부호를 정한다), 지정 투자자만. analyzeSupplyDemand 진단 산식과 동일 정의.
  */
 class StockAnalysisSupplyTest {
 
@@ -47,6 +47,22 @@ class StockAnalysisSupplyTest {
 
         assertThat(StockAnalysisService.sumNet5Days(trades, List.of(d), "INSTITUTION"))
                 .isEqualByComparingTo("-120");
+    }
+
+    @Test
+    @DisplayName("재현(10/2 운영 실측, 삼성전기 외국인): SELL 행은 음수로 저장된다 — 순매도한 날을 순매수로 더하지 않는다")
+    void sellRowsStoredNegativeStaySells() {
+        LocalDate d1 = LocalDate.of(2026, 9, 28), d2 = LocalDate.of(2026, 9, 29), d3 = LocalDate.of(2026, 9, 30),
+                d4 = LocalDate.of(2026, 10, 1), d5 = LocalDate.of(2026, 10, 2);
+        List<InvestorDailyTrade> trades = List.of(
+                t(d1, "FOREIGN", "SELL", "-1004.33"), t(d2, "FOREIGN", "BUY", "382.00"),
+                t(d3, "FOREIGN", "SELL", "-1059.10"), t(d4, "FOREIGN", "SELL", "-109.27"),
+                t(d5, "FOREIGN", "BUY", "727.26"));
+
+        // 예전 계산(BUY − SELL)은 +3,281.96 — 실제는 순매도 −1,063.44억
+        assertThat(StockAnalysisService.sumNet5Days(trades, List.of(d5, d4, d3, d2, d1), "FOREIGN"))
+                .isEqualByComparingTo("-1063.44");
+        assertThat(StockAnalysisService.dayNet(trades, d3, "FOREIGN")).isEqualByComparingTo("-1059.10");
     }
 
     @Test

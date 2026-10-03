@@ -480,7 +480,7 @@ class StockDetailServiceTest {
             StockAnalysisService mockAnalysis = org.mockito.Mockito.mock(StockAnalysisService.class);
             when(mockAnalysis.getFiveDayNetBuy("298040")).thenReturn(
                     new StockAnalysisService.FiveDaySupply(
-                            new BigDecimal("93700000000"), new BigDecimal("-12000000000"), 5));
+                            new BigDecimal("937"), new BigDecimal("-120"), 5));   // 억원(저장 단위) — 예전 픽스처는 원이라 실제로는 "+0억"이 나갔다
             when(stockAnalysisProvider.getIfAvailable()).thenReturn(mockAnalysis);
 
             String prompt = stockDetailService.buildGeminiPrompt(dtoWith("장전(초기화)", BigDecimal.ZERO));
@@ -573,6 +573,56 @@ class StockDetailServiceTest {
             assertThat(StockDetailService.reconcileRecommendationWithBody("SELL", "매도")).isEqualTo("SELL");
             assertThat(StockDetailService.reconcileRecommendationWithBody("BUY", null)).isEqualTo("BUY");
             assertThat(StockDetailService.reconcileRecommendationWithBody("HOLD", "관망")).isEqualTo("HOLD");
+        }
+    }
+
+    @Nested
+    @DisplayName("수급 패널(DB 일별) — 2026-10-03 화면 점검")
+    class SupplyPanelFromDb {
+
+        private com.myplatform.backend.entity.InvestorDailyTrade row(String investor, String type, String net) {
+            return com.myplatform.backend.entity.InvestorDailyTrade.builder()
+                    .tradeDate(java.time.LocalDate.of(2026, 10, 2)).stockCode("009150").stockName("삼성전기")
+                    .investorType(investor).tradeType(type).netBuyAmount(new BigDecimal(net)).build();
+        }
+
+        @Test
+        @DisplayName("재현: 기관(기관 계) −31.62억에 연기금 −63.24억을 더해 '기관 −95억'이던 것 — 연기금은 이미 기관에 들어 있다")
+        void pensionIsNotAddedToInstitution() {
+            java.time.LocalDate d = java.time.LocalDate.of(2026, 10, 2);
+            when(investorDailyTradeRepository.findLatestTradeDate()).thenReturn(d);
+            when(investorDailyTradeRepository.findByStockCodeAndDateRange("009150", d, d)).thenReturn(List.of(
+                    row("FOREIGN", "BUY", "727.26"), row("INSTITUTION", "SELL", "-31.62"), row("PENSION", "SELL", "-63.24")));
+
+            SupplyDemand sd = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                    stockDetailService, "getDailySummaryFromDb", "009150");
+
+            assertThat(sd.getForeignNetBuy()).isEqualByComparingTo("727.26");
+            assertThat(sd.getInstNetBuy()).isEqualByComparingTo("-31.62");
+        }
+
+        @Test
+        @DisplayName("연기금 행만 있으면 기관 합계는 모름(null) — 연기금을 기관 전체로 내놓지 않는다")
+        void pensionOnlyMeansInstitutionUnknown() {
+            java.time.LocalDate d = java.time.LocalDate.of(2026, 10, 2);
+            when(investorDailyTradeRepository.findLatestTradeDate()).thenReturn(d);
+            when(investorDailyTradeRepository.findByStockCodeAndDateRange("009150", d, d)).thenReturn(List.of(
+                    row("FOREIGN", "SELL", "-10.00"), row("PENSION", "BUY", "5.00")));
+
+            SupplyDemand sd = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                    stockDetailService, "getDailySummaryFromDb", "009150");
+
+            assertThat(sd.getInstNetBuy()).isNull();
+        }
+
+        @Test
+        @DisplayName("장전·조회 실패의 빈 수급은 0 이 아니라 모름 — 예전엔 '+0억' 세 줄")
+        void emptySupplyIsUnknownNotZero() {
+            SupplyDemand sd = stockDetailService.buildEmptySupplyDemand();
+            assertThat(sd.getForeignNetBuy()).isNull();
+            assertThat(sd.getInstNetBuy()).isNull();
+            assertThat(sd.getProgramNetBuy()).isNull();
+            assertThat(sd.getVolumePower()).isNull();
         }
     }
 }
