@@ -24,8 +24,10 @@
           <line x1="12" y1="16" x2="12" y2="12"/>
           <line x1="12" y1="8" x2="12.01" y2="8"/>
         </svg>
-        <span>AI가 요약한 오늘의 주요 경제 뉴스입니다. 매일 아침 8시에 자동 수집됩니다.</span>
-        <span class="news-badge">AI 요약</span>
+        <!-- 수집기는 Gemini 요약을 뺀 뒤 RSS 원문 앞부분을 그대로 저장한다 — 'AI 요약'이 아니다(2026-10-03).
+             수집 시각은 NewsService 크론(평일 07:30 · 08~17시 15분마다 · 18:00). -->
+        <span>투자 관련 경제 뉴스 RSS 원문(앞부분)입니다 — AI 요약·감성 분류는 하지 않습니다. 평일 07:30 · 장중 15분마다 · 18:00 자동 수집.</span>
+        <span class="news-badge">RSS 원문</span>
       </div>
 
       <!-- 로딩 상태 -->
@@ -71,7 +73,7 @@
       <div v-else class="news-empty">
         <div class="empty-icon">📰</div>
         <h3>아직 수집된 뉴스가 없습니다</h3>
-        <p>매일 아침 8시에 자동으로 수집되거나, 위 버튼을 눌러 수동으로 가져올 수 있습니다.</p>
+        <p>평일 07:30부터 자동으로 수집되거나, 위 버튼을 눌러 수동으로 가져올 수 있습니다.</p>
         <button @click="fetchNews" :disabled="fetchingNews" class="btn-fetch">
           {{ fetchingNews ? '수집 중...' : '뉴스 가져오기' }}
         </button>
