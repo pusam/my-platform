@@ -300,12 +300,18 @@ public class MarketTimingService {
                 log.warn("[시장 타이밍] 폭락 오버라이드 발동: {}", overrideReasons);
             }
         } else if (dropOverride) {
-            // ADR이 정상이더라도 당일 급락 시 최소 OVERSOLD로 보정
-            if (overallCondition == MarketCondition.NORMAL || overallCondition == MarketCondition.OVERHEATED) {
-                overallCondition = MarketCondition.OVERSOLD;
+            if (overallCondition == null) {
+                // ADR 판단 보류 중 — 보정할 ADR 이 없다. 상태는 모름 그대로 두고 사실(당일 낙폭)만 말한다.
+                // 예전엔 아래 getSuggestion() 이 null 에서 NPE → /market/status 500·모닝브리핑 '조회 실패'(2026-10-03).
+                diagnosis = String.format("당일 급락 — %s. 시장 폭(ADR)은 판단 보류.", overrideReasons);
+            } else {
+                // ADR이 정상이더라도 당일 급락 시 최소 OVERSOLD로 보정
+                if (overallCondition == MarketCondition.NORMAL || overallCondition == MarketCondition.OVERHEATED) {
+                    overallCondition = MarketCondition.OVERSOLD;
+                }
+                diagnosis = String.format("당일 급락 — %s. %s", overrideReasons, overallCondition.getSuggestion());
+                strategy = overallCondition.getSuggestion();
             }
-            diagnosis = String.format("당일 급락 — %s. %s", overrideReasons, overallCondition.getSuggestion());
-            strategy = overallCondition.getSuggestion();
             if (changedSinceLast(lastOverrideKey, "DROP|" + overrideReasons + "|" + overallCondition)) {
                 log.warn("[시장 타이밍] 급락 보정 발동: {} → {}", overrideReasons, overallCondition);
             }
