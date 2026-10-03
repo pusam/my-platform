@@ -156,7 +156,8 @@ public class MarketCacheWarmerService {
 
         try {
             for (TradingPeriod period : new TradingPeriod[]{TradingPeriod.TODAY, TradingPeriod.MIN_5, TradingPeriod.MIN_30}) {
-                List<SectorTradingDto> data = sectorTradingService.getAllSectorTrading(period);
+                // Redis 를 읽어 다시 넣지 않는다 — 메모리 계산값을 넣는다(그러지 않으면 그날 첫 값에 멈춘다)
+                List<SectorTradingDto> data = sectorTradingService.getComputedSectorTrading(period);
                 if (data != null && !data.isEmpty()) {
                     redisCacheService.put(CACHE_SECTOR_TRADING, period.name(), data, TTL_SECTOR_TRADING);
                 }
@@ -181,7 +182,7 @@ public class MarketCacheWarmerService {
     public void warmAiStrategy() {
         if (!isMarketHours() && !isStartup()) return;
         try {
-            AiAnalysisResponseDto analysis = aiStockAnalysisService.getAnalysis();
+            AiAnalysisResponseDto analysis = aiStockAnalysisService.getComputedAnalysis();   // Redis 재투입 루프 금지
             if (analysis != null) {
                 redisCacheService.put(CACHE_AI_STRATEGY, "snapshot", analysis, TTL_AI_STRATEGY);
             }

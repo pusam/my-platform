@@ -339,7 +339,15 @@ public class SectorTradingService {
         if (l2 != null && !l2.isEmpty()) {
             return l2;
         }
+        return getComputedSectorTrading(period);
+    }
 
+    /**
+     * 워머 전용 — Redis 를 거치지 않고 메모리(3분 계산) 결과를 준다(2026-10-03).
+     * 예전 워머는 위 getAllSectorTrading(Redis 우선)을 읽어 같은 값을 다시 put 했다 — TTL(10분)이 60초마다 연장돼
+     * Redis 값이 그날 첫 계산(08:00·재시작 직후)에 멈췄고, 3분마다 새로 계산되는 메모리 값은 화면에 나가지 않았다.
+     */
+    public List<SectorTradingDto> getComputedSectorTrading(TradingPeriod period) {
         List<SectorTradingDto> cached = cachedResultByPeriod.get(period);
         if (cached != null && !cached.isEmpty()) {
             log.debug("[섹터거래대금] {} 캐시 HIT - {} 섹터", period, cached.size());

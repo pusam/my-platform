@@ -80,7 +80,15 @@ public class AiStockAnalysisService {
         if (l2 != null) {
             return l2;
         }
-        // 2) 내부 메모리 캐시 (1시간 이내면 재사용)
+        return getComputedAnalysis();
+    }
+
+    /**
+     * 워머 전용 — Redis 를 거치지 않는 메모리 결과(1시간 넘었으면 다시 계산)(2026-10-03). 예전 워머는 위 getAnalysis(Redis 우선)를
+     * 읽어 같은 값을 다시 put 해 TTL 이 계속 연장됐다 — 9·12·15시 정기 분석이 돌아도 화면엔 그날 첫 스냅샷이 남았다.
+     */
+    public AiAnalysisResponseDto getComputedAnalysis() {
+        // 내부 메모리 캐시 (1시간 이내면 재사용)
         if (cachedAnalysis == null || lastAnalysisTime == null ||
             lastAnalysisTime.isBefore(LocalDateTime.now().minusHours(1))) {
             runAnalysis();
