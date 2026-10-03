@@ -330,49 +330,53 @@ public class ScalpingAnalysisService {
     }
 
     /**
-     * 투자자 매매 데이터 파싱
-     *
-     * FHKST01010900 API 응답 필드:
-     * - frgn_ntby_qty: 외국인 순매수 수량
-     * - frgn_ntby_tr_pbmn: 외국인 순매수 거래대금
-     * - orgn_ntby_qty: 기관 순매수 수량
-     * - orgn_ntby_tr_pbmn: 기관 순매수 거래대금
+     * 투자자 매매 데이터 파싱 — 오늘 행만, 장 마감 뒤에만(2026-10-03, {@link #todayInvestorNetEok}).
      */
     private void parseInvestorTrading(JsonNode data, ScalpingAnalysisDto.ScalpingAnalysisDtoBuilder builder) {
-        JsonNode output = data.get("output");
-        if (output == null) {
-            log.debug("[단타분석] 투자자 매매 output 없음");
-            return;
-        }
+        java.time.ZonedDateTime now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
+        boolean afterClose = now.toLocalTime().isAfter(INVESTOR_DATA_READY_AFTER);
+        InvestorNet net = todayInvestorNetEok(data.get("output"), now.toLocalDate(), afterClose);
+        builder.foreignNetBuy(net.foreignEok());
+        builder.instNetBuy(net.institutionEok());
+        log.debug("[단타분석] 투자자 순매수(오늘·마감 후만) 외국인 {}억 · 기관 {}억", net.foreignEok(), net.institutionEok());
+    }
 
-        // 외국인 순매수 (frgn_ntby_tr_pbmn: 외국인 순매수 거래대금)
-        String foreignStr = getFieldValue(output, "frgn_ntby_tr_pbmn");
-        if (foreignStr != null && !foreignStr.isEmpty()) {
-            try {
-                BigDecimal foreign = new BigDecimal(foreignStr)
-                        .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
-                builder.foreignNetBuy(foreign);
-                log.debug("[단타분석] 외국인 순매수: {}억 (원본: {})", foreign, foreignStr);
-            } catch (NumberFormatException e) {
-                log.warn("[단타분석] 외국인 순매수 파싱 실패: {}", foreignStr);
-            }
-        } else {
-            log.debug("[단타분석] 외국인 순매수 데이터 없음 - frgn_ntby_tr_pbmn: {}", foreignStr);
-        }
+    /** 당일 투자자 데이터가 나오는 시각 — KIS: "당일 데이터는 장 종료 후 제공"(공식 샘플 inquire_investor.py). KRX 종료 15:40 기준. */
+    static final java.time.LocalTime INVESTOR_DATA_READY_AFTER = java.time.LocalTime.of(15, 40);
 
-        // 기관 순매수 (orgn_ntby_tr_pbmn: 기관 순매수 거래대금)
-        String instStr = getFieldValue(output, "orgn_ntby_tr_pbmn");
-        if (instStr != null && !instStr.isEmpty()) {
-            try {
-                BigDecimal inst = new BigDecimal(instStr)
-                        .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
-                builder.instNetBuy(inst);
-                log.debug("[단타분석] 기관 순매수: {}억 (원본: {})", inst, instStr);
-            } catch (NumberFormatException e) {
-                log.warn("[단타분석] 기관 순매수 파싱 실패: {}", instStr);
-            }
-        } else {
-            log.debug("[단타분석] 기관 순매수 데이터 없음 - orgn_ntby_tr_pbmn: {}", instStr);
+    /** 외국인·기관 순매수(억원). 모르면 null. */
+    record InvestorNet(BigDecimal foreignEok, BigDecimal institutionEok) {}
+
+    /**
+     * 주식현재가 투자자(FHKST01010900) 응답의 오늘 순매수 — 순수(테스트 대상).
+     *
+     * <p>응답 {@code output} 은 <b>일자별 행 배열</b>(최근순, 행마다 {@code stck_bsop_date} — 공식 샘플
+     * chk_inquire_investor.py COLUMN_MAPPING)이다. 예전엔 객체로 읽어 필드를 못 찾아 외국인·기관이 늘 null 이었다.
+     * 금액({@code *_ntby_tr_pbmn})은 <b>백만원</b> 단위라 억원은 ÷100 — 예전엔 원으로 보고 ÷1억 했다(여러 구현이 KIS 문서의
+     * '단위: 백만원'을 인용, 운영 응답으로 대조는 아직).
+     * <ul>
+     *   <li>오늘({@code today}) 행만 쓴다 — 어제 행을 오늘처럼 쓰지 않는다.</li>
+     *   <li>장 마감 전이면 모름 — 당일 데이터는 장 종료 후 제공된다(장중의 0 은 '균형'이 아니다).</li>
+     *   <li>칸이 비었거나 숫자가 아니면 그 칸만 모름.</li>
+     * </ul>
+     */
+    static InvestorNet todayInvestorNetEok(JsonNode output, java.time.LocalDate today, boolean afterClose) {
+        if (output == null || !output.isArray() || !afterClose || today == null) return new InvestorNet(null, null);
+        String ymd = today.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        for (JsonNode row : output) {
+            if (!ymd.equals(row.path("stck_bsop_date").asText(""))) continue;
+            return new InvestorNet(millionWonToEok(row.path("frgn_ntby_tr_pbmn").asText("")),
+                    millionWonToEok(row.path("orgn_ntby_tr_pbmn").asText("")));
+        }
+        return new InvestorNet(null, null);
+    }
+
+    private static BigDecimal millionWonToEok(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return new BigDecimal(raw.trim()).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
