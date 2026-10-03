@@ -79,8 +79,10 @@ public class StockCatalystService {
         }
 
         try {
-            List<NewsItem> news = naver.searchStockNews(stockName);
-            if (news == null || news.isEmpty()) {
+            // 7일 안 기사만 — 목록용 검색은 최근 기사가 없으면 오래된 기사를 채워 준다(그걸 오늘 재료로 분류하던 것, 2026-10-03)
+            List<NewsItem> news = NaverSearchService.withinDays(naver.searchStockNews(stockName), today,
+                    NaverSearchService.CATALYST_NEWS_DAYS);
+            if (news.isEmpty()) {
                 // 뉴스 0건 = 재료 없음 — NONE 캐시 (재호출 방지). 소스는 가용(위 가드 통과)이라 진짜 '뉴스 없음'.
                 return save(stockCode, stockName, today, CatalystType.NONE, Direction.NONE, null, null, null);
             }
@@ -154,9 +156,12 @@ public class StockCatalystService {
                     || ref.name() == null || ref.name().isBlank()) continue;
             if (repository.findByStockCodeAndCatalystDate(ref.code(), today).isPresent()) continue;
             List<NewsItem> news;
-            try { news = naver.searchStockNews(ref.name()); }
+            try {
+                news = NaverSearchService.withinDays(naver.searchStockNews(ref.name()), today,
+                        NaverSearchService.CATALYST_NEWS_DAYS);   // 7일 안 기사만(위 단건 경로와 같은 규칙)
+            }
             catch (Exception e) { continue; }   // 뉴스 조회 실패 → 미캐시(재시도)
-            if (news == null || news.isEmpty()) {
+            if (news.isEmpty()) {
                 save(ref.code(), ref.name(), today, CatalystType.NONE, Direction.NONE, null, null, null);
                 continue;
             }

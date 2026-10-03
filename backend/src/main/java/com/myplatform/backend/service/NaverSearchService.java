@@ -339,7 +339,28 @@ public class NaverSearchService {
      *
      * @return LocalDate 또는 null (파싱 실패 시)
      */
-    private LocalDate parsePubDate(String pubDate) {
+    /**
+     * 재료(오늘의 촉매) 분류용 — 기준일까지 {@code days} 일 안의 기사만, <b>날짜를 모르는 기사는 뺀다</b>. 순수 함수(2026-10-03).
+     *
+     * <p>{@link #searchStockNews} 는 7일 안 기사가 없으면 '종목명 매칭 상위 N개'를 날짜와 무관하게 돌려준다(목록 표시용 —
+     * 기사마다 날짜가 붙는다). 재료 분류가 그걸 그대로 받아 몇 주 묵은 기사를 '오늘의 재료'로 저장·호재 알림·시그널 스냅샷에
+     * 남겼다. 재료는 이 필터를 거친 기사로만 판단한다.
+     */
+    public static List<NewsItem> withinDays(List<NewsItem> news, LocalDate today, int days) {
+        List<NewsItem> out = new ArrayList<>();
+        if (news == null || today == null) return out;
+        LocalDate cutoff = today.minusDays(days);
+        for (NewsItem n : news) {
+            LocalDate d = parsePubDate(n == null ? null : n.getPubDate());
+            if (d != null && !d.isBefore(cutoff) && !d.isAfter(today)) out.add(n);
+        }
+        return out;
+    }
+
+    /** 재료 분류의 기사 창(일) — 목록 필터와 같은 7일. */
+    public static final int CATALYST_NEWS_DAYS = MAX_NEWS_AGE_DAYS;
+
+    private static LocalDate parsePubDate(String pubDate) {
         if (pubDate == null || pubDate.isEmpty()) {
             return null;
         }

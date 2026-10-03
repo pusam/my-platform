@@ -41,6 +41,11 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class StockCatalystServiceTest {
 
+    /** 재료 분류는 7일 안 기사만 본다(2026-10-03) — 검색 결과 픽스처에 어제 날짜(네이버 RFC-1123 형식)를 붙인다. */
+    private static final String RECENT = java.time.format.DateTimeFormatter
+            .ofPattern("EEE, dd MMM yyyy HH:mm:ss Z", java.util.Locale.ENGLISH)
+            .format(java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(1));
+
     @Mock private StockCatalystRepository repository;
     @Mock private ObjectProvider<NaverSearchService> naverProvider;
     @Mock private ObjectProvider<GeminiService> geminiProvider;
@@ -134,9 +139,46 @@ class StockCatalystServiceTest {
         when(geminiProvider.getIfAvailable()).thenReturn(gemini);
         when(naver.isAvailable()).thenReturn(true);   // 소스 가용 — §4c 가드 통과
         when(naver.searchStockNews("삼성전자"))
-                .thenReturn(List.of(NewsItem.builder().title("삼성전자 대형 수주").build()));
+                .thenReturn(List.of(NewsItem.builder().pubDate(RECENT).title("삼성전자 대형 수주").build()));
         when(gemini.chat(anyString())).thenReturn(geminiJson);
         when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    @DisplayName("재현(2026-10-03): 7일 안 기사가 없어 검색이 오래된 기사를 채워 줘도 오늘 재료로 분류하지 않는다 — NONE, Gemini·알림 없음")
+    void oldNewsIsNotTodaysCatalyst() {
+        String old = java.time.format.DateTimeFormatter
+                .ofPattern("EEE, dd MMM yyyy HH:mm:ss Z", java.util.Locale.ENGLISH)
+                .format(java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul")).minusDays(40));
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(
+                NewsItem.builder().pubDate(old).title("삼성전자 대형 수주(40일 전)").build(),
+                NewsItem.builder().title("날짜 없는 기사").build()));
+        when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StockCatalyst c = service().getCatalyst("005930", "삼성전자");
+
+        assertThat(c.getCatalystType()).isEqualTo(CatalystType.NONE);
+        verify(gemini, never()).chat(anyString());
+    }
+
+    @Test
+    @DisplayName("withinDays — 기준일 7일 안·날짜 확인된 기사만(미래·파싱 실패 제외)")
+    void withinDaysIsStrict() {
+        java.time.format.DateTimeFormatter f = java.time.format.DateTimeFormatter
+                .ofPattern("EEE, dd MMM yyyy HH:mm:ss Z", java.util.Locale.ENGLISH);
+        java.time.ZonedDateTime base = java.time.ZonedDateTime.of(2026, 10, 2, 9, 0, 0, 0, java.time.ZoneId.of("Asia/Seoul"));
+        List<NewsItem> in = List.of(
+                NewsItem.builder().title("어제").pubDate(f.format(base.minusDays(1))).build(),
+                NewsItem.builder().title("8일 전").pubDate(f.format(base.minusDays(8))).build(),
+                NewsItem.builder().title("내일").pubDate(f.format(base.plusDays(1))).build(),
+                NewsItem.builder().title("깨진 날짜").pubDate("어제쯤").build());
+
+        assertThat(NaverSearchService.withinDays(in, LocalDate.of(2026, 10, 2), 7))
+                .extracting(NewsItem::getTitle).containsExactly("어제");
     }
 
     @Test
@@ -281,7 +323,7 @@ class StockCatalystServiceTest {
         when(geminiProvider.getIfAvailable()).thenReturn(gemini);
         when(naver.isAvailable()).thenReturn(true);
         when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
-        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().title("소송 피소").build()));
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().pubDate(RECENT).title("소송 피소").build()));
         when(gemini.chat(anyString())).thenReturn(
                 "[{\"code\":\"005930\",\"type\":\"LITIGATION\",\"direction\":\"NEGATIVE\",\"headline\":\"소송 피소\",\"summary\":\"손배소\"}]");
         when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -326,8 +368,8 @@ class StockCatalystServiceTest {
         when(geminiProvider.getIfAvailable()).thenReturn(gemini);
         when(naver.isAvailable()).thenReturn(true);
         when(naver.searchStockNews("삼성전자")).thenReturn(List.of(
-                NewsItem.builder().title("다른 뉴스").link("http://n/1").build(),
-                NewsItem.builder().title("대형 수주").link("http://n/2").build()));
+                NewsItem.builder().pubDate(RECENT).title("다른 뉴스").link("http://n/1").build(),
+                NewsItem.builder().pubDate(RECENT).title("대형 수주").link("http://n/2").build()));
         when(gemini.chat(anyString())).thenReturn(
                 "{\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"대형 수주\",\"summary\":\"2조원 계약\"}");
         when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -345,7 +387,7 @@ class StockCatalystServiceTest {
         when(naver.isAvailable()).thenReturn(true);
         when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
         when(naver.searchStockNews("삼성전자")).thenReturn(List.of(
-                NewsItem.builder().title("삼성전자 수주").link("http://n/samsung").build()));
+                NewsItem.builder().pubDate(RECENT).title("삼성전자 수주").link("http://n/samsung").build()));
         when(naver.searchStockNews("뉴스없는종목")).thenReturn(List.of());
         when(gemini.chat(anyString())).thenReturn(
                 "[{\"code\":\"005930\",\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"삼성전자 수주\",\"summary\":\"계약\"}]");
@@ -420,8 +462,8 @@ class StockCatalystServiceTest {
         when(geminiProvider.getIfAvailable()).thenReturn(gemini);
         when(naver.isAvailable()).thenReturn(true);
         when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
-        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().title("삼성전자 수주").build()));
-        when(naver.searchStockNews("SK하이닉스")).thenReturn(List.of(NewsItem.builder().title("하이닉스 실적").build()));
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().pubDate(RECENT).title("삼성전자 수주").build()));
+        when(naver.searchStockNews("SK하이닉스")).thenReturn(List.of(NewsItem.builder().pubDate(RECENT).title("하이닉스 실적").build()));
         when(naver.searchStockNews("뉴스없는종목")).thenReturn(List.of());   // 뉴스 0건 → 개별 NONE
         when(gemini.chat(anyString())).thenReturn(
                 "[{\"code\":\"005930\",\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"수주\",\"summary\":\"계약\"},"
@@ -454,7 +496,7 @@ class StockCatalystServiceTest {
         when(geminiProvider.getIfAvailable()).thenReturn(gemini);
         when(naver.isAvailable()).thenReturn(true);
         when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
-        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().title("삼성전자 수주").build()));
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().pubDate(RECENT).title("삼성전자 수주").build()));
         when(gemini.chat(anyString())).thenReturn(
                 "[{\"code\":\"005930\",\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"수주\",\"summary\":\"계약\"}]");
         when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
