@@ -352,8 +352,8 @@ public class AiStrategySnapshotService {
         // 안전장치: 스냅샷 생성이 살아있을 때만 정리한다 — 생성이 죽은 채로 정리만 계속 돌면
         // 남아있는 데이터까지 7일 컷에 차례로 쓸려나간다.
         LocalDateTime now = DateTimeUtil.kstNow();
-        List<AiStrategySnapshot> recent = snapshotRepository.findLatestByStrategyType(StrategyType.SCALPING);
-        LocalDateTime latestAt = recent.isEmpty() ? null : recent.get(0).getCreatedAt();
+        // 전략 구분 없이 — SCALPING 만 보던 기준은 대체 목록이 매 회차를 채워 주던 동안만 맞았다(2026-10-02)
+        LocalDateTime latestAt = snapshotRepository.findLatestCreatedAtAnyStrategy().orElse(null);
         LocalDate prevTradingDay = marketCalendarService.minusTradingDays(now.toLocalDate(), 1);
         if (!snapshotPipelineAlive(latestAt, prevTradingDay)) {
             log.error("[스냅샷 정리] 스냅샷 생성이 멈춘 것으로 보임 (최신 {} / 직전 거래일 {}) → 정리 중단 (데이터 보호)",

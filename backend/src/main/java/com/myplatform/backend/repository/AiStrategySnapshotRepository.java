@@ -14,6 +14,11 @@ import java.util.Optional;
 
 /**
  * AI 투자 전략 스냅샷 Repository
+ *
+ * <p>읽기 쿼리는 <b>은퇴한 대체 목록 행</b>(사유 '시총 상위 대형주…'·'시가총액 상위 대표주')을 읽지 않는다(2026-10-02).
+ * 전략 스크리너가 비면 그 목록을 '추천'처럼 저장하던 코드는 지웠지만, 운영엔 SCALPING 146회분(30일 전부)이 남아 있어
+ * 그대로 두면 '최신 스냅샷'·백테스트·수익률이 계속 그걸 읽는다(7일 보존이라 곧 사라지지만 그 사이 10/6 표본 첫날이 낀다).
+ * 회귀 {@code AiStrategySnapshotRepositoryFallbackTest}.
  */
 @Repository
 public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySnapshot, Long> {
@@ -25,9 +30,11 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
     @Query("""
         SELECT s FROM AiStrategySnapshot s
         WHERE s.strategyType = :strategyType
+          AND (s.reason IS NULL OR (s.reason NOT LIKE '시총 상위 대형주%' AND s.reason <> '시가총액 상위 대표주'))
           AND s.createdAt = (
               SELECT MAX(s2.createdAt) FROM AiStrategySnapshot s2
               WHERE s2.strategyType = :strategyType
+                AND (s2.reason IS NULL OR (s2.reason NOT LIKE '시총 상위 대형주%' AND s2.reason <> '시가총액 상위 대표주'))
           )
         ORDER BY s.rankNum ASC
         """)
@@ -39,6 +46,7 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
     @Query("""
         SELECT MAX(s.createdAt) FROM AiStrategySnapshot s
         WHERE s.strategyType = :strategyType
+          AND (s.reason IS NULL OR (s.reason NOT LIKE '시총 상위 대형주%' AND s.reason <> '시가총액 상위 대표주'))
         """)
     Optional<LocalDateTime> findLatestCreatedAt(@Param("strategyType") StrategyType strategyType);
 
@@ -55,6 +63,7 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
         SELECT s FROM AiStrategySnapshot s
         WHERE s.strategyType = :strategyType
           AND s.stockCode = :stockCode
+          AND (s.reason IS NULL OR (s.reason NOT LIKE '시총 상위 대형주%' AND s.reason <> '시가총액 상위 대표주'))
         ORDER BY s.createdAt DESC
         LIMIT 1
         """)
@@ -70,10 +79,12 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
         SELECT s.* FROM ai_strategy_snapshot s
         INNER JOIN (
             SELECT strategy_type, MAX(created_at) as max_created_at
-            FROM ai_strategy_snapshot
+            FROM ai_strategy_snapshot s
+            WHERE (s.reason IS NULL OR (s.reason NOT LIKE '시총 상위 대형주%' AND s.reason <> '시가총액 상위 대표주'))
             GROUP BY strategy_type
         ) latest ON s.strategy_type = latest.strategy_type
                 AND s.created_at = latest.max_created_at
+        WHERE (s.reason IS NULL OR (s.reason NOT LIKE '시총 상위 대형주%' AND s.reason <> '시가총액 상위 대표주'))
         ORDER BY s.strategy_type, s.rank_num
         """, nativeQuery = true)
     List<AiStrategySnapshot> findAllLatestSnapshots();
@@ -82,6 +93,14 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
      * 특정 시각 이전의 오래된 스냅샷 삭제
      * - 데이터 정리용 (7일 이상 된 데이터 삭제)
      */
+    /**
+     * 전략 구분 없이 가장 최근 스냅샷 시각 — 정리 잡의 '생성 파이프라인 생존' 판정용(2026-10-02).
+     * 예전엔 SCALPING 만 봤는데, 대체 목록이 매 회차를 채워 주던 동안만 맞는 기준이었다 — 이제 후보가 없으면
+     * 그 회차는 저장하지 않으므로 한 전략이 비는 날 정리가 멈추고 ERROR 가 쌓인다.
+     */
+    @Query("SELECT MAX(s.createdAt) FROM AiStrategySnapshot s")
+    Optional<LocalDateTime> findLatestCreatedAtAnyStrategy();
+
     @Modifying
     @Query("DELETE FROM AiStrategySnapshot s WHERE s.createdAt < :cutoffTime")
     int deleteOldSnapshots(@Param("cutoffTime") LocalDateTime cutoffTime);
@@ -121,8 +140,15 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
     /**
      * 특정 전략의 특정 시각 이후 스냅샷 조회 (백테스트용 - 시간순)
      */
+    @Query("""
+        SELECT s FROM AiStrategySnapshot s
+        WHERE s.strategyType = :strategyType
+          AND s.createdAt > :afterTime
+          AND (s.reason IS NULL OR (s.reason NOT LIKE '시총 상위 대형주%' AND s.reason <> '시가총액 상위 대표주'))
+        ORDER BY s.createdAt ASC
+        """)
     List<AiStrategySnapshot> findByStrategyTypeAndCreatedAtAfterOrderByCreatedAtAsc(
-            StrategyType strategyType, LocalDateTime afterTime);
+            @Param("strategyType") StrategyType strategyType, @Param("afterTime") LocalDateTime afterTime);
 
     /**
      * 특정 종목의 특정 시점 근처 스냅샷 조회 (기간별 수익률 계산용)
@@ -133,6 +159,7 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
         SELECT * FROM ai_strategy_snapshot s
         WHERE s.stock_code = :stockCode
           AND s.created_at <= :targetDate
+          AND (s.reason IS NULL OR (s.reason NOT LIKE '시총 상위 대형주%' AND s.reason <> '시가총액 상위 대표주'))
         ORDER BY s.created_at DESC
         LIMIT 1
         """, nativeQuery = true)
@@ -148,6 +175,7 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
         SELECT * FROM ai_strategy_snapshot s
         WHERE s.stock_code = :stockCode
           AND s.created_at BETWEEN :startDate AND :endDate
+          AND (s.reason IS NULL OR (s.reason NOT LIKE '시총 상위 대형주%' AND s.reason <> '시가총액 상위 대표주'))
         ORDER BY s.created_at DESC
         LIMIT 1
         """, nativeQuery = true)
