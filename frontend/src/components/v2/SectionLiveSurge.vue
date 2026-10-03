@@ -1,11 +1,12 @@
 <template>
   <div class="section-card live-surge">
     <div class="section-title-row">
-      <h2><span class="section-icon">⚡</span> 실시간 수급 급증</h2>
+      <!-- '실시간'이 아니다 — 10분마다 수집한 스냅샷이고, 오늘 값이 없으면 직전 거래일 값이 온다(2026-10-03) -->
+      <h2><span class="section-icon">⚡</span> 장중 수급 급증 <small class="cadence">10분 스냅샷</small></h2>
       <span class="meta">
         <span class="auto-refresh-badge" :class="{ active: isAutoRefresh }">
           <span class="status-dot"></span>
-          <span v-if="isAutoRefresh">실시간 ({{ nextRefresh }}s)</span>
+          <span v-if="isAutoRefresh">자동 갱신 ({{ nextRefresh }}s)</span>
           <span v-else class="inactive-text">장 외</span>
         </span>
         <button class="refresh-btn" :disabled="loading" @click="fetchSurge" title="수동 갱신">
@@ -41,7 +42,10 @@
 
     <template v-else-if="currentStocks.length > 0">
     <!-- 전부 한 주기 넘게 갱신이 없으면(수집 지연) 섹션에 한 번만 말한다 — 카드마다 반복하지 않는다 -->
-    <p v-if="allOutdated" class="surge-stale-note" role="status">
+    <p v-if="allPreviousSession" class="surge-stale-note" role="status">
+      ⚠ 오늘 장중 수집 전입니다 — 아래는 직전 거래일({{ latestSnapshotLabel }}) 값입니다.
+    </p>
+    <p v-else-if="allOutdated" class="surge-stale-note" role="status">
       ⚠ 수집이 한 주기(10분) 넘게 지연되고 있습니다 — 아래는 {{ latestSnapshotLabel }} 기준 값입니다.
     </p>
     <div class="stocks-grid">
@@ -173,6 +177,11 @@ export default {
       const list = this.currentStocks
       return list.length > 0 && list.every(s => s.outdated)
     },
+    // 서버의 previousSession = 오늘 이전 거래일 스냅샷(InvestorSurgeDto.isPreviousSession)
+    allPreviousSession() {
+      const list = this.currentStocks
+      return list.length > 0 && list.every(s => s.previousSession)
+    },
     visibleStocks() {
       const list = this.currentStocks
       return this.previewCount > 0 && !this.expanded ? list.slice(0, this.previewCount) : list
@@ -297,7 +306,10 @@ export default {
       const t = stock && stock.snapshotTime
       if (!t || typeof t !== 'string') return ''
       const [h, m] = t.split(':')
-      return h && m ? `${h}:${m}` : ''
+      if (!h || !m) return ''
+      // 직전 거래일 값이면 날짜를 붙인다 — 시각만 보이면 오늘 값처럼 읽힌다
+      const d = stock.previousSession && typeof stock.snapshotDate === 'string' ? stock.snapshotDate.split('-') : null
+      return d && d.length === 3 ? `${d[1]}/${d[2]} ${h}:${m}` : `${h}:${m}`
     },
     formatNumber(value) {
       if (!value) return '0'
@@ -321,6 +333,13 @@ export default {
 </script>
 
 <style scoped>
+.cadence {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
 .section-card {
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.1);

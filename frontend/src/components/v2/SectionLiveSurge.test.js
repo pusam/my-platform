@@ -162,3 +162,32 @@ describe('SectionLiveSurge — 갱신 지연 표시', () => {
     expect(w.find('.surge-more').exists()).toBe(false)
   })
 })
+
+/**
+ * 직전 거래일 스냅샷 — 오늘 장중 수집 전(09:00~09:02)이나 수집이 멈춘 날엔 서버가 직전 거래일 값을 돌려준다(2026-10-03).
+ * 재현: 낡음 판정이 시각만 비교해(어제 15:30 vs 오늘 09:05 → 음수 → 0분) 어제 카드가 갱신 지연 표시 없이 '실시간' 아래에 섰다.
+ */
+describe('SectionLiveSurge — 직전 거래일 값은 그렇게 말한다', () => {
+  const prev = (over = {}) => ({
+    stockCode: '005930', stockName: '삼성전자', currentRank: 1,
+    formattedNetBuyAmount: '+1,200억', netBuyAmount: 1200,
+    snapshotDate: '2026-10-02', snapshotTime: '15:30:00',
+    outdated: true, previousSession: true, ...over
+  })
+
+  it('재현: 전부 직전 거래일이면 섹션이 날짜와 함께 그렇다고 말한다', async () => {
+    const w = mount(SectionLiveSurge, { props: { active: false } })
+    w.vm.allStocks = { FOREIGN: [prev(), prev({ stockCode: '000660', stockName: 'SK하이닉스' })] }
+    await w.vm.$nextTick()
+    const note = w.find('.surge-stale-note')
+    expect(note.exists()).toBe(true)
+    expect(note.text()).toContain('직전 거래일')
+    expect(note.text()).toContain('10/02 15:30')
+  })
+
+  it('머리말은 실시간이라고 하지 않는다 — 10분 스냅샷이다', () => {
+    const src = readFileSync(join(process.cwd(), 'src/components/v2/SectionLiveSurge.vue'), 'utf8')
+    expect(src).not.toMatch(/실시간 \(\{\{ nextRefresh \}\}s\)/)
+    expect(src).not.toMatch(/⚡<\/span> 실시간 수급 급증/)
+  })
+})

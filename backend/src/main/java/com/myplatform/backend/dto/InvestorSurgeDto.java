@@ -11,6 +11,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 
@@ -37,6 +39,7 @@ public class InvestorSurgeDto {
     private String investorTypeName;
 
     private LocalTime snapshotTime;        // 스냅샷 시간
+    private LocalDate snapshotDate;        // 스냅샷 날짜 — 오늘 값이 없으면 서버가 직전 거래일 값을 준다(2026-10-03)
 
     private BigDecimal netBuyAmount;       // 현재 순매수 금액 (억원)
     private BigDecimal amountChange;       // 변화량 (억원)
@@ -104,7 +107,28 @@ public class InvestorSurgeDto {
      * @return true: 한 주기 넘게 갱신 없음, false: 최신 주기의 값
      */
     public boolean isOutdated() {
-        return outdatedAt(snapshotTime, LocalTime.now());
+        return outdatedAt(snapshotDate, snapshotTime, com.myplatform.core.util.DateTimeUtil.kstNow());
+    }
+
+    /**
+     * 오늘 이전 거래일의 스냅샷인가 — 화면이 "직전 거래일 값"이라고 말한다. 날짜를 모르면 false(지어내지 않는다).
+     */
+    public boolean isPreviousSession() {
+        return previousSessionAt(snapshotDate, com.myplatform.core.util.DateTimeUtil.kstNow());
+    }
+
+    /** 직전 세션 판정(순수). */
+    static boolean previousSessionAt(LocalDate snapshotDate, LocalDateTime now) {
+        return snapshotDate != null && snapshotDate.isBefore(now.toLocalDate());
+    }
+
+    /**
+     * 낡음 판정(날짜 포함, 순수). 오늘 이전 날짜면 낡음 — 예전엔 시각만 비교해 어제 15:30 을 오늘 09:05 와 비교하면
+     * 음수 → 0분 → '최신'이었다(2026-10-03). 날짜를 모르면 종전 시각 규칙.
+     */
+    static boolean outdatedAt(LocalDate snapshotDate, LocalTime snapshotTime, LocalDateTime now) {
+        if (previousSessionAt(snapshotDate, now)) return true;
+        return outdatedAt(snapshotTime, now.toLocalTime());
     }
 
     /** 낡음 판정(순수) — {@link #isOutdated()} 의 단일 출처. 시각이 없으면 낡음, 자정을 넘어 음수면 0분으로 본다. */
