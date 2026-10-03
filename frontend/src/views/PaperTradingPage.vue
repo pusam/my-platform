@@ -154,16 +154,16 @@
               <div class="stat-row">
                 <span class="label">상태</span>
                 <span class="value" :class="getBotStatusClass(botStatus.tradingMode === 'VIRTUAL' ? botStatus.status : 'STOPPED')">
-                  {{ getBotStatusText(botStatus, 'VIRTUAL') }}
+                  {{ botStatusText(botStatus, 'VIRTUAL', botStatusState) }}
                 </span>
               </div>
               <div class="stat-row">
                 <span class="label">오늘 매수</span>
-                <span class="value">{{ botStatus.tradingMode === 'VIRTUAL' ? (botStatus.todayBuyCount || 0) : 0 }}건</span>
+                <span class="value">{{ !botStatusState.known ? '-' : (botStatus.tradingMode === 'VIRTUAL' ? (botStatus.todayBuyCount || 0) : 0) + '건' }}</span>
               </div>
               <div class="stat-row">
                 <span class="label">오늘 매도</span>
-                <span class="value">{{ botStatus.tradingMode === 'VIRTUAL' ? (botStatus.todaySellCount || 0) : 0 }}건</span>
+                <span class="value">{{ !botStatusState.known ? '-' : (botStatus.tradingMode === 'VIRTUAL' ? (botStatus.todaySellCount || 0) : 0) + '건' }}</span>
               </div>
               <div class="stat-row" v-if="botStatus.active && botStatus.tradingMode === 'VIRTUAL' && botStatus.lastTradeTime">
                 <span class="label">마지막 거래</span>
@@ -175,7 +175,7 @@
                 v-if="!botStatus.active || botStatus.tradingMode !== 'VIRTUAL'"
                 @click="startBot('VIRTUAL')"
                 class="start-btn virtual-btn"
-                :disabled="botLoading || (botStatus.active && botStatus.tradingMode === 'REAL')"
+                :disabled="botLoading || !botStatusState.known || (botStatus.active && botStatus.tradingMode === 'REAL')"
               >
                 {{ botLoading ? '처리 중...' : '🤖 모의투자 봇 시작' }}
               </button>
@@ -375,16 +375,16 @@
               <div class="stat-row">
                 <span class="label">상태</span>
                 <span class="value" :class="getBotStatusClass(botStatus.tradingMode === 'REAL' ? botStatus.status : 'STOPPED')">
-                  {{ getBotStatusText(botStatus, 'REAL') }}
+                  {{ botStatusText(botStatus, 'REAL', botStatusState) }}
                 </span>
               </div>
               <div class="stat-row">
                 <span class="label">오늘 매수</span>
-                <span class="value">{{ botStatus.tradingMode === 'REAL' ? (botStatus.todayBuyCount || 0) : 0 }}건</span>
+                <span class="value">{{ !botStatusState.known ? '-' : (botStatus.tradingMode === 'REAL' ? (botStatus.todayBuyCount || 0) : 0) + '건' }}</span>
               </div>
               <div class="stat-row">
                 <span class="label">오늘 매도</span>
-                <span class="value">{{ botStatus.tradingMode === 'REAL' ? (botStatus.todaySellCount || 0) : 0 }}건</span>
+                <span class="value">{{ !botStatusState.known ? '-' : (botStatus.tradingMode === 'REAL' ? (botStatus.todaySellCount || 0) : 0) + '건' }}</span>
               </div>
               <div class="stat-row" v-if="botStatus.active && botStatus.tradingMode === 'REAL' && botStatus.lastTradeTime">
                 <span class="label">마지막 거래</span>
@@ -400,7 +400,7 @@
                 v-if="!botStatus.active || botStatus.tradingMode !== 'REAL'"
                 @click="startBot('REAL')"
                 class="start-btn real-btn"
-                :disabled="botLoading || (botStatus.active && botStatus.tradingMode === 'VIRTUAL')"
+                :disabled="botLoading || !botStatusState.known || (botStatus.active && botStatus.tradingMode === 'VIRTUAL')"
               >
                 {{ botLoading ? '처리 중...' : '🔴 실전투자 봇 시작' }}
               </button>
@@ -509,7 +509,13 @@
           </div>
 
           <!-- 성과 요약 카드 -->
-          <div v-if="!perfLoading && botPerf" class="summary-grid perf-summary">
+          <div v-if="!perfLoading && perfError" class="no-data">
+            <p>봇 성과를 불러오지 못했습니다 — 새로고침을 눌러 다시 시도하세요.</p>
+          </div>
+          <div v-else-if="!perfLoading && botPerf && !(botPerf.totalTrades > 0)" class="no-data">
+            <p>이 기간 봇 매도 거래가 없습니다 — 승률·수익 팩터를 계산하지 않았습니다.</p>
+          </div>
+          <div v-else-if="!perfLoading && botPerf" class="summary-grid perf-summary">
             <div class="summary-card">
               <h3>거래 현황</h3>
               <div class="card-content">
@@ -575,14 +581,14 @@
               <div class="card-content">
                 <div class="profit-factor-display">
                   <span class="pf-value" :class="getProfitFactorClass(botPerf.profitFactor)">
-                    {{ botPerf.profitFactor != null ? Number(botPerf.profitFactor).toFixed(2) : '-' }}
+                    {{ profitFactorText(botPerf.profitFactor) }}
                   </span>
                   <span class="pf-label">총수익 / 총손실</span>
                 </div>
                 <div class="pf-guide">
-                  <span :class="{ highlight: botPerf.profitFactor >= 2 }">2.0 이상: 우수</span>
-                  <span :class="{ highlight: botPerf.profitFactor >= 1 && botPerf.profitFactor < 2 }">1.0~2.0: 양호</span>
-                  <span :class="{ highlight: botPerf.profitFactor < 1 }">1.0 미만: 손실</span>
+                  <span :class="{ highlight: botPerf.profitFactor != null && botPerf.profitFactor >= 2 }">2.0 이상: 우수</span>
+                  <span :class="{ highlight: botPerf.profitFactor != null && botPerf.profitFactor >= 1 && botPerf.profitFactor < 2 }">1.0~2.0: 양호</span>
+                  <span :class="{ highlight: botPerf.profitFactor != null && botPerf.profitFactor < 1 }">1.0 미만: 손실</span>
                 </div>
               </div>
             </div>
@@ -931,6 +937,7 @@ import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import GlobalNav from '../components/GlobalNav.vue';
 import TradingSafetyWidget from '../components/v2/TradingSafetyWidget.vue';
+import { botStatusText, profitFactorText } from '../utils/botStatusLabels';
 import StockCodeInput from '../components/StockCodeInput.vue';
 import DataFreshness from '../components/DataFreshness.vue';
 import BotPnlChart from '../components/v2/BotPnlChart.vue';
@@ -962,6 +969,13 @@ const account = ref({});
 const portfolio = ref([]);
 const trades = ref([]);
 const botStatus = ref({});
+// 봇 상태를 받았는가 — 못 받았으면 '중지됨'이 아니라 '상태 확인 실패'(2026-10-03). 한 번 받은 뒤 갱신이 실패하면
+// 마지막 상태는 지우고 실패로 둔다(오래된 '실행 중'을 현재처럼 보이지 않게).
+const botStatusState = ref({ known: false, failed: false });
+const markBotStatusFailed = () => {
+  botStatus.value = {};
+  botStatusState.value = { known: false, failed: true };
+};
 
 // 실전투자 데이터
 const realAccount = ref({
@@ -1049,6 +1063,7 @@ const perfLoading = ref(false);
 const perfDays = ref(30);
 const perfMode = ref('VIRTUAL');
 const botPerf = ref(null);
+const perfError = ref(false);
 
 const switchPerfMode = (mode) => {
   perfMode.value = mode;
@@ -1164,9 +1179,15 @@ const loadBotPerformance = async () => {
     const res = await paperTradingAPI.getBotPerformance(perfDays.value, perfMode.value);
     if (res.data.success) {
       botPerf.value = res.data.data;
+      perfError.value = false;
+    } else {
+      botPerf.value = null;      // 다른 모드·기간의 성과가 남아 이번 결과처럼 보이지 않게
+      perfError.value = true;
     }
   } catch (error) {
     console.error('봇 성과 로드 오류:', error);
+    botPerf.value = null;
+    perfError.value = true;
   } finally {
     perfLoading.value = false;
   }
@@ -1231,8 +1252,16 @@ const loadData = async () => {
   const loadBotStatus = async () => {
     try {
       const res = await paperTradingAPI.getBotStatus();
-      if (res.data.success) botStatus.value = res.data.data;
-    } catch (e) { console.warn('봇 상태 로드 실패:', e.message); }
+      if (res.data.success) {
+        botStatus.value = res.data.data;
+        botStatusState.value = { known: true, failed: false };
+      } else {
+        markBotStatusFailed();
+      }
+    } catch (e) {
+      console.warn('봇 상태 로드 실패:', e.message);
+      markBotStatusFailed();
+    }
   };
 
   await Promise.all([loadAccount(), loadPortfolio(), loadTrades(), loadBotStatus()]);
@@ -1350,6 +1379,7 @@ const startBot = async (mode) => {
     const res = await paperTradingAPI.startBot(mode);
     if (res.data.success) {
       botStatus.value = res.data.data;
+      botStatusState.value = { known: true, failed: false };
       const modeName = mode === 'REAL' ? '실전투자' : '모의투자';
       toast.success(`자동매매 봇이 ${modeName} 모드로 시작되었습니다`);
     }
@@ -1368,6 +1398,7 @@ const stopBot = async () => {
     const res = await paperTradingAPI.stopBot();
     if (res.data.success) {
       botStatus.value = res.data.data;
+      botStatusState.value = { known: true, failed: false };
       toast.warning('자동매매 봇이 중지되었습니다');
     }
   } catch (error) {
@@ -1608,19 +1639,6 @@ const getBotStatusClass = (status) => {
     case 'STOP_LOSS_PAUSED': return 'error';
     case 'KILL_SWITCH': return 'error';
     default: return '';
-  }
-};
-
-const getBotStatusText = (botStatus, mode) => {
-  if (botStatus.tradingMode !== mode) return '중지됨';
-  switch (botStatus.status) {
-    case 'VIX_PAUSED': return '⏸️ VIX 일시정지';
-    case 'KOSPI_DROP_PAUSED': return '⏸️ KOSPI 하락 정지';
-    case 'STOP_LOSS_PAUSED': return '🛑 연속손절 정지';
-    case 'KILL_SWITCH': return '🛑 킬스위치 발동';
-    case 'ERROR': return '⚠️ 오류';
-    case 'RUNNING': return botStatus.active ? '실행 중' : '중지됨';
-    default: return botStatus.active ? '실행 중' : '중지됨';
   }
 };
 

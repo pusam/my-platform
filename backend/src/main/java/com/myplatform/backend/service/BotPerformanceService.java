@@ -285,12 +285,7 @@ public class BotPerformanceService {
         BigDecimal avgPnl = totalPnl.divide(BigDecimal.valueOf(totalTrades), 0, RoundingMode.HALF_UP);
 
         // 수익팩터
-        BigDecimal profitFactor = BigDecimal.ZERO;
-        if (totalLosses.compareTo(BigDecimal.ZERO) > 0) {
-            profitFactor = totalWins.divide(totalLosses, 2, RoundingMode.HALF_UP);
-        } else if (totalWins.compareTo(BigDecimal.ZERO) > 0) {
-            profitFactor = BigDecimal.valueOf(999.99); // 손실 없음
-        }
+        BigDecimal profitFactor = profitFactor(totalWins, totalLosses);
 
         // 평균 보유 시간 계산
         Double avgHoldingMinutes = calculateAvgHoldingMinutes(buyTrades, sellTrades);
@@ -311,8 +306,8 @@ public class BotPerformanceService {
                 .winRate(winRate)
                 .totalPnl(totalPnl)
                 .avgPnl(avgPnl)
-                .maxWin(maxWin)
-                .maxLoss(maxLoss)
+                .maxWin(winCount > 0 ? maxWin : null)     // 이긴 거래가 없으면 '최대 수익 +0원'이 아니라 모름
+                .maxLoss(loseCount > 0 ? maxLoss : null)
                 .profitFactor(profitFactor)
                 .maxDrawdown(maxDrawdown)
                 .avgHoldingMinutes(avgHoldingMinutes)
@@ -492,20 +487,32 @@ public class BotPerformanceService {
     }
 
     /**
-     * 빈 성과 데이터
+     * 수익 팩터 = 총수익 ÷ 총손실. 손실이 없고 수익만 있으면 999.99(손실 없음 — 화면은 그 문구로), 둘 다 없으면 null.
+     * 예전엔 둘 다 없을 때 0 이라 화면이 'PF 0.00 · 1.0 미만: 손실'로 칠했다(거래 0건 창·전부 본전, 2026-10-03). 순수.
      */
-    private BotPerformanceDto buildEmptyPerformance() {
+    static BigDecimal profitFactor(BigDecimal totalWins, BigDecimal totalLosses) {
+        if (totalLosses != null && totalLosses.signum() > 0) {
+            return (totalWins == null ? BigDecimal.ZERO : totalWins).divide(totalLosses, 2, RoundingMode.HALF_UP);
+        }
+        if (totalWins != null && totalWins.signum() > 0) return BigDecimal.valueOf(999.99);
+        return null;
+    }
+
+    /**
+     * 빈 성과 데이터 — 이 기간 봇 매도가 없다. 비율·극값은 정의되지 않으므로 null(0·0% 로 채우지 않는다, 2026-10-03).
+     */
+    static BotPerformanceDto buildEmptyPerformance() {
         return BotPerformanceDto.builder()
                 .totalTrades(0)
                 .winCount(0)
                 .loseCount(0)
-                .winRate(BigDecimal.ZERO)
+                .winRate(null)
                 .totalPnl(BigDecimal.ZERO)
-                .avgPnl(BigDecimal.ZERO)
-                .maxWin(BigDecimal.ZERO)
-                .maxLoss(BigDecimal.ZERO)
-                .profitFactor(BigDecimal.ZERO)
-                .maxDrawdown(BigDecimal.ZERO)
+                .avgPnl(null)
+                .maxWin(null)
+                .maxLoss(null)
+                .profitFactor(null)
+                .maxDrawdown(null)
                 .avgHoldingMinutes(null)
                 .dailyPnl(Collections.emptyList())
                 .stockPnl(Collections.emptyList())

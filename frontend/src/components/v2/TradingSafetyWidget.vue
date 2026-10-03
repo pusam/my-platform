@@ -1,18 +1,20 @@
 <template>
-  <div class="safety-widget" :class="{ 'kill-active': status.killSwitchEnabled }">
+  <div class="safety-widget" :class="{ 'kill-active': known && status.killSwitchEnabled }">
     <div class="safety-head">
-      <div class="status-badge" :class="status.killSwitchEnabled ? 'active' : 'normal'">
+      <!-- 상태를 못 받았으면 '매매 정상'이 아니다(2026-10-03) — 예전엔 초기값 false 가 그대로 '매매 정상'(초록)으로 보여
+           비상 정지가 켜져 있어도 조회가 실패하면 정상처럼 보였다 -->
+      <div class="status-badge" :class="badgeClass">
         <span class="status-dot"></span>
-        {{ status.killSwitchEnabled ? '비상 정지 ON' : '매매 정상' }}
+        {{ badgeText }}
       </div>
       <div class="safety-actions">
-        <button v-if="!status.killSwitchEnabled"
+        <button v-if="!known || !status.killSwitchEnabled"
                 class="btn-kill"
                 :disabled="acting"
                 @click="confirmKill">
           🛑 비상 정지
         </button>
-        <button v-else
+        <button v-else-if="known"
                 class="btn-resume"
                 :disabled="acting"
                 @click="confirmResume">
@@ -25,7 +27,7 @@
     </div>
 
     <!-- 비상 정지 사유 -->
-    <div v-if="status.killSwitchEnabled" class="kill-reason">
+    <div v-if="known && status.killSwitchEnabled" class="kill-reason">
       <span class="reason-label">정지 사유</span>
       <span class="reason-text">{{ status.killSwitchReason || '-' }}</span>
       <span v-if="status.killSwitchTriggeredBy" class="reason-by">
@@ -34,7 +36,7 @@
     </div>
 
     <!-- 일일 매수 한도 progress -->
-    <div v-if="status.dailyBuyLimitKrw" class="limit-row">
+    <div v-if="known && status.dailyBuyLimitKrw" class="limit-row">
       <div class="limit-meta">
         <span>일일 매수 한도</span>
         <span class="limit-amount" :class="limitClass">
@@ -70,12 +72,22 @@ export default {
         todayBuyAmountKrw: 0,
         remainingKrw: 0
       },
+      known: false,       // 상태를 한 번이라도 받았는가(마지막 조회 성공)
+      loadFailed: false,  // 마지막 조회가 실패했는가
       loading: false,
       acting: false,
       _timer: null
     }
   },
   computed: {
+    badgeText() {
+      if (!this.known) return this.loadFailed ? '상태 확인 실패' : '상태 확인 중'
+      return this.status.killSwitchEnabled ? '비상 정지 ON' : '매매 정상'
+    },
+    badgeClass() {
+      if (!this.known) return 'unknown'
+      return this.status.killSwitchEnabled ? 'active' : 'normal'
+    },
     limitPercent() {
       const limit = Number(this.status.dailyBuyLimitKrw) || 0
       const used = Number(this.status.todayBuyAmountKrw) || 0
@@ -110,12 +122,22 @@ export default {
         const body = res?.data || res
         if (body?.success && body?.data) {
           this.status = { ...this.status, ...body.data }
+          this.known = true
+          this.loadFailed = false
+        } else {
+          this.markFailed()
         }
       } catch (e) {
         console.warn('[Safety] 상태 조회 실패', e?.message)
+        this.markFailed()
       } finally {
         this.loading = false
       }
+    },
+    // 조회 실패 — 마지막으로 받은 상태를 현재처럼 보이지 않게 모름으로 둔다
+    markFailed() {
+      this.known = false
+      this.loadFailed = true
     },
     async confirmKill() {
       const reason = window.prompt('비상 정지 사유 (선택):', '수동 비상 정지')
@@ -191,6 +213,11 @@ export default {
   background: rgba(34,197,94,0.15);
   color: #22c55e;
   border: 1px solid rgba(34,197,94,0.3);
+}
+.status-badge.unknown {
+  background: rgba(234,179,8,0.15);
+  color: #eab308;
+  border: 1px solid rgba(234,179,8,0.35);
 }
 .status-badge.active {
   background: rgba(239,68,68,0.18);
