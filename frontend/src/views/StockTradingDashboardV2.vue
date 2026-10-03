@@ -423,8 +423,9 @@
             <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode + item.investorType"
                  class="supply-stock-row" role="button" tabindex="0"
                  @click="goToStock(item.stockCode)" @keydown.enter.self="goToStock(item.stockCode)" @keydown.space.self.prevent="goToStock(item.stockCode)">
+              <!-- 연기금 행도 온다(2026-10-03 응답에 PENSION 추가) — '기'(기관)로 보이지 않게 -->
               <span class="supply-investor-badge" :class="item.investorType === 'FOREIGN' ? 'foreign' : 'inst'">
-                {{ item.investorType === 'FOREIGN' ? '외' : '기' }}
+                {{ item.investorType === 'FOREIGN' ? '외' : item.investorType === 'PENSION' ? '연' : '기' }}
               </span>
               <span class="supply-stock-name">{{ item.stockName }}</span>
               <span class="supply-days">{{ item.consecutiveDays }}일</span>

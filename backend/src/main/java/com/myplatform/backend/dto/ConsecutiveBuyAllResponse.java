@@ -24,5 +24,9 @@ public class ConsecutiveBuyAllResponse {
     @JsonProperty("INSTITUTION")
     private List<ConsecutiveBuyDto> institution;
 
+    /** 연기금 — 서비스는 계산하는데 응답에 칸이 없어 화면 '연기금' 탭이 늘 비었다(2026-10-03). */
+    @JsonProperty("PENSION")
+    private List<ConsecutiveBuyDto> pension;
+
     private InvestorDataStatusDto dataStatus;
 }

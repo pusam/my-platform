@@ -77,3 +77,10 @@ describe('시장 탭 수급 패널 — 실패·빈 상태를 구분한다(2026-1
     expect(hub).not.toMatch(/let foreignNet = 0, instNet = 0/)
   })
 })
+
+describe('연속 순매수 목록의 연기금 행(2026-10-03)', () => {
+  it('재현: 응답에 PENSION 이 오면 허브 목록이 연기금을 기관(기)으로 보이지 않는다', () => {
+    const hub = readFileSync(join(process.cwd(), 'src/views/StockTradingDashboardV2.vue'), 'utf8')
+    expect(hub).toMatch(/item\.investorType === 'PENSION' \? '연' : '기'/)
+  })
+})

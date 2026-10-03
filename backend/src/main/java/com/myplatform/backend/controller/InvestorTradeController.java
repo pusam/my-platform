@@ -157,6 +157,7 @@ public class InvestorTradeController {
         ConsecutiveBuyAllResponse result = ConsecutiveBuyAllResponse.builder()
                 .foreign(stocks.get("FOREIGN"))
                 .institution(stocks.get("INSTITUTION"))
+                .pension(stocks.get("PENSION"))
                 .dataStatus(investorTradeService.getDataStatus())
                 .build();
 
