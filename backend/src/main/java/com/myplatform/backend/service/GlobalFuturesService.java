@@ -304,6 +304,19 @@ public class GlobalFuturesService {
      */
     public Map<String, Object> getKospiImpactAnalysis() {
         List<FuturesQuote> quotes = getAllFuturesQuotes();
+        Map<String, Object> analysis = analyzeImpact(quotes);
+        analysis.put("fearGreed", getFearGreedIndex());
+        return analysis;
+    }
+
+    /** 가중 지표 수 — 나스닥100·S&P500·WTI·달러/원·VIX. */
+    static final int IMPACT_FACTOR_TOTAL = 5;
+
+    /**
+     * 점수·등급 계산(네트워크 없음, 테스트 대상). 가중 지표를 하나도 받지 못하면 판단 보류 — 점수는 50(중립)에서 시작해
+     * 지표만큼 움직이므로, 지표가 없을 때의 50·'보합 출발 예상'은 계산값이 아니라 시작값이었다(2026-10-03, §4c).
+     */
+    Map<String, Object> analyzeImpact(List<FuturesQuote> quotes) {
         Map<String, Object> analysis = new LinkedHashMap<>();
 
         // 종목별 추출
@@ -415,7 +428,7 @@ public class GlobalFuturesService {
         }
 
         // 최종 점수 클램핑 (5~95)
-        int impactScore = (int) Math.max(5, Math.min(95, Math.round(weightedScore)));
+        Integer impactScore = (int) Math.max(5, Math.min(95, Math.round(weightedScore)));
 
         // ============================================================
         // 임계값 오버라이드: 극단적 시장 상황 감지 시 가중치 점수 무시
@@ -506,6 +519,11 @@ public class GlobalFuturesService {
             String reasons = String.join(" + ", overrideReasons);
             comment = buildComment(quoteMap, "폭락 경계 — " + reasons);
             log.warn("[코스피 전망] 임계값 오버라이드 발동: {}", reasons);
+        } else if (riskFactors.isEmpty()) {
+            impact = null;
+            alertLevel = "UNKNOWN";
+            impactScore = null;
+            comment = "해외 시세를 불러오지 못해 판단 보류 — 점수를 만들지 않았습니다.";
         } else if (impactScore <= 20) {
             impact = "NEGATIVE";
             alertLevel = "EXTREME_NEGATIVE";
@@ -536,13 +554,20 @@ public class GlobalFuturesService {
             comment = buildComment(quoteMap, "강한 상승 모멘텀 예상");
         }
 
+        // 일부 지표만 받았으면 몇 개로 계산했는지 밝힌다 — 빠진 지표는 0(중립)으로 더해진 셈이다
+        if (!riskFactors.isEmpty() && riskFactors.size() < IMPACT_FACTOR_TOTAL) {
+            comment = comment + String.format(" (지표 %d/%d개로 계산 — 나머지는 시세 없음)",
+                    riskFactors.size(), IMPACT_FACTOR_TOTAL);
+        }
+
         analysis.put("impact", impact);
         analysis.put("alertLevel", alertLevel);
         analysis.put("impactScore", impactScore);
         analysis.put("comment", comment);
+        analysis.put("factorCount", riskFactors.size());
+        analysis.put("factorTotal", IMPACT_FACTOR_TOTAL);
         analysis.put("riskFactors", riskFactors);
         analysis.put("quotes", quotes);
-        analysis.put("fearGreed", getFearGreedIndex());
         analysis.put("fetchedAt", LocalDateTime.now());
 
         return analysis;
@@ -844,10 +869,10 @@ public class GlobalFuturesService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", false);
         result.put("errorMessage", message);
-        result.put("score", 50);
+        result.put("score", null);      // 모름 — 50(중립)으로 채우지 않는다
         result.put("ratingKr", "데이터 없음");
         result.put("level", "neutral");
-        result.put("change", 0);
+        result.put("change", null);
         return result;
     }
 

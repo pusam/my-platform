@@ -106,3 +106,30 @@ export function stockNameOnce(name, code) {
   if (!n || n === code) return code || '-'
   return n
 }
+
+/**
+ * '종합 시장 방향성' 등급 → 화면 문구. 백엔드 alertLevel 단일 출처 — 화면이 점수로 다시 나누지 않는다(2026-10-03).
+ * 예전엔 시장 타이밍 미니 배너가 점수 60/40 으로 따로 나눠 같은 58점이 글로벌 화면에선 '소폭 강세', 여기선 '중립'이었다.
+ * UNKNOWN(해외 시세를 못 받음)은 '판단 보류' — 50점·'보합 예상'으로 보이지 않게.
+ */
+export function impactLabel(alertLevel) {
+  switch (alertLevel) {
+    case 'CRISIS': return '폭락 경계'
+    case 'EXTREME_NEGATIVE': return '극심한 약세'
+    case 'NEGATIVE': return '약세 주의'
+    case 'WEAK_NEGATIVE': return '소폭 약세'
+    case 'NEUTRAL': return '보합 예상'
+    case 'WEAK_POSITIVE': return '소폭 강세'
+    case 'POSITIVE': return '강세 예상'
+    case 'EXTREME_POSITIVE': return '강한 강세'
+    default: return '판단 보류'
+  }
+}
+
+/** 방향성 색 — positive / negative / neutral / unknown. */
+export function impactTone(alertLevel) {
+  if (alertLevel === 'CRISIS' || alertLevel === 'EXTREME_NEGATIVE' || alertLevel === 'NEGATIVE' || alertLevel === 'WEAK_NEGATIVE') return 'negative'
+  if (alertLevel === 'EXTREME_POSITIVE' || alertLevel === 'POSITIVE' || alertLevel === 'WEAK_POSITIVE') return 'positive'
+  if (alertLevel === 'NEUTRAL') return 'neutral'
+  return 'unknown'
+}

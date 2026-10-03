@@ -47,7 +47,7 @@
         <span class="impact-badge" :class="impactClass">{{ impactText }}</span>
         <span v-if="isExtremeAlert" class="extreme-alert-badge" :class="alertClass">{{ alertLabel }}</span>
       </div>
-      <div class="impact-score-bar">
+      <div v-if="impactData.impactScore != null" class="impact-score-bar">
         <div class="score-track">
           <div class="score-fill" :style="{ width: impactData.impactScore + '%' }"></div>
           <div class="score-needle" :style="{ left: impactData.impactScore + '%' }"></div>
@@ -362,6 +362,7 @@
 </template>
 
 <script setup>
+import { impactLabel, impactTone } from '../utils/marketDataLabels';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { globalFuturesAPI } from '../utils/api';
@@ -461,27 +462,16 @@ const vixEmoji = computed(() => vixStatus.value.emoji);
 const vixMeterWidth = computed(() => getVixMeterWidth(vixLevel.value));
 
 // 코스피 영향 분석
+// 등급 문구·색은 백엔드 alertLevel 단일 출처(utils/marketDataLabels) — UNKNOWN 은 '판단 보류'(2026-10-03)
 const impactClass = computed(() => {
   if (!impactData.value) return '';
-  const al = impactData.value.alertLevel;
-  if (al === 'CRISIS') return 'negative';
-  const impact = impactData.value.impact;
-  if (impact === 'POSITIVE') return 'positive';
-  if (impact === 'NEGATIVE') return 'negative';
-  return 'neutral';
+  const tone = impactTone(impactData.value.alertLevel);
+  return tone === 'unknown' ? 'neutral' : tone;
 });
 
 const impactText = computed(() => {
   if (!impactData.value) return '';
-  const al = impactData.value.alertLevel;
-  if (al === 'CRISIS') return '폭락 경계';
-  if (al === 'EXTREME_NEGATIVE') return '극심한 약세';
-  if (al === 'NEGATIVE') return '약세 주의';
-  if (al === 'WEAK_NEGATIVE') return '소폭 약세';
-  if (al === 'WEAK_POSITIVE') return '소폭 강세';
-  if (al === 'POSITIVE') return '강세 예상';
-  if (al === 'EXTREME_POSITIVE') return '강한 강세';
-  return '보합 예상';
+  return impactLabel(impactData.value.alertLevel);
 });
 
 const alertClass = computed(() => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf } from './marketDataLabels'
+import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf, impactLabel, impactTone } from './marketDataLabels'
 
 describe('marketTotalOf — 섹터 총 거래대금은 종목을 한 번만 센다', () => {
   it('재현: 섹터 합계를 더하면 겹치는 종목이 두 번 — 백엔드 marketTotalTradingValue 를 쓴다', () => {
@@ -93,5 +93,22 @@ describe('저장된 가격·종목 이름', () => {
   it('toMonthDay 는 날짜가 아니면 null', () => {
     expect(toMonthDay('2026-10-01')).toBe('10.01')
     expect(toMonthDay('10/01')).toBeNull()
+  })
+})
+
+describe('impactLabel / impactTone — 종합 시장 방향성 등급(백엔드 alertLevel 단일 출처, 2026-10-03)', () => {
+  it('재현: 해외 시세를 못 받은 UNKNOWN 은 판단 보류 — 보합 예상이 아니다', () => {
+    expect(impactLabel('UNKNOWN')).toBe('판단 보류')
+    expect(impactLabel(undefined)).toBe('판단 보류')
+    expect(impactTone('UNKNOWN')).toBe('unknown')
+  })
+
+  it('등급 문구는 글로벌 화면과 시장 타이밍 배너가 같다 — 점수로 다시 나누지 않는다', () => {
+    expect(impactLabel('WEAK_POSITIVE')).toBe('소폭 강세')
+    expect(impactLabel('NEUTRAL')).toBe('보합 예상')
+    expect(impactLabel('CRISIS')).toBe('폭락 경계')
+    expect(impactTone('WEAK_POSITIVE')).toBe('positive')
+    expect(impactTone('CRISIS')).toBe('negative')
+    expect(impactTone('NEUTRAL')).toBe('neutral')
   })
 })

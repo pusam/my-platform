@@ -308,13 +308,13 @@
       </div>
 
       <!-- KOSPI 영향도 배너 -->
-      <div v-if="impactData" class="impact-mini-banner" :class="getImpactClass(impactData.impactScore)">
+      <div v-if="impactData" class="impact-mini-banner" :class="getImpactClass(impactData.alertLevel)">
         <div class="impact-mini-left">
           <span class="impact-mini-label">종합 시장 방향성</span>
-          <span class="impact-mini-badge" :class="getImpactClass(impactData.impactScore)">
-            {{ impactData.impactScore >= 60 ? '강세' : impactData.impactScore >= 40 ? '중립' : '약세' }}
+          <span class="impact-mini-badge" :class="getImpactClass(impactData.alertLevel)">
+            {{ impactLabel(impactData.alertLevel) }}
           </span>
-          <span class="impact-mini-score">{{ impactData.impactScore }}점</span>
+          <span v-if="impactData.impactScore != null" class="impact-mini-score">{{ impactData.impactScore }}점</span>
         </div>
         <div class="impact-mini-comment">{{ impactData.comment }}</div>
       </div>
@@ -405,7 +405,7 @@ const props = defineProps({
 });
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI } from '../utils/api';
-import { commodityFromResponse, krwFromFuturesQuote } from '../utils/marketDataLabels';
+import { commodityFromResponse, krwFromFuturesQuote, impactLabel, impactTone } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import GlobalNav from '../components/GlobalNav.vue';
 import DataFreshness from '../components/DataFreshness.vue';
@@ -735,10 +735,12 @@ const fetchFutures = async () => {
   }
 };
 
-const getImpactClass = (score) => {
-  if (score >= 60) return 'impact-bullish';
-  if (score >= 40) return 'impact-neutral';
-  return 'impact-bearish';
+// 백엔드 alertLevel 로 색을 정한다 — 점수를 화면에서 다시 나누지 않는다(2026-10-03, 글로벌 화면과 같은 등급)
+const getImpactClass = (alertLevel) => {
+  const tone = impactTone(alertLevel);
+  if (tone === 'positive') return 'impact-bullish';
+  if (tone === 'negative') return 'impact-bearish';
+  return 'impact-neutral';
 };
 
 const formatFuturesPrice = (price) => {
