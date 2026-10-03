@@ -641,9 +641,12 @@ export const paperTradingAPI = {
   getAccountSummary() {
     return apiClient.get('/paper-trading/account/summary');
   },
-  // 포트폴리오 조회
-  getPortfolio() {
-    return apiClient.get('/paper-trading/portfolio');
+  // 포트폴리오 조회 — refresh=true 면 서버가 현재가(시세 단일 경로)로 평가손익을 갱신한 뒤 돌려준다.
+  // 갱신 없이 읽으면 DB 에 저장된 마지막 시세의 손익이다(봇이 꺼지면 며칠 묵는다, 2026-10-03).
+  getPortfolio(refresh = false) {
+    return refresh
+      ? apiClient.get('/paper-trading/portfolio', { params: { refresh: true } })
+      : apiClient.get('/paper-trading/portfolio');
   },
   // 거래 내역 조회 (페이징)
   getTradeHistory(page = 0, size = 20) {

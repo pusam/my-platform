@@ -276,14 +276,33 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
       { stockCode: '000660', stockName: 'SK하이닉스', quantity: 2, profitLoss: -20000, profitRate: -4.5 }
     ] } } })
     const w = await mountTab()
-    expect(w.text()).toContain('내 포지션 2종목')
+    expect(w.text()).toContain('모의투자 포지션 2종목')
     expect(w.text()).toContain('+30,000원')
   })
 
   it('포지션 비어있으면 섹션 숨김', async () => {
     stubAll()
     const w = await mountTab()
-    expect(w.text()).not.toContain('내 포지션')
+    expect(w.text()).not.toContain('포지션')
+  })
+
+  // 2026-10-03: 평가손익이 DB 에 저장된 마지막 시세 그대로였다(현재가 갱신은 매매 탭의 버튼을 눌러야만) — 봇이 꺼진 뒤로는
+  // 며칠 묵은 손익이 '오늘' 탭에 떴다. 이 목록은 모의투자 계좌인데 '내 포지션'(실계좌처럼)이라 불렀고, 조회 실패는 섹션을 숨겼다.
+  it('재현: 현재가를 갱신해 받아 오고(refresh) 시세 기준 시각을 보인다', async () => {
+    stubAll({ portfolio: { data: { success: true, data: [
+      { stockCode: '005930', stockName: '삼성전자', quantity: 10, profitLoss: 50000, profitRate: 7.1, updatedAt: '2026-10-02T15:31:00' },
+      { stockCode: '000660', stockName: 'SK하이닉스', quantity: 2, profitLoss: -20000, profitRate: -4.5, updatedAt: '2026-10-02T15:30:00' }
+    ] } } })
+    const w = await mountTab()
+    expect(paperTradingAPI.getPortfolio).toHaveBeenCalledWith(true)
+    expect(w.text()).toContain('10/02 15:31 시세 기준')
+  })
+
+  it('재현: 포지션 조회 실패는 숨기지 않고 실패라고 말한다', async () => {
+    stubAll()
+    paperTradingAPI.getPortfolio.mockRejectedValue(new Error('500'))
+    const w = await mountTab()
+    expect(w.text()).toContain('모의투자 포지션을 불러오지 못했습니다')
   })
 
   it('후보 클릭 → open-stock emit, "매매 탭 전체 보기" → navigate emit', async () => {

@@ -1234,7 +1234,9 @@ const loadData = async () => {
 
   const loadPortfolio = async () => {
     try {
-      const res = await paperTradingAPI.getPortfolio();
+      // 자동 갱신(30초)도 현재가로 갱신된 손익을 받는다 — 예전엔 '새로고침' 버튼을 눌러야만 갱신돼 '30초 갱신' 표시와
+      // 달리 평가손익이 마지막 저장 시세에 멈춰 있었다(2026-10-03)
+      const res = await paperTradingAPI.getPortfolio(true);
       if (res.data.success) portfolio.value = res.data.data;
     } catch (e) { console.warn('포트폴리오 로드 실패:', e.message); }
   };

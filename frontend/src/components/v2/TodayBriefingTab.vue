@@ -119,14 +119,19 @@
       <p v-if="youtubeNote" class="cc-yt-note" :class="{ 'cc-yt-note-warn': youtubeUnavailable }">{{ youtubeNote }}</p>
     </div>
 
-    <!-- ③ 내 포지션 요약 — 내 돈이 걸린 정보라 후보 바로 다음(위) -->
-    <div class="today-section" v-if="portfolio.length">
+    <!-- ③ 모의투자 포지션 요약 — 후보 바로 다음(위). 이 목록은 모의투자(가상) 계좌다 — 예전 이름 '내 포지션'은 실계좌처럼
+         읽혔다. 평가손익은 서버가 현재가로 갱신한 값이고(refresh), 시세 기준 시각을 같이 보인다(2026-10-03). -->
+    <div class="today-section" v-if="portfolioError">
+      <p class="ts-pos-failed" role="status">모의투자 포지션을 불러오지 못했습니다 — 매매 탭에서 다시 확인하세요.</p>
+    </div>
+    <div class="today-section" v-else-if="portfolio.length">
       <div class="ts-title-row">
-        <h2>💼 내 포지션 {{ portfolio.length }}종목</h2>
+        <h2>💼 모의투자 포지션 {{ portfolio.length }}종목</h2>
         <span class="ts-pl" :class="totalProfitLoss >= 0 ? 'positive' : 'negative'">
           평가손익 {{ signed(totalProfitLoss, true) }}원
         </span>
       </div>
+      <p v-if="portfolioAsOf" class="ts-pos-asof">{{ portfolioAsOf }} 시세 기준</p>
       <div class="position-list">
         <div v-for="p in portfolio.slice(0, 3)" :key="p.stockCode"
              class="position-row" role="button" tabindex="0"
@@ -226,6 +231,14 @@ const bandAccuracy = ref(null);      // accuracy-by-band(보드 격리 + phase-3
 const recDataTime = ref(null);       // 후보 계산 기준 시각(백엔드 dataTime) — as-of 정직 표시
 const recRealtime = ref(true);       // false = 마지막 계산 스냅샷(전일 마감 등)
 const portfolio = ref([]);
+const portfolioError = ref(false);
+// 평가손익의 시세 기준 시각 = 행 갱신 시각 중 가장 최근(서버가 현재가로 갱신할 때 같이 바뀐다). 모르면 생략.
+const portfolioAsOf = computed(() => {
+  const times = portfolio.value.map(p => p && p.updatedAt).filter(t => typeof t === 'string' && t.length >= 16).sort();
+  if (!times.length) return '';
+  const t = times[times.length - 1];
+  return `${t.slice(5, 7)}/${t.slice(8, 10)} ${t.slice(11, 16)}`;
+});
 const overnight = ref(null);          // 간밤 미국장 tilt(미검증 참고 · regime 산식 미편입)
 const overnightAvailable = ref(true); // dataAvailable=false → Yahoo 미가용
 const macroTilt = ref(null);          // 매크로 tilt(P3-7 · 미검증 참고 · regime 산식 미편입)
@@ -440,11 +453,13 @@ const loadTrust = async () => {
 
 const loadPortfolio = async () => {
   try {
-    const { data } = await paperTradingAPI.getPortfolio();
+    const { data } = await paperTradingAPI.getPortfolio(true);
     const list = data?.data;
     portfolio.value = Array.isArray(list) ? list : [];
+    portfolioError.value = false;
   } catch (e) {
-    portfolio.value = []; // 미보유/권한 없음 — 섹션 자체를 숨김
+    portfolio.value = [];
+    portfolioError.value = true; // 조회 실패는 '보유 없음'이 아니다 — 숨기지 않고 말한다(§4c)
   }
 };
 
@@ -708,6 +723,8 @@ onMounted(() => {
   color: #fbbf24;
 }
 
+.ts-pos-asof { margin: 4px 0 0; font-size: 12px; opacity: 0.65; }
+.ts-pos-failed { margin: 0; font-size: 13px; color: var(--warning-color, #eab308); }
 /* ④ 포지션 */
 .position-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .position-row {
