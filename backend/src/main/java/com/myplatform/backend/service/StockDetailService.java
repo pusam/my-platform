@@ -828,6 +828,10 @@ public class StockDetailService {
         return false;
     }
 
+    /** Gemini 응답이 없을 때 AI 카드 문구 — 의견을 지어내지 않았다고 말한다. */
+    static final String NO_AI_STRATEGY_TEXT =
+            "AI 분석 불가 — Gemini 응답이 없어 의견을 만들지 않았습니다. 아래 근거는 관측값이고, 매수·매도 판단은 결론 카드를 따르세요.";
+
     private AiAnalysis generateAiAnalysis(StockDetailDto dto) {
         // 판정할 입력이 하나도 없으면 의견을 만들지 않는다 — "중립 50점"은 중립이 아니라 모른다는 뜻이다(§4c).
         if (!hasAnalyzableInput(dto)) {
@@ -1033,86 +1037,17 @@ public class StockDetailService {
         //   parseGeminiResponse 와 동일한 순수 로직 재사용("수급 강세" 미스노머 제거).
         technicalSignal = resolveTechnicalSignal(technicalSignal, recommendation, null);
 
-        // ★ 동적 가격 가이드 생성
-        String priceGuide = generatePriceGuide(dto, recommendation, score);
-
+        // Gemini 응답이 없을 때의 규칙 경로 — 관측된 근거(체결강도·순매수·이평선 등)만 보이고, 점수·판단·전략 문구·가격 가이드는
+        // 만들지 않는다(2026-10-03). 예전엔 기본 50점에 가감한 점수로 "적극 매수 구간입니다. … 분할 매수 전략을 권장합니다"
+        // 같은 문장과 목표가(+12%)·손절가를 내놓아 'AI 분석'처럼 보였다(§4c). 매수·매도 판단은 결론 카드.
         return AiAnalysis.builder()
-                .overallScore(score)
-                .recommendation(recommendation)
-                .strategy(strategy)
+                .overallScore(null)
+                .recommendation(null)
+                .strategy(NO_AI_STRATEGY_TEXT)
                 .technicalSignal(technicalSignal)
                 .buyReasons(buyReasons)
                 .sellReasons(sellReasons)
-                .conflictAnalysis(conflictAnalysis)
-                .priceGuide(priceGuide)
                 .build();
-    }
-
-    /**
-     * 동적 가격 가이드 생성 (구체적 가격대 포함)
-     */
-    private String generatePriceGuide(StockDetailDto dto, String recommendation, int score) {
-        if (dto.getPrice() == null || dto.getPrice().getCurrentPrice() == null) return null;
-
-        BigDecimal currentPrice = dto.getPrice().getCurrentPrice();
-        double price = currentPrice.doubleValue();
-
-        // 지지선/저항선 계산
-        BigDecimal ma20 = dto.getChartData() != null ? dto.getChartData().getMa20() : null;
-        BigDecimal ma60 = dto.getChartData() != null ? dto.getChartData().getMa60() : null;
-        BigDecimal vwap = dto.getChartData() != null ? dto.getChartData().getVwap() : null;
-        BigDecimal low = dto.getPrice().getLow();
-
-        // 가격 반올림 단위 결정 (1000원 이상 → 1000원 단위, 미만 → 100원 단위)
-        int roundUnit = price >= 100000 ? 10000 : (price >= 10000 ? 1000 : 100);
-
-        // 매수 목표가: MA20 근처 또는 현재가 -3~5%
-        long supportPrice;
-        if (ma20 != null && ma20.doubleValue() < price) {
-            supportPrice = Math.round(ma20.doubleValue() / roundUnit) * roundUnit;
-        } else if (vwap != null && vwap.doubleValue() < price) {
-            supportPrice = Math.round(vwap.doubleValue() / roundUnit) * roundUnit;
-        } else {
-            supportPrice = Math.round(price * 0.97 / roundUnit) * roundUnit;
-        }
-
-        // 목표가: 현재가 + 10~15%
-        long targetPrice = Math.round(price * 1.12 / roundUnit) * roundUnit;
-
-        // 손절가: MA60 하회 또는 현재가 -7%
-        long stopLossPrice;
-        if (ma60 != null) {
-            stopLossPrice = Math.round(ma60.doubleValue() * 0.98 / roundUnit) * roundUnit;
-        } else {
-            stopLossPrice = Math.round(price * 0.93 / roundUnit) * roundUnit;
-        }
-
-        String priceFormat = "%,d";
-        switch (recommendation) {
-            case "BUY":
-                return String.format("현재가(%s원) 부근 분할 매수, 목표가 %s원, 손절 %s원 하회 시 검토",
-                        String.format(priceFormat, (long) price),
-                        String.format(priceFormat, targetPrice),
-                        String.format(priceFormat, stopLossPrice));
-            case "TRADING_BUY":
-                return String.format("%s원대 진입 시 단기 매수, 목표 %s원, %s원 이탈 시 손절",
-                        String.format(priceFormat, supportPrice),
-                        String.format(priceFormat, targetPrice),
-                        String.format(priceFormat, stopLossPrice));
-            case "WAIT_AND_BUY":
-                return String.format("%s원대 조정 시 분할 매수 추천, %s원 이하 진입 매력 극대화",
-                        String.format(priceFormat, supportPrice),
-                        String.format(priceFormat, supportPrice));
-            case "HOLD":
-                return String.format("보유 지속, %s원 하회 시 비중 축소, %s원 돌파 시 추가 매수 검토",
-                        String.format(priceFormat, stopLossPrice),
-                        String.format(priceFormat, targetPrice));
-            case "SELL":
-                return String.format("비중 축소 권장, %s원 이하 하락 시 손절 고려",
-                        String.format(priceFormat, stopLossPrice));
-            default:
-                return null;
-        }
     }
 
     // ========== 장 마감 후 일별 데이터 조회 ==========
@@ -2520,77 +2455,20 @@ public class StockDetailService {
     }
 
     /**
-     * Gemini 응답 텍스트 파싱 → AiAnalysis
+     * Gemini 응답 텍스트 파싱 → AiAnalysis(2026-10-03 재작성).
+     *
+     * <p>판정은 본문 '■ 종합 판단' 섹션의 첫 판단어(매수/관망/매도) 하나다. 예전엔 응답 <b>어디에든</b> '매수'(순매수·매수세·
+     * 분할 매수)가 있으면 70점으로 시작해 거의 모든 종목이 같은 점수였고, 그 점수와 재무 추정(PER&lt;10 이면 +15 등)으로
+     * BUY/Trading Buy/Wait &amp; Buy·충돌 문구·가격 가이드(목표 +12%·손절 MA60×0.98)를 만들었다 — 결론 카드의 검증 규칙
+     * (손절 −3%·익절 +5%)과 다른 숫자가 같은 화면에 떴다. 숫자 점수·가격 가이드는 만들지 않는다(§4c). 매수·매도 판단은 결론 카드.
      */
     private AiAnalysis parseGeminiResponse(String response, StockDetailDto dto) {
-        // 1차: 키워드 기반 점수 시드
-        int keywordScore = 50;
-        if (response.contains("매수") || response.contains("BUY") || response.contains("적극")) {
-            keywordScore = 70;
-        } else if (response.contains("매도") || response.contains("SELL") || response.contains("회피")) {
-            keywordScore = 30;
-        }
+        String bodyVerdict = classifyVerdict(extractSection(response, "종합 판단"));
+        String recommendation = verdictRecommendation(bodyVerdict);
 
-        // 수급/재무 데이터로 점수 보정
-        int score = keywordScore;
-        if (dto.getSupplyDemand() != null) {
-            SupplyDemand s = dto.getSupplyDemand();
-            if (s.getForeignNetBuy() != null && s.getForeignNetBuy().doubleValue() > 10) score += 5;
-            if (s.getForeignNetBuy() != null && s.getForeignNetBuy().doubleValue() < -10) score -= 5;
-            if (s.getInstNetBuy() != null && s.getInstNetBuy().doubleValue() > 10) score += 5;
-            if (s.getInstNetBuy() != null && s.getInstNetBuy().doubleValue() < -10) score -= 5;
-        }
-        score = Math.max(0, Math.min(100, score));
-
-        // ★ 펀더멘털 점수 추정 (generateAiAnalysis와 동일 로직)
-        int fundamentalEstimate = 50;
-        if (dto.getFinancial() != null) {
-            FinancialInfo fin = dto.getFinancial();
-            if (fin.getPer() != null && fin.getPer().doubleValue() > 0 && fin.getPer().doubleValue() < 10) fundamentalEstimate += 15;
-            if (fin.getPbr() != null && fin.getPbr().doubleValue() > 0 && fin.getPbr().doubleValue() < 1) fundamentalEstimate += 10;
-            if (fin.getRoe() != null && fin.getRoe().doubleValue() > 10) fundamentalEstimate += 10;
-            if (fin.getDividendYield() != null && fin.getDividendYield().doubleValue() > 3) fundamentalEstimate += 5;
-        }
-        fundamentalEstimate = Math.min(100, fundamentalEstimate);
-        int scoreDiff = fundamentalEstimate - score;
-
-        // ★ 점수 기반 recommendation (WAIT_AND_BUY / TRADING_BUY 포함)
-        String recommendation;
-        String conflictAnalysis = null;
-
-        if (scoreDiff > 25 && fundamentalEstimate >= 65) {
-            recommendation = "WAIT_AND_BUY";
-        } else if (score >= 55 && fundamentalEstimate >= 60) {
-            recommendation = "TRADING_BUY";
-        } else if (score >= 65) {
-            recommendation = "BUY";
-        } else if (score >= 40) {
-            recommendation = "HOLD";
-        } else {
-            recommendation = "SELL";
-        }
-
-        // ★ 충돌 분석에 MA20 기반 지지가격 포함
-        if ("WAIT_AND_BUY".equals(recommendation)) {
-            BigDecimal ma20 = dto.getChartData() != null ? dto.getChartData().getMa20() : null;
-            if (ma20 != null && dto.getPrice() != null && dto.getPrice().getCurrentPrice() != null) {
-                double price = dto.getPrice().getCurrentPrice().doubleValue();
-                int roundUnit = price >= 100000 ? 10000 : (price >= 10000 ? 1000 : 100);
-                long supportPrice = Math.round(ma20.doubleValue() / roundUnit) * roundUnit;
-                conflictAnalysis = String.format(
-                        "장기적 상승 추세는 유효하나(%d점), 단기 과열로 조정 가능성 있음. %,d원대 지지 확인 후 분할 매수 추천.",
-                        fundamentalEstimate, supportPrice);
-            } else {
-                conflictAnalysis = String.format(
-                        "단기 트레이딩 점수(%d점)와 중장기 펀더멘털(%d점) 간 괴리가 큽니다. 조정 시 분할 매수 기회로 활용하세요.",
-                        score, fundamentalEstimate);
-            }
-        }
-
-        // 매수/매도 근거 추출 (응답에서 줄 단위 파싱)
+        // 매수/매도 근거 — 응답의 목록 줄을 그대로 옮긴다(Gemini 서술). 분류가 애매한 줄은 판단 방향을 따른다.
         List<String> buyReasons = new ArrayList<>();
         List<String> sellReasons = new ArrayList<>();
-
         String[] lines = response.split("[\\n\\r]+");
         for (String line : lines) {
             String trimmed = line.trim();
@@ -2603,20 +2481,16 @@ public class StockDetailService {
                     } else if (content.contains("리스크") || content.contains("주의") || content.contains("하락")
                             || content.contains("매도") || content.contains("부정") || content.contains("우려")) {
                         sellReasons.add(content);
-                    } else {
-                        if ("BUY".equals(recommendation) || "TRADING_BUY".equals(recommendation)
-                                || "WAIT_AND_BUY".equals(recommendation)) {
-                            buyReasons.add(content);
-                        } else if ("SELL".equals(recommendation)) {
-                            sellReasons.add(content);
-                        }
+                    } else if ("BUY".equals(recommendation)) {
+                        buyReasons.add(content);
+                    } else if ("SELL".equals(recommendation)) {
+                        sellReasons.add(content);
                     }
                 }
             }
         }
 
-        // 기술적 신호(차트 기반) → recommendation·본문 종합판단과 정합.
-        //   ★ "수급 강세" 미스노머 제거(수급 데이터 무근거) + 본문 종합판단이 매도/관망인데 점수는 매수면 라벨 억제.
+        // 기술적 신호(차트 기반) — 이평선 위치만, 판단과 모순이면 라벨 억제(resolveTechnicalSignal)
         String chartSignal = "NEUTRAL";
         if (dto.getChartData() != null && dto.getPrice() != null && dto.getChartData().getMa20() != null) {
             BigDecimal cp = dto.getPrice().getCurrentPrice();
@@ -2627,29 +2501,26 @@ public class StockDetailService {
                 chartSignal = "이평선 하향 이탈";
             }
         }
-        String bodyVerdict = classifyVerdict(extractSection(response, "종합 판단"));
         String technicalSignal = resolveTechnicalSignal(chartSignal, recommendation, bodyVerdict);
-        // ★ 큰 판정 뱃지(recommendation)도 본문 종합판단과 정합 — 점수 매수 rec 이 본문 매도/관망과 모순이면 HOLD 억제(#2).
-        //   점수(overallScore)·technicalSignal·근거는 원본 그대로 두고 표시 라벨만 정합(산식 무접촉).
-        String displayRecommendation = reconcileRecommendationWithBody(recommendation, bodyVerdict);
-
-        // ★ 동적 가격 가이드
-        String priceGuide = generatePriceGuide(dto, recommendation, score);
-
-        // ★ "차트 해석" 섹션 추출 — Gemini 응답에서 ■ 차트 해석 ~ ■ 다음 섹션 사이 텍스트
         String chartAnalysis = extractSection(response, "차트 해석");
 
         return AiAnalysis.builder()
-                .overallScore(score)
-                .recommendation(displayRecommendation)
-                .strategy(response) // Gemini 전체 응답을 전략 텍스트로 사용
+                .overallScore(null)                 // 숫자 점수 없음 — 키워드로 만든 70점은 점수가 아니었다
+                .recommendation(recommendation)     // Gemini 종합 판단(매수→BUY·관망→HOLD·매도→SELL), 없으면 null
+                .strategy(response)                 // Gemini 전체 응답
                 .technicalSignal(technicalSignal)
                 .buyReasons(buyReasons)
                 .sellReasons(sellReasons)
-                .conflictAnalysis(conflictAnalysis)
-                .priceGuide(priceGuide)
                 .chartAnalysis(chartAnalysis)
                 .build();
+    }
+
+    /** Gemini 본문 종합 판단어 → 표시 라벨. 모르면 null(HOLD 로 채우지 않는다). 순수. */
+    static String verdictRecommendation(String verdict) {
+        if ("매수".equals(verdict)) return "BUY";
+        if ("매도".equals(verdict)) return "SELL";
+        if ("관망".equals(verdict)) return "HOLD";
+        return null;
     }
 
     /**

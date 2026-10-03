@@ -6,6 +6,7 @@
 <template>
   <div class="ai-strategy-section">
     <h2>AI 매매 전략</h2>
+    <p class="ai-note">Gemini 서술 · 미검증 — 숫자 점수·목표가는 만들지 않습니다. 매수·매도 판단은 결론 카드를 따르세요.</p>
 
     <!-- 차트 시그널 칩 (규칙 기반 확정 신호) -->
     <div v-if="aiAnalysis?.chartSignals?.length" class="chart-signal-chips">
@@ -169,6 +170,7 @@ const formatPrice = (price) => {
 
 <style scoped>
 /* AI Strategy */
+.ai-note { margin: -4px 0 10px; font-size: 12px; color: var(--text-secondary, rgba(255,255,255,0.6)); }
 .ai-strategy-section {
   margin-top: 16px;
   padding-top: 16px;

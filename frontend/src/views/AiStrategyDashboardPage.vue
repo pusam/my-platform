@@ -31,7 +31,7 @@
                   <div class="score-fill scalping" :style="{ width: strategyScores.scalping + '%' }"></div>
                 </div>
               </div>
-              <span class="score-number">{{ strategyScores.scalping }}</span>
+              <span class="score-number">{{ strategyScores.scalping ?? '-' }}</span>
             </div>
             <div class="score-item" @click="activeTab = 'swing'">
               <span class="score-label">📈 스윙</span>
@@ -40,7 +40,7 @@
                   <div class="score-fill swing" :style="{ width: strategyScores.swing + '%' }"></div>
                 </div>
               </div>
-              <span class="score-number">{{ strategyScores.swing }}</span>
+              <span class="score-number">{{ strategyScores.swing ?? '-' }}</span>
             </div>
             <div class="score-item" @click="activeTab = 'trend'">
               <span class="score-label">🔄 턴어라운드</span>
@@ -49,7 +49,7 @@
                   <div class="score-fill turnaround" :style="{ width: strategyScores.turnaround + '%' }"></div>
                 </div>
               </div>
-              <span class="score-number">{{ strategyScores.turnaround }}</span>
+              <span class="score-number">{{ strategyScores.turnaround ?? '-' }}</span>
             </div>
             <div class="score-item" @click="activeTab = 'value'">
               <span class="score-label">💎 가치투자</span>
@@ -58,18 +58,12 @@
                   <div class="score-fill value" :style="{ width: strategyScores.value + '%' }"></div>
                 </div>
               </div>
-              <span class="score-number">{{ strategyScores.value }}</span>
+              <span class="score-number">{{ strategyScores.value ?? '-' }}</span>
             </div>
           </div>
-          <div class="total-score-section">
-            <div class="total-score-box">
-              <span class="total-label">AI 종합 투자 매력도</span>
-              <span class="total-value">{{ totalScore }}</span>
-            </div>
-            <div class="total-opinion-box" :class="opinionClass">
-              {{ totalOpinion }}
-            </div>
-          </div>
+          <!-- '종합 매력도 점수 + 매수 의견' 상자는 지웠다(2026-10-03) — 전략별 상위 5종목 점수 평균의 평균이라 상위가 대개
+               만점인 스크리너 구조상 늘 높게 나왔다(시장 판단이 아니다). 전략 막대도 같은 뜻이라 설명을 붙인다. -->
+          <p class="score-note">전략별 점수 = 그 전략 스크리너 상위 종목 점수의 평균(상위는 대개 만점) — 시장 판단·매수 의견이 아닙니다.</p>
         </div>
       </div>
 
@@ -178,10 +172,11 @@
               </div>
             </div>
 
-            <!-- AI 제안 영역 -->
+            <!-- 전략 고정 규칙(목표·손절·보유 기간은 전략마다 같은 값 — AI 가 종목별로 낸 숫자가 아니다, 2026-10-03) -->
             <div class="ai-suggestion">
+              <div class="suggestion-caption">전략 고정 규칙 — 종목별 예측 아님</div>
               <div class="suggestion-row target">
-                <span class="suggestion-label">기대 수익률</span>
+                <span class="suggestion-label">목표 수익률</span>
                 <span class="suggestion-value positive">+{{ stock.expectedReturn }}%</span>
               </div>
               <div class="suggestion-row stoploss">
@@ -189,7 +184,7 @@
                 <span class="suggestion-value negative">{{ formatNumber(stock.stopLoss) }}원 (-{{ stock.stopLossPercent }}%)</span>
               </div>
               <div class="suggestion-row holding">
-                <span class="suggestion-label">예상 보유</span>
+                <span class="suggestion-label">보유 기간</span>
                 <span class="suggestion-value">{{ stock.holdingPeriod }}</span>
               </div>
             </div>
@@ -304,30 +299,6 @@ const strategyScores = ref({
   value: 0
 });
 
-// 종합 점수 계산
-const totalScore = computed(() => {
-  const scores = strategyScores.value;
-  return Math.round((scores.scalping + scores.swing + scores.turnaround + scores.value) / 4);
-});
-
-// 종합 의견
-const totalOpinion = computed(() => {
-  const score = totalScore.value;
-  if (score >= 80) return '적극 매수';
-  if (score >= 70) return '매수';
-  if (score >= 55) return '관망';
-  return '매도';
-});
-
-// 의견 클래스
-const opinionClass = computed(() => {
-  const score = totalScore.value;
-  if (score >= 80) return 'strong-buy';
-  if (score >= 70) return 'buy';
-  if (score >= 55) return 'hold';
-  return 'sell';
-});
-
 // 전략 탭 정의
 const strategyTabs = [
   { key: 'scalping', icon: '⚡', label: '초단타', period: '분~시간' },
@@ -429,8 +400,8 @@ const loadSnapshotData = async () => {
     }
   } catch (error) {
     console.error('스냅샷 데이터 로드 오류:', error);
-    // 모든 전략 점수 0으로 초기화
-    strategyScores.value = { scalping: 0, swing: 0, turnaround: 0, value: 0 };
+    // 조회 실패는 0점이 아니라 모름('-') — 예전엔 0 으로 채워 '0점'으로 보였다(2026-10-03)
+    strategyScores.value = { scalping: null, swing: null, turnaround: null, value: null };
   }
 };
 
@@ -454,7 +425,7 @@ const mapSnapshotToCard = (snapshots, strategyType) => {
       stockName: snapshot.stockName,
       currentPrice: currentPrice,
       previousClose: currentPrice, // 스냅샷에서는 전일종가 없음
-      changeRate: snapshot.changeRate || 0,
+      changeRate: snapshot.changeRate ?? null,   // 모르면 null — 0% 로 채우지 않는다
       priceFlash: null,
       reasons: buildReasons(snapshot, strategyType),
       expectedReturn: config.expectedReturn,
@@ -1401,6 +1372,8 @@ onMounted(async () => {
 }
 
 /* 시장 요약 */
+.score-note { margin: 8px 0 0; font-size: 12px; color: var(--text-secondary, rgba(255,255,255,0.6)); }
+.suggestion-caption { font-size: 11px; color: var(--text-secondary, rgba(255,255,255,0.55)); margin-bottom: 4px; }
 .market-summary {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.1);

@@ -68,47 +68,14 @@ export default {
       return list.slice(0, 2)
     },
     recommendation() {
-      const fund = this.fundScore
-      const ai = this.aiRec
-      const supplyPos = this.isSupplyPositive
-      const supplyNeg = this.isSupplyNegative
-      const overheated = this.rsi != null && this.rsi >= 75
-
-      // 데이터 부족
-      if (fund == null && !ai) {
+      // 자체 매수·매도 판정은 내지 않는다(2026-10-03). 예전엔 진단 점수(기본값 50 이 섞인 종합)·AI 키워드 점수('매수'라는
+      // 단어만 있으면 70)·5일 수급(부호 오류로 순매도가 순매수)을 엮어 '🚀 적극 매수 / 🎯 선별 매수 / 🛡️ 회피 / 👀 관망'을
+      // 만들었고, 바로 위 결론 카드(검증 규칙 55/75)와 다른 말을 했다(삼성전기: 카드 '매수' · 헤드라인 '관망').
+      // 판단은 결론 카드 하나 — 여기는 관측된 주의 사항만 남긴다.
+      if (this.fundScore == null && !this.aiRec && !this.cautions.length) {
         return { cls: 'rec-loading', icon: '⏳', label: '분석 중', reason: '데이터를 수집하고 있습니다' }
       }
-
-      // 매도/회피 우선
-      if (this.isAiSell || this.isFundBearish) {
-        return { cls: 'rec-defensive', icon: '🛡️', label: '회피',
-                 reason: this.isFundBearish ? '펀더멘털 부진' : 'AI 매도 신호' }
-      }
-
-      // 적극 매수
-      if (this.isFundBullish && this.isAiBuy && supplyPos && !overheated) {
-        return { cls: 'rec-strong', icon: '🚀', label: '적극 매수',
-                 reason: '펀더멘털·AI·수급 모두 긍정' }
-      }
-
-      // 선별 매수
-      if (this.isAiBuy && (this.isFundBullish || supplyPos)) {
-        const why = supplyPos ? '외인·기관 매수 동반' : 'AI 매수 + 펀더멘털 양호'
-        return { cls: 'rec-buy', icon: '🎯', label: '선별 매수',
-                 reason: why + (overheated ? ' (RSI 과열로 분할 매수)' : '') }
-      }
-
-      // 수급 부정 + 약세
-      if (supplyNeg && fund != null && fund < 60) {
-        return { cls: 'rec-defensive', icon: '🛡️', label: '회피',
-                 reason: '수급 이탈 + 펀더멘털 약함' }
-      }
-
-      // 관망
-      const reason = fund != null
-        ? (fund >= 50 ? '펀더멘털 보통, 명확한 신호 부족' : '펀더멘털 약함, 진입 타이밍 대기')
-        : 'AI 신호 부족 — 추가 데이터 확인'
-      return { cls: 'rec-hold', icon: '👀', label: '관망', reason }
+      return { cls: 'rec-hold', icon: '📋', label: '참고', reason: '매수·매도 판단은 위 결론 카드(검증 규칙)를 따릅니다' }
     }
   }
 }

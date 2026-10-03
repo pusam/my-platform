@@ -665,5 +665,52 @@ class StockDetailServiceTest {
             }
         }
     }
+
+    @Nested
+    @DisplayName("AI 카드 — 키워드 점수·자체 가격 가이드 없음(2026-10-03)")
+    class AiVerdictOnly {
+
+        @Test
+        @DisplayName("재현: 본문에 '순매수'가 있어도 종합 판단이 관망이면 HOLD — 숫자 점수·가격 가이드·충돌 문구 없음")
+        void verdictFromBodyOnly() {
+            String resp = "■ 수급\n- 외국인 순매수 지속, 매수세 유입\n■ 종합 판단\n관망. 추가 확인 필요\n";
+            StockDetailDto dto = StockDetailDto.builder().stockCode("009150").build();
+
+            AiAnalysis a = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                    stockDetailService, "parseGeminiResponse", resp, dto);
+
+            assertThat(a.getOverallScore()).isNull();
+            assertThat(a.getRecommendation()).isEqualTo("HOLD");
+            assertThat(a.getPriceGuide()).isNull();
+            assertThat(a.getConflictAnalysis()).isNull();
+        }
+
+        @Test
+        @DisplayName("판단어 매핑 — 모르면 null(HOLD 로 채우지 않는다)")
+        void verdictMapping() {
+            assertThat(StockDetailService.verdictRecommendation("매수")).isEqualTo("BUY");
+            assertThat(StockDetailService.verdictRecommendation("관망")).isEqualTo("HOLD");
+            assertThat(StockDetailService.verdictRecommendation("매도")).isEqualTo("SELL");
+            assertThat(StockDetailService.verdictRecommendation(null)).isNull();
+        }
+
+        @Test
+        @DisplayName("재현: Gemini 가 없을 때 '적극 매수 구간입니다'·점수·목표가를 지어내던 규칙 경로 — 이제 '분석 불가'와 관측 근거만")
+        void ruleFallbackHasNoVerdict() {
+            StockDetailDto dto = StockDetailDto.builder().stockCode("009150")
+                    .price(PriceInfo.builder().currentPrice(new BigDecimal("1577000")).changeRate(new BigDecimal("1.02")).build())
+                    .supplyDemand(SupplyDemand.builder().volumePower(new BigDecimal("129.1"))
+                            .foreignNetBuy(new BigDecimal("727")).instNetBuy(new BigDecimal("-31.6")).build())
+                    .build();
+
+            AiAnalysis a = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                    stockDetailService, "generateAiAnalysis", dto);
+
+            assertThat(a.getOverallScore()).isNull();
+            assertThat(a.getRecommendation()).isNull();
+            assertThat(a.getPriceGuide()).isNull();
+            assertThat(a.getStrategy()).isEqualTo(StockDetailService.NO_AI_STRATEGY_TEXT);
+        }
+    }
 }
 

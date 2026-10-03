@@ -26,8 +26,7 @@ describe('StockBriefingHeadline — 수급 키 정합', () => {
   })
 })
 
-// recommendation 사다리 5분기 — 이 컴포넌트의 주 출력. 우선순위(회피 > 적극 > 선별 > 수급회피 > 관망)와
-// 각 분기의 성립 조건을 고정한다.
+// 자체 매수·매도 판정은 내지 않는다(2026-10-03) — 결론 카드와 다른 말을 했다. 주의 사항(관측값)만.
 function mountFull({ fund = 55, rsi = 50, aiRec = 'HOLD', foreign = null, inst = null, warnings } = {}) {
   return mount(StockBriefingHeadline, {
     props: {
@@ -37,48 +36,26 @@ function mountFull({ fund = 55, rsi = 50, aiRec = 'HOLD', foreign = null, inst =
         supplyDemand: { foreignNet5Days: foreign, institutionNet5Days: inst },
         ...(warnings ? { warnings } : {})
       },
-      aiAnalysis: { overallScore: 60, recommendation: aiRec }
+      aiAnalysis: { overallScore: null, recommendation: aiRec }
     }
   })
 }
 
-describe('StockBriefingHeadline — recommendation 사다리', () => {
-  it('데이터 전무 → 분석 중', () => {
+describe('StockBriefingHeadline — 판정 없음, 주의 사항만', () => {
+  it('재현: 펀더멘털·AI·수급이 모두 좋아 보여도 "적극 매수"를 말하지 않는다', () => {
+    const w = mountFull({ fund: 80, aiRec: 'BUY', foreign: 100, inst: 50 })
+    expect(w.text()).not.toMatch(/적극 매수|선별 매수|회피|관망/)
+    expect(w.find('.rec-label').text()).toBe('참고')
+    expect(w.text()).toContain('결론 카드')
+  })
+
+  it('관측된 주의 사항은 그대로 — RSI 과열', () => {
+    const w = mountFull({ rsi: 78 })
+    expect(w.find('.rec-cautions').text()).toContain('RSI 과열')
+  })
+
+  it('입력이 아무것도 없으면 분석 중', () => {
     const w = mount(StockBriefingHeadline, { props: { diagnosisData: null, aiAnalysis: null } })
     expect(w.find('.rec-label').text()).toBe('분석 중')
-  })
-
-  it('회피가 최우선 — 펀더멘털·AI·수급 전부 긍정이어도 AI SELL 이면 회피', () => {
-    const w = mountFull({ fund: 80, aiRec: 'SELL', foreign: 100, inst: 50 })
-    expect(w.find('.rec-label').text()).toBe('회피')
-    expect(w.find('.rec-reason').text()).toContain('AI 매도')
-  })
-
-  it('펀더멘털 부진(<40) → 회피 (AI BUY 여도)', () => {
-    const w = mountFull({ fund: 35, aiRec: 'BUY', foreign: 100 })
-    expect(w.find('.rec-label').text()).toBe('회피')
-    expect(w.find('.rec-reason').text()).toContain('펀더멘털 부진')
-  })
-
-  it('적극 매수 — 펀더멘털≥65 + AI BUY + 수급 양수 + 비과열', () => {
-    const w = mountFull({ fund: 70, aiRec: 'BUY', foreign: 100, inst: 20, rsi: 60 })
-    expect(w.find('.rec-label').text()).toBe('적극 매수')
-  })
-
-  it('RSI≥75 과열이면 적극 매수 대신 선별 매수 + 분할 매수 문구', () => {
-    const w = mountFull({ fund: 70, aiRec: 'BUY', foreign: 100, rsi: 78 })
-    expect(w.find('.rec-label').text()).toBe('선별 매수')
-    expect(w.find('.rec-reason').text()).toContain('분할 매수')
-  })
-
-  it('수급 이탈(외인·기관 동반 매도) + 펀더멘털<60 → 회피', () => {
-    const w = mountFull({ fund: 50, aiRec: 'HOLD', foreign: -30, inst: -10 })
-    expect(w.find('.rec-label').text()).toBe('회피')
-    expect(w.find('.rec-reason').text()).toContain('수급 이탈')
-  })
-
-  it('신호 없음 → 관망', () => {
-    const w = mountFull({ fund: 55, aiRec: 'HOLD' })
-    expect(w.find('.rec-label').text()).toBe('관망')
   })
 })
