@@ -139,6 +139,15 @@ public class GlobalFuturesService {
      * - KM(코스피200 선물): KIS API 우선, Yahoo 폴백
      * - 기타: Yahoo Finance
      */
+    /**
+     * Yahoo 경로의 표시 이름 — KM 의 Yahoo 심볼 ^KS200 은 코스피200 <b>현물 지수</b>다. KIS 선물 조회가 실패해 여기로 오면
+     * '코스피200 선물'이라 부르지 않는다(2026-10-03 — 예전엔 현물 지수가 선물·야간선물 카드에 선물 이름으로 떴다). 순수.
+     */
+    static String yahooDisplayName(String symbol, String mappedName) {
+        if ("KM".equals(symbol)) return "코스피200 지수(현물 — 선물 조회 실패)";
+        return mappedName;
+    }
+
     /** 이 서비스가 아는 심볼(맵 키)인가 — 호출부가 Yahoo 티커를 넘기는 실수를 테스트로 막는다(AutoTradingBotVixSymbolTest). */
     static boolean isKnownSymbol(String symbol) {
         return symbol != null && FUTURES_MAP.containsKey(symbol);
@@ -262,7 +271,7 @@ public class GlobalFuturesService {
 
             FuturesQuote quote = FuturesQuote.builder()
                     .symbol(symbol)
-                    .name(info.getName())
+                    .name(yahooDisplayName(symbol, info.getName()))
                     .shortName(info.getShortName())
                     .category(info.getCategory())
                     .exchange(info.getExchange())
@@ -680,7 +689,8 @@ public class GlobalFuturesService {
                 stale = true;
             }
 
-            String tradingTime = nowKst.format(DateTimeFormatter.ofPattern("MM/dd HH:mm (E)", Locale.KOREAN)) + " KST";
+            // KIS 선물 시세 응답엔 체결 시각이 없다 — 이 시각은 조회 시각이다(데이터 시각처럼 보이지 않게 '조회'를 붙인다)
+            String tradingTime = "조회 " + nowKst.format(DateTimeFormatter.ofPattern("MM/dd HH:mm (E)", Locale.KOREAN)) + " KST";
 
             FuturesQuote quote = FuturesQuote.builder()
                     .symbol("KM")
