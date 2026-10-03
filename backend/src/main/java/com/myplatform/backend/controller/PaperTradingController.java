@@ -332,8 +332,15 @@ public class PaperTradingController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getRealPortfolio() {
         realTradeService.updatePortfolioPrices();
-        List<PortfolioItemDto> portfolio = realTradeService.getPortfolio();
-        return ResponseEntity.ok(buildSuccessResponse(portfolio));
+        // 조회 실패와 '보유 없음'을 구분한다 — getPortfolio() 는 실패도 빈 목록이라 화면이 '보유 종목 없음'으로 그렸다(2026-10-03)
+        java.util.Optional<List<PortfolioItemDto>> portfolio = realTradeService.tryGetPortfolio();
+        if (portfolio.isEmpty()) {
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("success", false);
+            body.put("message", "실전 잔고 조회 실패 — 보유 종목이 없다는 뜻이 아닙니다(잠시 후 다시 시도)");
+            return ResponseEntity.ok(body);
+        }
+        return ResponseEntity.ok(buildSuccessResponse(portfolio.get()));
     }
 
     /**

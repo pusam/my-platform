@@ -603,23 +603,13 @@ public class RealTradeService implements TradeService {
             balance = cachedBalance;
         }
         if (balance == null) {
-            // 정말 한 번도 성공 못했으면 빈 DTO (예외 대신) — UI 가 최소한 구조는 받음
+            // 한 번도 성공 못했으면 금액은 모름(null) — 예전엔 0원·0%·updatedAt=지금이라 '🟢 Live 0원'으로 보였다(2026-10-03, §4c)
             log.warn("[실전매매] 잔고 정보 조회 실패 — 빈 요약 반환");
             return AccountSummaryDto.builder()
                     .accountId(REAL_ACCOUNT_ID)
-                    .accountName("실전투자 계좌 (조회 중)")
-                    .initialBalance(BigDecimal.ZERO)
-                    .currentBalance(BigDecimal.ZERO)
-                    .totalInvested(BigDecimal.ZERO)
-                    .totalEvaluation(BigDecimal.ZERO)
-                    .totalProfitLoss(BigDecimal.ZERO)
-                    .totalProfitRate(BigDecimal.ZERO)
-                    .realizedProfitLoss(BigDecimal.ZERO)
-                    .unrealizedProfitLoss(BigDecimal.ZERO)
-                    .holdingCount(0)
+                    .accountName("실전투자 계좌 (잔고 조회 실패)")
                     .isActive(true)
                     .createdAt(DateTimeUtil.kstNow())
-                    .updatedAt(DateTimeUtil.kstNow())
                     .build();
         }
 
@@ -670,7 +660,9 @@ public class RealTradeService implements TradeService {
                 .totalInvested(totalInvested)
                 .totalEvaluation(totalEvaluation)
                 .totalProfitLoss(totalProfitLoss)
-                .totalProfitRate(BigDecimal.ZERO)  // 초기자본 없으므로 수익률 계산 불가
+                // 보유 평가 수익률(평가손익 ÷ 투자금액) — 실전계좌는 초기자본이 없어 총 수익률은 계산할 수 없다.
+                // 예전엔 0 을 넣어 화면이 늘 '+0.00%'였다(2026-10-03). 보유가 없으면 모름(null).
+                .totalProfitRate(holdingReturnPct(unrealizedProfitLoss, totalInvested))
                 .realizedProfitLoss(realizedProfitLoss)
                 .unrealizedProfitLoss(unrealizedProfitLoss)
                 .holdingCount(holdingCount)
@@ -680,9 +672,12 @@ public class RealTradeService implements TradeService {
                 .build();
     }
 
-    /**
-     * 포트폴리오 조회 (KIS API 잔고 기반)
-     */
+    /** 보유 평가 수익률(%) — 투자금액이 0 이하면 null. 순수 함수. */
+    static BigDecimal holdingReturnPct(BigDecimal unrealized, BigDecimal invested) {
+        if (unrealized == null || invested == null || invested.signum() <= 0) return null;
+        return unrealized.multiply(BigDecimal.valueOf(100)).divide(invested, 2, java.math.RoundingMode.HALF_UP);
+    }
+
     /**
      * 조회 실패와 "보유 없음"을 구분하는 포트폴리오 조회 — 봇 매도·청산 경로 전용(2026-08-05 감사).
      *

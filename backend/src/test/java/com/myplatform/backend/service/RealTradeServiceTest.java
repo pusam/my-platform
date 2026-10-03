@@ -547,17 +547,18 @@ class RealTradeServiceTest {
         }
 
         @Test
-        @DisplayName("KIS 한 번도 성공 못한 상태 → 빈 DTO 반환 (예외 X)")
+        @DisplayName("KIS 한 번도 성공 못한 상태 → 빈 DTO(예외 X) — 금액은 0 이 아니라 모름, 'Live' 시각 없음(2026-10-03)")
         void summary_kisNeverSucceeded_returnsEmptyDto() {
             when(kisService.getBalance()).thenReturn(null);
 
             AccountSummaryDto dto = service.getAccountSummary();
 
             assertThat(dto).isNotNull();
-            assertThat(dto.getCurrentBalance()).isEqualByComparingTo(BigDecimal.ZERO);
-            assertThat(dto.getTotalEvaluation()).isEqualByComparingTo(BigDecimal.ZERO);
-            assertThat(dto.getHoldingCount()).isEqualTo(0);
-            assertThat(dto.getAccountName()).contains("조회 중");
+            assertThat(dto.getCurrentBalance()).isNull();
+            assertThat(dto.getTotalEvaluation()).isNull();
+            assertThat(dto.getTotalProfitRate()).isNull();
+            assertThat(dto.getUpdatedAt()).isNull();   // 화면 '🟢 Live' 배지는 updatedAt 으로 그린다
+            assertThat(dto.getAccountName()).contains("조회 실패");
         }
 
         @Test

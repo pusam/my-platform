@@ -345,6 +345,7 @@
             <div class="card-icon">📊</div>
             <h3>실전 포트폴리오</h3>
             <div class="card-content">
+              <p v-if="realLoadError" class="real-load-error" role="alert">⚠ {{ realLoadError }}</p>
               <div class="stat-row">
                 <span class="label">보유 종목</span>
                 <span class="value">{{ realPortfolio.length || 0 }}종목</span>
@@ -997,15 +998,18 @@ const realFreshnessClass = computed(() => {
 });
 
 // 백엔드 AccountSummaryDto → UI 가 기대하는 필드명으로 변환
+// 모르는 값은 null('-') — 예전엔 ?? 0 이라 잔고 조회 실패·수익률 미계산이 '0원'·'+0.00%'로 보였다(2026-10-03)
 const mapRealAccount = (data) => ({
   ...data,
-  cashBalance:   data.cashBalance   ?? data.currentBalance ?? 0,
-  totalAsset:    data.totalAsset    ?? ((data.currentBalance || 0) + (data.totalEvaluation || 0)),
-  profitRate:    data.profitRate    ?? data.totalProfitRate ?? 0,
-  totalEvaluation: data.totalEvaluation ?? 0,
-  totalInvested:   data.totalInvested   ?? 0,
-  unrealizedProfitLoss: data.unrealizedProfitLoss ?? 0,
+  cashBalance:   data.cashBalance   ?? data.currentBalance ?? null,
+  totalAsset:    data.totalAsset    ?? (data.currentBalance != null && data.totalEvaluation != null
+                   ? Number(data.currentBalance) + Number(data.totalEvaluation) : null),
+  profitRate:    data.profitRate    ?? data.totalProfitRate ?? null,
+  totalEvaluation: data.totalEvaluation ?? null,
+  totalInvested:   data.totalInvested   ?? null,
+  unrealizedProfitLoss: data.unrealizedProfitLoss ?? null,
 });
+const realLoadError = ref('');
 
 // 페이징
 const currentPage = ref(0);
@@ -1254,6 +1258,9 @@ const loadRealData = async () => {
     }
     if (portfolioRes.data.success) {
       realPortfolio.value = portfolioRes.data.data;
+      realLoadError.value = '';
+    } else {
+      realLoadError.value = portfolioRes.data.message || '실전 잔고 조회 실패';
     }
   } catch (error) {
     console.error('실전투자 데이터 로드 오류:', error);
@@ -1299,6 +1306,9 @@ const refreshRealPortfolio = async () => {
     }
     if (portfolioRes.data.success) {
       realPortfolio.value = portfolioRes.data.data;
+      realLoadError.value = '';
+    } else {
+      realLoadError.value = portfolioRes.data.message || '실전 잔고 조회 실패';
     }
   } catch (error) {
     console.error('실전 포트폴리오 새로고침 오류:', error);
@@ -2365,6 +2375,8 @@ onUnmounted(() => {
   background: var(--surface-panel, #1a1a3a);
   border-radius: 10px;
 }
+
+.real-load-error { margin: 0 0 8px; font-size: 12px; color: var(--warning, #f59e0b); }
 
 /* ===== 봇 성과 분석 탭 ===== */
 .perf-controls {
