@@ -49,3 +49,34 @@ describe('VolumePowerGauge — 데이터 없음 정직 표시', () => {
     expect(w.find('.signal-badge').text()).toContain('거래 시작 대기')
   })
 })
+
+// 2026-10-04: 시간대만 보고 판단해 주말에도 '오늘'처럼 말했다 — 토요일 10시엔 금요일 값을 "매수세가 우위입니다"(실시간처럼),
+// 토요일 07시엔 "NXT 프리마켓(08:00) 이후 표시", 밤엔 "오늘의 최종 체결강도". 장 마감 뒤 값은 '마지막 거래일'의 것이다.
+describe('VolumePowerGauge — 휴장일·장 마감 이름표', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  const saturday = (hour) => vi.setSystemTime(new Date(2026, 9, 3, hour, 0, 0))   // 2026-10-03 토
+
+  it('재현: 토요일 10시 유효값은 실시간처럼 말하지 않는다 — 마지막 거래일 값', () => {
+    saturday(10)
+    const w = mount(VolumePowerGauge, { props: { volumePower: 105, signal: 'BUY' } })
+    expect(w.text()).not.toContain('매수세가 우위입니다')
+    expect(w.find('.post-market-text').text()).toContain('마지막 거래일')
+    expect(w.find('.signal-badge').text()).toContain('마지막 거래일')
+  })
+
+  it('재현: 토요일 07시엔 프리마켓 안내가 아니라 휴장', () => {
+    saturday(7)
+    const w = mount(VolumePowerGauge, { props: { volumePower: 0 } })
+    expect(w.text()).not.toContain('NXT 프리마켓')
+    expect(w.text()).toContain('휴장')
+  })
+
+  it('재현: 장 마감 뒤 문구는 "오늘의 최종"이 아니라 마지막 거래일 — 평일 공휴일 밤에도 맞는 말', () => {
+    vi.setSystemTime(new Date(2026, 5, 11, 21, 0, 0))
+    const w = mount(VolumePowerGauge, { props: { volumePower: 92.1, signal: 'NEUTRAL' } })
+    expect(w.text()).not.toContain('오늘의 최종')
+    expect(w.find('.post-market-text').text()).toContain('마지막 거래일')
+  })
+})

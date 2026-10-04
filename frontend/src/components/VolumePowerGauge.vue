@@ -27,8 +27,13 @@
       <p v-if="isPreMarket" class="pre-market-text">
         {{ noDataText }}
       </p>
+      <!-- 장 마감 뒤·휴장일 값은 '마지막 거래일'의 것이다 — 예전엔 "오늘의 최종"이라 했고 주말 낮엔 실시간처럼 말했다(2026-10-04).
+           평일 공휴일은 화면이 달력을 몰라 장중처럼 보일 수 있다(서버 dataSource 도 같은 한계) -->
+      <p v-else-if="isWeekend && hasValidData" class="post-market-text">
+        휴장 — 마지막 거래일의 체결강도
+      </p>
       <p v-else-if="isAfterMarket && hasValidData" class="post-market-text">
-        장 마감 (Today's Close) - 오늘의 최종 체결강도
+        장 마감 — 마지막 거래일의 최종 체결강도
       </p>
       <p v-else-if="volumePower >= 120">매수세가 매우 강합니다</p>
       <p v-else-if="volumePower >= 100">매수세가 우위입니다</p>
@@ -87,6 +92,12 @@ const isAfterMarket = computed(() => {
   return currentTimeMinutes.value > 1200; // 20:00 이후
 });
 
+// 주말 — 장이 열리지 않는다(평일 공휴일은 화면이 달력을 몰라 못 가린다)
+const isWeekend = computed(() => {
+  const d = new Date(nowTick.value).getDay();
+  return d === 0 || d === 6;
+});
+
 // 데이터가 유효한지 확인 (0이거나 null이면 무효)
 const hasValidData = computed(() => {
   return props.volumePower != null && props.volumePower > 0;
@@ -96,8 +107,8 @@ const hasValidData = computed(() => {
 const isPreMarket = computed(() => {
   // 백엔드에서 '장전(초기화)' 소스 → 무조건 대기 상태
   if (props.dataSource === '장전(초기화)') return true;
-  // 장 마감 후에는 데이터가 있으면 표시
-  if (isAfterMarket.value && hasValidData.value) return false;
+  // 장 마감 후·주말에는 데이터가 있으면 표시(마지막 거래일 값)
+  if ((isAfterMarket.value || isWeekend.value) && hasValidData.value) return false;
   // 장중이면 데이터 있으면 표시
   if (isMarketHours.value && hasValidData.value) return false;
   // 장 시작 전이거나 데이터가 없으면 대기 상태
@@ -106,6 +117,7 @@ const isPreMarket = computed(() => {
 
 // 데이터 없음 안내 — 시간대별로 정확한 문구 (장 마감 후 "수집 중" 표기는 오해 유발)
 const noDataText = computed(() => {
+  if (isWeekend.value) return '휴장 — 체결강도 데이터가 없습니다';
   if (isBeforeMarket.value) return 'NXT 프리마켓(08:00) 이후 체결강도가 표시됩니다';
   if (isAfterMarket.value) return '장 마감 — 당일 체결강도 데이터가 없습니다';
   return '체결 데이터를 수집하고 있습니다...';
@@ -145,12 +157,13 @@ const barClass = computed(() => {
 const signalText = computed(() => {
   // 장 시작 전이거나 데이터가 없으면 대기 상태 표시
   if (isPreMarket.value) {
+    if (isWeekend.value) return '휴장';
     if (isBeforeMarket.value) return '거래 시작 대기 (NXT 08:00~)';
     if (isAfterMarket.value) return '데이터 없음';
     return '데이터 수집 중';
   }
-  // 장 마감 후 데이터가 있으면 마감 상태 표시
-  if (isAfterMarket.value && hasValidData.value) {
+  // 장 마감 후·주말 데이터가 있으면 마지막 거래일 값으로 표시
+  if ((isAfterMarket.value || isWeekend.value) && hasValidData.value) {
     const signalMap = {
       'STRONG_BUY': '강한 매수세',
       'BUY': '매수 우위',
@@ -158,7 +171,7 @@ const signalText = computed(() => {
       'SELL': '매도 우위',
       'STRONG_SELL': '강한 매도세'
     };
-    return `${signalMap[props.signal] || '균형'} (종가)`;
+    return `${signalMap[props.signal] || '균형'} (${isWeekend.value ? '마지막 거래일' : '종가'})`;
   }
   switch (props.signal) {
     case 'STRONG_BUY': return '강한 매수세';
