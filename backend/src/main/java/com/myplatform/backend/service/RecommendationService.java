@@ -1275,11 +1275,23 @@ public class RecommendationService {
         Map<String, List<StockPriceHistory>> byCode = all.stream()
                 .collect(Collectors.groupingBy(StockPriceHistory::getStockCode));
 
+        // 노후 가드 — 종합추천 기술 채점과 같은 규칙(isPriceHistoryFresh: 최신 봉이 직전 거래일보다 오래되면 제외, 달력 조회
+        // 실패면 판정 보류·통과). 예전엔 봉 날짜를 보지 않아 수집이 몇 주 전에 끊긴 종목이 그때의 RSI·이격도·'반등'으로
+        // 낙폭과대 후보에 올랐다(2026-10-04).
+        java.time.LocalDate staleCutoff = null;
+        try {
+            staleCutoff = marketCalendar.minusTradingDays(java.time.LocalDate.now(), 1);
+        } catch (Exception ex) {
+            log.warn("[낙폭과대TOP10] 거래일 달력 조회 실패 — 봉 노후 가드 미적용: {}", ex.getMessage());
+        }
+        int staleSkipped = 0;
+
         List<OversoldScoredStock> scored = new ArrayList<>();
         for (Map.Entry<String, List<StockPriceHistory>> e : byCode.entrySet()) {
             // 거래정지/상폐 제외 — 정지 종목은 히스토리가 동결돼 "낙폭과대"로 영구 노출되는 사각(§4c)
             if (!stockStatusService.isActive(e.getKey())) continue;
             List<StockPriceHistory> rows = e.getValue();   // tradeDate DESC (findByStockCodesSince 보장)
+            if (!isPriceHistoryFresh(rows, staleCutoff)) { staleSkipped++; continue; }
             if (rows.size() < OVERSOLD_MIN_HISTORY) continue;
             List<BigDecimal> prices = rows.stream().map(StockPriceHistory::getClosePrice)
                     .filter(Objects::nonNull).collect(Collectors.toList());
@@ -1323,8 +1335,8 @@ public class RecommendationService {
         shortlist.sort((a, b) -> Integer.compare(b.score, a.score));
         List<OversoldScoredStock> top = shortlist.stream().limit(10).collect(Collectors.toList());
 
-        log.info("[낙폭과대TOP10] universe {}종목 → {}건 후보 → top10 ({}ms)",
-                universe.size(), scored.size(), System.currentTimeMillis() - t0);
+        log.info("[낙폭과대TOP10] universe {}종목 → {}건 후보 → top10 ({}ms, 봉 노후 제외 {}종목)",
+                universe.size(), scored.size(), System.currentTimeMillis() - t0, staleSkipped);
 
         return top.stream().map(os -> RecommendationDto.builder()
                 .stockCode(os.stockCode)
