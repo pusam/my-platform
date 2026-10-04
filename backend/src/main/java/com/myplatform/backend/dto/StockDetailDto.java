@@ -67,6 +67,7 @@ public class StockDetailDto {
         private BigDecimal low;               // 저가
         private BigDecimal open;              // 시가
         private BigDecimal prevClose;         // 전일종가
+        private LocalDateTime asOf;           // 시세를 가져온 시각(StockPriceService 캐시의 fetchedAt) — 화면 '시세 HH:mm:ss 기준', 모르면 null
     }
 
     /**

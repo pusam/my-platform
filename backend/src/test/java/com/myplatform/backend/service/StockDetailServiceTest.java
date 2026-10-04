@@ -169,6 +169,21 @@ class StockDetailServiceTest {
         }
 
         @Test
+        @DisplayName("재현: 시세 블록에 시세를 가져온 시각(asOf) — 화면이 응답 받은 시각을 시세 시각처럼 보이지 않게(2026-10-04)")
+        void priceCarriesItsOwnFetchTime() {
+            StockPriceDto dto = buildPriceDto("71000", "1.43", TEST_STOCK_NAME);
+            java.time.LocalDateTime fetched = java.time.LocalDateTime.of(2026, 10, 2, 15, 31, 5);
+            dto.setFetchedAt(fetched);
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE)).thenReturn(dto);
+            when(cacheService.getCachedChartData(TEST_STOCK_CODE)).thenReturn(null);
+            when(cacheService.getCachedFinancialInfo(TEST_STOCK_CODE)).thenReturn(dummyFinancial());
+
+            StockDetailDto result = stockDetailService.getStockDetailQuick(TEST_STOCK_CODE);
+
+            assertThat(result.getPrice().getAsOf()).isEqualTo(fetched);
+        }
+
+        @Test
         @DisplayName("공용 시세 경로(stockPriceService)로 시세 반환 — KIS→네이버 폴백은 내부 책임")
         void priceFromCommonService() {
             // given — 시세 소스는 stockPriceService.getStockPrice() 로 통일됨(목록과 동일).

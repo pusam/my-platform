@@ -1284,6 +1284,7 @@ public class StockDetailService {
                 .low(naverData.getLowPrice())
                 .open(naverData.getOpenPrice())
                 .prevClose(prevClose)
+                .asOf(naverData.getFetchedAt())   // 캐시·DB 에서 온 시세면 그 행의 조회 시각(최근 응답 시각이 아니다)
                 .build();
     }
 

@@ -97,12 +97,14 @@
 
       <div v-if="hasData" class="realtime-status" :class="{ active: autoRefresh }">
         <span class="status-dot" :class="{ pulsing: autoRefresh }"></span>
-        <span class="status-text">{{ autoRefresh ? '실시간 감시 중' : '감시 대기' }}</span>
+        <!-- 실시간이 아니다 — 15초마다 다시 조회하고, 시세는 캐시 행일 수 있다. 문구 주기는 실제 주기 상수와 같다(2026-10-04) -->
+        <span class="status-text">{{ autoRefresh ? '자동 갱신 중' : '자동 갱신 꺼짐' }}</span>
         <label class="auto-refresh-toggle">
           <input type="checkbox" v-model="autoRefresh" @change="toggleAutoRefresh" />
-          10초 자동 갱신
+          {{ AUTO_REFRESH_SECONDS }}초 자동 갱신
         </label>
-        <span class="update-time" v-if="lastUpdated">{{ formatTime(lastUpdated) }}</span>
+        <span class="update-time" v-if="priceInfo?.asOf">시세 {{ formatTime(new Date(priceInfo.asOf)) }} 기준</span>
+        <span class="update-time" v-else-if="lastUpdated">{{ formatTime(lastUpdated) }} 조회</span>
       </div>
     </div>
 
@@ -785,7 +787,9 @@ const mainTab = ref('analysis');
 const autoRefresh = ref(true);
 const lastUpdated = ref(null);
 const isRefreshing = ref(false);
-const nextRefreshIn = ref(15);
+// 자동 갱신 주기 — 머리말 문구와 setInterval 이 같은 값(예전엔 문구 10초·실제 15초)
+const AUTO_REFRESH_SECONDS = 15;
+const nextRefreshIn = ref(AUTO_REFRESH_SECONDS);
 let refreshInterval = null;
 let countdownTimer = null;
 
@@ -1295,7 +1299,7 @@ const refreshRealtimeData = async () => {
     console.error('실시간 갱신 오류:', error);
   } finally {
     isRefreshing.value = false;
-    nextRefreshIn.value = 15;
+    nextRefreshIn.value = AUTO_REFRESH_SECONDS;
   }
 };
 
@@ -1318,7 +1322,7 @@ const startAutoRefresh = () => {
   if (countdownTimer) clearInterval(countdownTimer);
   refreshInterval = setInterval(() => {
     if (!document.hidden) refreshRealtimeData();
-  }, 15000);
+  }, AUTO_REFRESH_SECONDS * 1000);
   countdownTimer = setInterval(() => {
     if (!document.hidden && nextRefreshIn.value > 0) nextRefreshIn.value--;
   }, 1000);
