@@ -82,3 +82,29 @@ describe('SectionMarketMap — AI 예측 실패는 숫자 없이(2026-10-03)', (
     expect(w.find('.scenario-cards').exists()).toBe(true)
   })
 })
+
+// 2026-10-04: 자금 흐름은 오늘 장중 누적을 직전 거래일 '하루 전체'와 비교해 오전엔 거의 전부 '유출'이었다 — 이제 같은 시각끼리,
+// 기준이 없으면 서버가 UNKNOWN·changeRate null 을 준다. 히트맵 섹터 등락률도 모르면 null.
+describe('SectionMarketMap — 자금 흐름·히트맵 기준(2026-10-04)', () => {
+  it('재현: 비교 기준 없는 섹터는 "+0.0%"가 아니라 "-", 요약에 비교 불가 수', async () => {
+    const w = mountMap()
+    w.vm.activeTab = 'rotation'
+    w.vm.rotationLoading = false
+    w.vm.rotationData = [
+      { sectorCode: 'SEMI', sectorName: '반도체', flowDirection: 'UNKNOWN', changeRate: null, todayTradingValue: 5000 },
+      { sectorCode: 'BIO', sectorName: '바이오', flowDirection: 'INFLOW', changeRate: 12.5, todayTradingValue: 800 }
+    ]
+    await w.vm.$nextTick()
+    const rows = w.findAll('.rotation-item')
+    expect(rows[0].find('.rotation-rate').text()).toBe('-')
+    expect(w.find('.rotation-summary').text()).toContain('비교 불가 1')
+    expect(w.find('.rotation-basis').text()).toContain('같은 시각')
+  })
+
+  it('재현: 히트맵 등락률을 모르면 0.0% 가 아니라 -, 기준(거래대금 상위 5종목 평균)을 밝힌다', async () => {
+    const w = mountMap({ sectorData: [{ sectorName: '반도체', changeRate: null, totalTradingValue: 100 }] })
+    await w.vm.$nextTick()
+    expect(w.find('.block-rate').text()).toBe('-')
+    expect(w.find('.heatmap-basis').text()).toContain('상위 5종목 평균')
+  })
+})

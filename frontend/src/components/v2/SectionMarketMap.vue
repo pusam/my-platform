@@ -35,14 +35,14 @@
             :key="sector.sectorName"
             class="heatmap-block"
             :style="getBlockStyle(sector)"
-            :title="sector.sectorName + ': ' + (sector.changeRate || 0).toFixed(2) + '%'"
+            :title="sector.sectorName + ': ' + (sector.changeRate != null ? Number(sector.changeRate).toFixed(2) + '%' : '등락률 모름')"
           >
             <span class="block-name">{{ shortenName(sector.sectorName) }}</span>
-            <span class="block-rate" :class="sector.changeRate >= 0 ? 'up' : 'down'">
-              {{ sector.changeRate >= 0 ? '+' : '' }}{{ (sector.changeRate || 0).toFixed(1) }}%
-            </span>
+            <!-- 모르면 '-' — 0.0%(보합)로 보이지 않게(2026-10-04) -->
+            <span class="block-rate" :class="sector.changeRate == null ? '' : (sector.changeRate >= 0 ? 'up' : 'down')">{{ sector.changeRate == null ? '-' : (sector.changeRate >= 0 ? '+' : '') + Number(sector.changeRate).toFixed(1) + '%' }}</span>
           </div>
         </div>
+        <p v-if="sectorData.length" class="heatmap-basis">등락률 = 섹터별 거래대금 상위 5종목 평균(섹터 전체 평균 아님)</p>
         <div v-if="sectorData.length === 0" class="state-box">
           <span class="state-icon">📊</span>
           <p class="state-text">섹터 데이터가 없습니다</p>
@@ -72,7 +72,10 @@
             <span class="summary-badge inflow">유입 {{ rotationData.filter(r => r.flowDirection === 'INFLOW').length }}</span>
             <span class="summary-badge neutral">중립 {{ rotationData.filter(r => r.flowDirection === 'NEUTRAL').length }}</span>
             <span class="summary-badge outflow">유출 {{ rotationData.filter(r => r.flowDirection === 'OUTFLOW').length }}</span>
+            <span v-if="rotationData.some(r => r.flowDirection === 'UNKNOWN')" class="summary-badge neutral">비교 불가 {{ rotationData.filter(r => r.flowDirection === 'UNKNOWN').length }}</span>
           </div>
+          <!-- 기준을 밝힌다(2026-10-04) — 예전엔 오늘 장중 누적을 직전 거래일 하루 전체와 비교해 오전엔 거의 전부 '유출'이었다 -->
+          <p class="rotation-basis">오늘 누적 거래대금 vs 직전 거래일 같은 시각 누적(장 마감 뒤엔 하루 전체) · ±10% 기준 · 기준이 없으면(서버 재시작 뒤 등) 비교 불가</p>
 
           <!-- 섹터별 흐름 리스트 -->
           <div class="rotation-list">
@@ -95,9 +98,7 @@
                 </div>
               </div>
               <div class="rotation-right">
-                <span class="rotation-rate" :class="getFlowClass(item.flowDirection)">
-                  {{ (item.changeRate || 0) >= 0 ? '+' : '' }}{{ (item.changeRate || 0).toFixed(1) }}%
-                </span>
+                <span class="rotation-rate" :class="getFlowClass(item.flowDirection)">{{ item.changeRate == null ? '-' : (item.changeRate >= 0 ? '+' : '') + Number(item.changeRate).toFixed(1) + '%' }}</span>
                 <span class="rotation-amount">{{ formatBillion(item.todayTradingValue) }}</span>
               </div>
             </div>
@@ -757,6 +758,12 @@ export default {
   background: rgba(102,126,234,0.1);
   border-color: var(--primary-start);
   color: #8b9cf7;
+}
+
+.heatmap-basis, .rotation-basis {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.55));
 }
 
 /* Rotation (자금 흐름) */
