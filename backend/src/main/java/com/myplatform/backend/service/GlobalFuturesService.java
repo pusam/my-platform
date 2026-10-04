@@ -48,6 +48,17 @@ public class GlobalFuturesService {
     // 선물 종목 정의 (Yahoo Finance 심볼)
     private static final Map<String, FuturesInfo> FUTURES_MAP = new LinkedHashMap<>();
 
+    /**
+     * 미국 현물 지수 — '간밤 미국장'(OvernightUsMarketService) 전용이라 선물 목록(getAllFuturesQuotes·isKnownSymbol)에는
+     * 넣지 않는다(2026-10-04). ES=F·NQ=F 는 CME 선물이라 08시(KST)엔 새 세션이 1시간째 거래 중이고 Yahoo 등락률은 그
+     * 1시간치다 — 운영 스냅샷 9/15: SOX(현물) −5.86% 인 날 ES +0.05%·NQ +0.03%. 간밤 정규장 움직임은 현물 지수 등락률이다.
+     */
+    private static final Map<String, FuturesInfo> CASH_INDEX_MAP = new LinkedHashMap<>();
+    static {
+        CASH_INDEX_MAP.put("SPX", new FuturesInfo("SPX", "^GSPC", "S&P500 지수", "S&P500", "index", "NYSE"));
+        CASH_INDEX_MAP.put("NDX", new FuturesInfo("NDX", "^NDX", "나스닥100 지수", "나스닥100", "index", "NASDAQ"));
+    }
+
     static {
         // ⚠ ^KS200 은 KOSPI200 "현물 지수"(Yahoo) — KIS 선물 경로 실패 시의 근사 폴백이지 선물가가 아님(§4c 인지).
         FUTURES_MAP.put("KM", new FuturesInfo("KM", "^KS200", "코스피200 선물", "코스피200", "index", "KRX"));
@@ -160,7 +171,7 @@ public class GlobalFuturesService {
             return cached.quote;
         }
 
-        FuturesInfo info = FUTURES_MAP.get(symbol);
+        FuturesInfo info = FUTURES_MAP.containsKey(symbol) ? FUTURES_MAP.get(symbol) : CASH_INDEX_MAP.get(symbol);
         if (info == null) {
             return FuturesQuote.builder()
                     .symbol(symbol)

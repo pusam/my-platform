@@ -46,11 +46,11 @@ public class OvernightUsSnapshot {
     @Column(name = "tilt", nullable = false, length = 10)
     private String tilt;
 
-    /** S&P500(ES) 등락률 %. NULL=미수집. */
+    /** S&P500 등락률 %. NULL=미수집. 2026-10-04 부터 현물 지수(^GSPC) 정규장 등락률 — 그 전 행은 CME 선물(ES=F) 새 세션 1시간치라 비교 불가. */
     @Column(name = "es_rate", precision = 6, scale = 2)
     private BigDecimal esRate;
 
-    /** 나스닥100(NQ) 등락률 %. NULL=미수집. */
+    /** 나스닥100 등락률 %. NULL=미수집. 2026-10-04 부터 현물 지수(^NDX) — 그 전 행은 CME 선물(NQ=F) 새 세션 1시간치라 비교 불가. */
     @Column(name = "nq_rate", precision = 6, scale = 2)
     private BigDecimal nqRate;
 

@@ -149,8 +149,8 @@ class OvernightUsMarketServiceTest {
     @Test
     @DisplayName("snapshotToday: 판정 입력 4종 + tilt + regime v1 동시 스냅 저장 (신규 행)")
     void snapshotInsertsNewRow() {
-        when(futures.getFuturesQuote("ES")).thenReturn(quote(0.8, 6000.0, "07/06 05:00 KST", true));
-        when(futures.getFuturesQuote("NQ")).thenReturn(quote(1.2, 21000.0, "07/06 05:59 KST", true));
+        when(futures.getFuturesQuote("SPX")).thenReturn(quote(0.8, 6000.0, "07/06 05:00 KST", true));
+        when(futures.getFuturesQuote("NDX")).thenReturn(quote(1.2, 21000.0, "07/06 05:59 KST", true));
         when(futures.getFuturesQuote("SOX")).thenReturn(quote(2.0, 5200.0, null, true));
         when(futures.getFuturesQuote("VIX")).thenReturn(quote(null, 14.0, null, true));
         when(regimeProvider.getIfAvailable()).thenReturn(regimeClient);
@@ -175,8 +175,8 @@ class OvernightUsMarketServiceTest {
     @Test
     @DisplayName("snapshotToday: 같은 날 재실행이면 기존 행 UPSERT(id 유지) + 미수집 축은 null 저장(§4c)")
     void snapshotUpsertsExistingRowAndKeepsNulls() {
-        when(futures.getFuturesQuote("ES")).thenReturn(null);   // Yahoo 미가용
-        when(futures.getFuturesQuote("NQ")).thenReturn(quote(-1.0, 20000.0, null, true));
+        when(futures.getFuturesQuote("SPX")).thenReturn(null);   // Yahoo 미가용
+        when(futures.getFuturesQuote("NDX")).thenReturn(quote(-1.0, 20000.0, null, true));
         when(futures.getFuturesQuote("SOX")).thenReturn(quote(-1.0, 5100.0, null, true));
         when(futures.getFuturesQuote("VIX")).thenReturn(quote(null, 27.0, null, true));
         when(regimeProvider.getIfAvailable()).thenReturn(null);   // regime 미가용 → null(미수집)
@@ -193,5 +193,49 @@ class OvernightUsMarketServiceTest {
         assertThat(saved.getTilt()).isEqualTo("BEAR");           // VIX 27 → 공포경계
         assertThat(saved.getEsRate()).isNull();                  // 미수집 위장 금지
         assertThat(saved.getRegimeV1()).isNull();
+    }
+
+    // ==================== 간밤 정규장 = 현물 지수 · 직전 세션만 (2026-10-04) ====================
+    // 재현(운영 스냅샷): 08:10 엔 CME 선물(ES=F·NQ=F)이 새 세션을 1시간째 거래 중이라 Yahoo 등락률은 그 1시간치였다 —
+    // 9/15 SOX(현물) −5.86% 인 날 ES +0.05%·NQ +0.03%, 9/22 SOX +4.29% 인 날 ES +0.02%. 미국 휴장 다음 날은 지수가
+    // 직전 세션 등락률을 그대로 줬다(9/7 노동절 → SOX +3.38% 가 9/7·9/8 두 번).
+
+    @Test
+    @DisplayName("재현: 간밤 S&P500·나스닥은 현물 지수(SPX·NDX)의 정규장 등락률 — CME 선물을 읽지 않는다")
+    void overnightUsesCashIndices() {
+        when(futures.getFuturesQuote("SPX")).thenReturn(quote(-1.20, 6000.0, "09/15 05:00 KST", true));
+        when(futures.getFuturesQuote("NDX")).thenReturn(quote(-2.10, 21000.0, "09/15 05:00 KST", true));
+        when(futures.getFuturesQuote("SOX")).thenReturn(quote(-5.86, 5200.0, null, true));
+        when(futures.getFuturesQuote("VIX")).thenReturn(quote(null, 17.1, null, true));
+
+        java.util.Map<String, Object> view = new OvernightUsMarketService(futures, snapshotRepo, regimeProvider).getOvernightView();
+
+        @SuppressWarnings("unchecked")
+        List<String> drivers = (List<String>) view.get("drivers");
+        assertThat(drivers).contains("S&P500 -1.20%", "나스닥 -2.10%", "SOX -5.86%");
+    }
+
+    @Test
+    @DisplayName("재현: 지수 등락률은 직전 미국 세션 것만 — 평일 24시간·월(일)요일 72시간 밖이면 모름")
+    void lastNightSessionWindow() {
+        // 평일 08:10 — 05:00 종가(약 3시간 전)는 간밤
+        assertThat(OvernightUsMarketService.lastNightSession(190, java.time.DayOfWeek.TUESDAY)).isTrue();
+        // 미국 월요일 휴장 다음 화요일 — 금요일 종가(약 75시간 전)는 간밤이 아니다
+        assertThat(OvernightUsMarketService.lastNightSession(75 * 60, java.time.DayOfWeek.TUESDAY)).isFalse();
+        // 월요일 아침 — 금요일 세션(약 51시간 전)이 직전 세션
+        assertThat(OvernightUsMarketService.lastNightSession(51 * 60, java.time.DayOfWeek.MONDAY)).isTrue();
+        // 미국 금요일 휴장 다음 월요일 — 목요일 종가(약 99시간 전)는 아니다
+        assertThat(OvernightUsMarketService.lastNightSession(99 * 60, java.time.DayOfWeek.MONDAY)).isFalse();
+    }
+
+    @Test
+    @DisplayName("오래된 세션의 지수 등락률은 입력에서 빠진다(모름) — tilt 는 남은 축으로")
+    void staleIndexSessionIsDropped() {
+        FuturesQuote staleSox = FuturesQuote.builder().changeRate(BigDecimal.valueOf(3.38))
+                .currentPrice(BigDecimal.valueOf(5200)).success(true).dataAgeMinutes(75 * 60).build();
+        assertThat(OvernightUsMarketService.sessionRateOrNull(staleSox, java.time.DayOfWeek.TUESDAY)).isNull();
+        FuturesQuote freshSox = FuturesQuote.builder().changeRate(BigDecimal.valueOf(1.59))
+                .currentPrice(BigDecimal.valueOf(5200)).success(true).dataAgeMinutes(180).build();
+        assertThat(OvernightUsMarketService.sessionRateOrNull(freshSox, java.time.DayOfWeek.TUESDAY)).isNotNull();
     }
 }

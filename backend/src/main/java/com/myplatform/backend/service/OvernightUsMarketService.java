@@ -19,8 +19,11 @@ import java.util.Map;
 /**
  * 간밤 미국장 국면 보조(tilt) — '오늘' 탭 참고 컨텍스트 (작업3, 미검증).
  *
- * <p>S&amp;P500(ES)·나스닥100(NQ)·필라델피아 반도체(SOX) 등락률 + VIX 레벨로 BULL/NEUTRAL/BEAR tilt 산출.
- * GlobalFuturesService 의 Yahoo 시세를 재사용한다(별도 fetch 없음).
+ * <p>S&amp;P500·나스닥100·필라델피아 반도체(SOX) <b>현물 지수</b>의 정규장 등락률 + VIX 레벨로 BULL/NEUTRAL/BEAR tilt 산출.
+ * GlobalFuturesService 의 Yahoo 시세를 재사용한다. ⚠ 2026-10-04 전에는 S&amp;P500·나스닥에 CME 선물(ES=F·NQ=F)을 써서
+ * 08시 스냅샷이 새 선물 세션 1시간치 움직임을 담았다(운영 9/15: SOX −5.86% · ES +0.05%) — 그 전 행의 es_rate·nq_rate 는
+ * 이후 행과 비교할 수 없다(P3-5 캘리브레이션의 표본 경계). 지수 등락률은 <b>직전 미국 세션</b> 것일 때만 쓴다
+ * ({@link #lastNightSession} — 미국 휴장 다음 날 Yahoo 는 직전 세션 등락률을 그대로 준다).
  *
  * <p><b>불변식</b>:
  * <ul>
@@ -91,10 +94,31 @@ public class OvernightUsMarketService {
                 today, tilt, in.esRate(), in.nqRate(), in.soxRate(), in.vixLevel(), regimeV1);
     }
 
-    /** 4종 시세 조회 → 입력 변환 — 표시/스냅샷 공용 단일 compute 경로. */
+    /** 4종 시세 조회 → 입력 변환 — 표시/스냅샷 공용 단일 compute 경로. 지수는 현물, 직전 세션 것만. */
     private OvernightInputs computeInputs() {
-        return toInputs(futures.getFuturesQuote("ES"), futures.getFuturesQuote("NQ"),
-                futures.getFuturesQuote("SOX"), futures.getFuturesQuote("VIX"));
+        java.time.DayOfWeek kstDay = LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).getDayOfWeek();
+        FuturesQuote spx = futures.getFuturesQuote("SPX");
+        FuturesQuote ndx = futures.getFuturesQuote("NDX");
+        FuturesQuote sox = futures.getFuturesQuote("SOX");
+        FuturesQuote vix = futures.getFuturesQuote("VIX");
+        return new OvernightInputs(sessionRateOrNull(spx, kstDay), sessionRateOrNull(ndx, kstDay),
+                sessionRateOrNull(sox, kstDay), level(vix), level(sox), firstTradingTime(ndx, spx, sox, vix));
+    }
+
+    /**
+     * 지수 등락률이 직전 미국 세션 것인가 — 순수(테스트 대상). 미국 종가는 05~06시(KST)라 평일 아침엔 몇 시간 전이다.
+     * KST 월·일요일은 직전 세션이 금요일(주말)이라 72시간, 그 밖엔 24시간 안의 종가만 '간밤'이다 — 미국 휴장 다음 날
+     * (예: 노동절 다음 화요일)엔 Yahoo 가 직전 세션 등락률을 그대로 줘서 같은 움직임이 두 번 들어갔다(9/7·9/8 SOX +3.38%).
+     */
+    static boolean lastNightSession(long dataAgeMinutes, java.time.DayOfWeek kstDay) {
+        long maxHours = (kstDay == java.time.DayOfWeek.MONDAY || kstDay == java.time.DayOfWeek.SUNDAY) ? 72 : 24;
+        return dataAgeMinutes >= 0 && dataAgeMinutes <= maxHours * 60;
+    }
+
+    /** 직전 세션 지수 등락률 — 실패·결측·오래된 세션이면 null(모름, §4c). 순수. */
+    static Double sessionRateOrNull(FuturesQuote q, java.time.DayOfWeek kstDay) {
+        Double r = rate(q);
+        return (r != null && lastNightSession(q.getDataAgeMinutes(), kstDay)) ? r : null;
     }
 
     /** 시세 → 판정 입력 — 순수 함수(테스트 대상). 실패/결측 축은 null(§4c). */
