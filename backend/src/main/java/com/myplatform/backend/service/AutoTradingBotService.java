@@ -1924,7 +1924,19 @@ public class AutoTradingBotService {
             // snapshotTime 미설정 — 신선도 판단 불가. 안전 측으로 통과(기존 동작 유지).
             return true;
         }
-        LocalTime now = LocalTime.now(clock);
+        // 날짜를 아는 스냅샷이 직전 거래일 것이면 시각과 무관하게 stale(2026-10-04). 예전엔 시각만 비교해 이 가드가 막으려는
+        // "어제 마지막 snapshot" 을 통과시켰다 — 어제 15:30 은 오늘 09:05 와 비교하면 음수(→ '자정 경유 = 신선'), 어제 09:55 는
+        // 오늘 10:00 에 5분(→ 신선). 날짜를 모르는 값(배포 전 Redis 캐시)만 아래 종전 시각 규칙.
+        LocalDateTime nowDateTime = LocalDateTime.now(clock);
+        if (InvestorSurgeDto.previousSessionAt(sample.getSnapshotDate(), nowDateTime)) {
+            long ageMinutes = java.time.Duration.between(
+                    LocalDateTime.of(sample.getSnapshotDate(), sample.getSnapshotTime()), nowDateTime).toMinutes();
+            log.warn("[스캘핑봇] surge 스냅샷이 직전 거래일 값({} {}) — 매수 보류",
+                    sample.getSnapshotDate(), sample.getSnapshotTime());
+            notifyStaleSurgeData(ageMinutes);
+            return false;
+        }
+        LocalTime now = nowDateTime.toLocalTime();
         long ageMinutes = java.time.Duration.between(sample.getSnapshotTime(), now).toMinutes();
         // 자정 경유는 음수 — 정상 갱신으로 간주
         if (ageMinutes < 0) return true;

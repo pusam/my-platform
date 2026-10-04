@@ -117,8 +117,8 @@ public class InvestorSurgeDto {
         return previousSessionAt(snapshotDate, com.myplatform.core.util.DateTimeUtil.kstNow());
     }
 
-    /** 직전 세션 판정(순수). */
-    static boolean previousSessionAt(LocalDate snapshotDate, LocalDateTime now) {
+    /** 직전 세션 판정(순수) — 봇의 surge 신선도 가드(AutoTradingBotService.isSurgeDataFresh)도 이걸 쓴다. */
+    public static boolean previousSessionAt(LocalDate snapshotDate, LocalDateTime now) {
         return snapshotDate != null && snapshotDate.isBefore(now.toLocalDate());
     }
 

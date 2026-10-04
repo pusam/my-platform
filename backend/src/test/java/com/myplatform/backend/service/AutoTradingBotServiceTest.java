@@ -971,6 +971,56 @@ class AutoTradingBotServiceTest {
             assertThat((boolean) m.invoke(botService, data)).isTrue();
         }
 
+        // 2026-10-04 재현: 신선도를 시각만으로 재서 "어제 마지막 스냅샷"(주석이 막겠다는 바로 그 경우)을 통과시켰다 —
+        // 어제 15:30 은 오늘 10:00 과 비교하면 음수(→ '자정 경유 = 신선'), 어제 09:55 는 5분(→ 신선).
+        @Test
+        @DisplayName("재현: 직전 거래일 15:30 스냅샷은 오늘 10:00 에 stale — 음수 나이를 신선으로 보지 않는다")
+        void isSurgeDataFresh_returnsFalse_whenSnapshotFromPreviousSessionLateTime() throws Exception {
+            InvestorSurgeDto yesterday = InvestorSurgeDto.builder()
+                    .stockCode("005930").stockName("삼성전자")
+                    .snapshotDate(java.time.LocalDate.of(2026, 5, 8))      // 금요일, fixedClock 은 월 10:00
+                    .snapshotTime(java.time.LocalTime.of(15, 30))
+                    .build();
+            Map<String, List<InvestorSurgeDto>> data = new HashMap<>();
+            data.put("FOREIGN", List.of(yesterday));
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isSurgeDataFresh", Map.class);
+            m.setAccessible(true);
+            assertThat((boolean) m.invoke(botService, data)).isFalse();
+        }
+
+        @Test
+        @DisplayName("재현: 직전 거래일의 같은 시각대(09:55) 스냅샷도 stale — 5분 차이로 보지 않는다")
+        void isSurgeDataFresh_returnsFalse_whenSnapshotFromPreviousSessionSameTimeOfDay() throws Exception {
+            InvestorSurgeDto yesterday = InvestorSurgeDto.builder()
+                    .stockCode("005930").stockName("삼성전자")
+                    .snapshotDate(java.time.LocalDate.of(2026, 5, 8))
+                    .snapshotTime(java.time.LocalTime.of(9, 55))
+                    .build();
+            Map<String, List<InvestorSurgeDto>> data = new HashMap<>();
+            data.put("FOREIGN", List.of(yesterday));
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isSurgeDataFresh", Map.class);
+            m.setAccessible(true);
+            assertThat((boolean) m.invoke(botService, data)).isFalse();
+        }
+
+        @Test
+        @DisplayName("오늘 날짜의 5분 전 스냅샷은 종전대로 신선")
+        void isSurgeDataFresh_returnsTrue_whenTodaySnapshotWithinThreshold() throws Exception {
+            InvestorSurgeDto today = InvestorSurgeDto.builder()
+                    .stockCode("005930").stockName("삼성전자")
+                    .snapshotDate(java.time.LocalDate.of(2026, 5, 11))
+                    .snapshotTime(java.time.LocalTime.of(9, 55))
+                    .build();
+            Map<String, List<InvestorSurgeDto>> data = new HashMap<>();
+            data.put("FOREIGN", List.of(today));
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isSurgeDataFresh", Map.class);
+            m.setAccessible(true);
+            assertThat((boolean) m.invoke(botService, data)).isTrue();
+        }
+
         @Test
         @DisplayName("isSurgeDataFresh — snapshotTime null 이면 true (보수적 통과)")
         void isSurgeDataFresh_returnsTrue_whenSnapshotTimeMissing() throws Exception {
