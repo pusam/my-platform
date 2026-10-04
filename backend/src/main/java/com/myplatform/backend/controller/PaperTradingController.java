@@ -362,7 +362,8 @@ public class PaperTradingController {
                     request.getQuantity(),
                     "MANUAL"
             );
-            message = "실전 매수 주문이 체결되었습니다.";
+            // 접수 ≠ 체결 — 지정가는 부분·미체결이 가능하고 이 경로는 체결을 확인하지 않는다(2026-10-04)
+            message = "실전 매수 주문이 접수되었습니다 — 체결 여부는 실전 잔고·체결 내역에서 확인하세요.";
         } else {
             result = realTradeService.sell(
                     request.getStockCode(),
@@ -370,7 +371,7 @@ public class PaperTradingController {
                     request.getQuantity(),
                     "MANUAL"
             );
-            message = "실전 매도 주문이 체결되었습니다.";
+            message = "실전 매도 주문이 접수되었습니다 — 체결 여부는 실전 잔고·체결 내역에서 확인하세요.";
         }
 
         Map<String, Object> response = buildSuccessResponse(result);

@@ -317,7 +317,8 @@
             </h3>
             <div class="card-content">
               <div class="stat-row">
-                <span class="label">예수금</span>
+                <!-- KIS nxdy_excc_amt = D+1 익일정산 금액(당일 매수 대금이 빠진 값) — 그냥 '예수금'이 아니다(2026-10-04) -->
+                <span class="label" title="KIS 익일정산 금액(nxdy_excc_amt) — 오늘 체결분 정산을 반영한 값">예수금(D+1 정산)</span>
                 <span class="value highlight">{{ formatCurrency(realAccount.cashBalance) }}</span>
               </div>
               <div class="stat-row">
@@ -1228,8 +1229,9 @@ const loadData = async () => {
   const loadAccount = async () => {
     try {
       const res = await paperTradingAPI.getAccountSummary();
-      if (res.data.success) account.value = res.data.data;
+      if (res.data.success) { account.value = res.data.data; return true; }
     } catch (e) { console.warn('계좌 로드 실패:', e.message); }
+    return false;
   };
 
   const loadPortfolio = async () => {
@@ -1237,8 +1239,9 @@ const loadData = async () => {
       // 자동 갱신(30초)도 현재가로 갱신된 손익을 받는다 — 예전엔 '새로고침' 버튼을 눌러야만 갱신돼 '30초 갱신' 표시와
       // 달리 평가손익이 마지막 저장 시세에 멈춰 있었다(2026-10-03)
       const res = await paperTradingAPI.getPortfolio(true);
-      if (res.data.success) portfolio.value = res.data.data;
+      if (res.data.success) { portfolio.value = res.data.data; return true; }
     } catch (e) { console.warn('포트폴리오 로드 실패:', e.message); }
+    return false;
   };
 
   const loadTrades = async () => {
@@ -1247,8 +1250,10 @@ const loadData = async () => {
       if (res.data.success) {
         trades.value = res.data.data;
         totalPages.value = res.data.totalPages;
+        return true;
       }
     } catch (e) { console.warn('거래내역 로드 실패:', e.message); }
+    return false;
   };
 
   const loadBotStatus = async () => {
@@ -1257,20 +1262,22 @@ const loadData = async () => {
       if (res.data.success) {
         botStatus.value = res.data.data;
         botStatusState.value = { known: true, failed: false };
-      } else {
-        markBotStatusFailed();
+        return true;
       }
+      markBotStatusFailed();
     } catch (e) {
       console.warn('봇 상태 로드 실패:', e.message);
       markBotStatusFailed();
     }
+    return false;
   };
 
-  await Promise.all([loadAccount(), loadPortfolio(), loadTrades(), loadBotStatus()]);
+  const results = await Promise.all([loadAccount(), loadPortfolio(), loadTrades(), loadBotStatus()]);
+  // 갱신 시각은 하나라도 받았을 때만 — 전부 실패한 회차를 '방금 갱신'으로 말하지 않는다(2026-10-04)
+  if (results.some(Boolean)) lastUpdated.value = new Date();
   loading.value = false;
   } finally {
     isRefreshing.value = false;
-    lastUpdated.value = new Date();
     nextRefreshIn.value = 30;
   }
 };
@@ -1457,7 +1464,8 @@ const executeTrade = async () => {
       : await paperTradingAPI.placeTrade(tradeData);
 
     if (res.data.success) {
-      toast.success(res.data.message || '거래가 체결되었습니다');
+      // 실전은 '접수'(체결 미확인) — 서버 문구가 없을 때도 체결됐다고 하지 않는다(2026-10-04)
+      toast.success(res.data.message || (tradeMode.value === 'real' ? '주문이 접수되었습니다' : '거래가 체결되었습니다'));
       showTradeModal.value = false;
       tradeForm.value = { stockCode: '', quantity: 1, price: 0, tradeType: 'BUY' };
       if (tradeMode.value === 'real') {
@@ -1527,7 +1535,7 @@ const executeSell = async () => {
       : await paperTradingAPI.placeTrade(tradeData);
 
     if (res.data.success) {
-      toast.success(res.data.message || '매도가 체결되었습니다');
+      toast.success(res.data.message || (sellMode.value === 'real' ? '매도 주문이 접수되었습니다' : '매도가 체결되었습니다'));
       showSellModal.value = false;
       if (sellMode.value === 'real') {
         await loadRealData();
