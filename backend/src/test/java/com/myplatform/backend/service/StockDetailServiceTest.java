@@ -686,6 +686,19 @@ class StockDetailServiceTest {
     class AiVerdictOnly {
 
         @Test
+        @DisplayName("재현(10/6 운영): 판단어가 머리줄에 붙은 실제 응답 '**■ 종합 판단:** **관망**' — 뒤 섹션의 '순매수'로 BUY 가 되지 않는다")
+        void verdictOnHeaderLine() {
+            String resp = "## 삼성전기 분석\n**■ 종합 판단:** **관망** - 단기 과열, 숨 고르기 구간\n"
+                    + "**■ 수급 해석:** 외국인 및 기관 순매수 데이터가 없습니다\n**■ 매매 전략:** 분할 매수 고려\n";
+            StockDetailDto dto = StockDetailDto.builder().stockCode("009150").build();
+
+            AiAnalysis a = org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                    stockDetailService, "parseGeminiResponse", resp, dto);
+
+            assertThat(a.getRecommendation()).isEqualTo("HOLD");
+        }
+
+        @Test
         @DisplayName("재현: 본문에 '순매수'가 있어도 종합 판단이 관망이면 HOLD — 숫자 점수·가격 가이드·충돌 문구 없음")
         void verdictFromBodyOnly() {
             String resp = "■ 수급\n- 외국인 순매수 지속, 매수세 유입\n■ 종합 판단\n관망. 추가 확인 필요\n";

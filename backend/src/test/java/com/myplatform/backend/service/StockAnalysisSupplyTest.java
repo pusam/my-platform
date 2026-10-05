@@ -71,4 +71,11 @@ class StockAnalysisSupplyTest {
         assertThat(StockAnalysisService.sumNet5Days(List.of(), List.of(), "FOREIGN"))
                 .isEqualByComparingTo("0");
     }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("재현(10/6 운영 화면): 5일 순매도 경고 금액은 이미 억 — 1억으로 또 나눠 '외국인 순매도 0억'이 되지 않는다")
+    void sellWarningAmountIsEok() {
+        assertThat(StockAnalysisService.sellWarning("외국인", new java.math.BigDecimal("-1063.44")))
+                .isEqualTo("⚠️ 외국인 순매도 1063억 (최근 5일) - 신중히 접근!");
+    }
 }

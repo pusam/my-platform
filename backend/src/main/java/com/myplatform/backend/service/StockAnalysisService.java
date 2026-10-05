@@ -151,17 +151,11 @@ public class StockAnalysisService {
             // 개별 매도 경고
             if (supplyDemand.getForeignNet5Days() != null &&
                 supplyDemand.getForeignNet5Days().compareTo(BigDecimal.ZERO) < 0) {
-                // 외국인 순매도 금액 계산 (억 단위)
-                BigDecimal foreignNetBillion = supplyDemand.getForeignNet5Days()
-                        .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP).abs();
-                warnings.add("⚠️ 외국인 순매도 " + foreignNetBillion + "억 (최근 5일) - 신중히 접근!");
+                warnings.add(sellWarning("외국인", supplyDemand.getForeignNet5Days()));
             }
             if (supplyDemand.getInstitutionNet5Days() != null &&
                 supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) < 0) {
-                // 기관 순매도 금액 계산 (억 단위)
-                BigDecimal institutionNetBillion = supplyDemand.getInstitutionNet5Days()
-                        .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP).abs();
-                warnings.add("⚠️ 기관 순매도 " + institutionNetBillion + "억 (최근 5일) - 신중히 접근!");
+                warnings.add(sellWarning("기관", supplyDemand.getInstitutionNet5Days()));
             }
         }
         if (technicalAnalysis.isRsiOverbought()) {
@@ -570,6 +564,15 @@ public class StockAnalysisService {
      * 실제 −1,063억인데 +3,282억으로 나왔고 '외국인+기관 동반 매수'·'동반 매도 경고 없음'이 그 값을 따랐다.
      * 저장 부호가 바뀌어도 같은 답이 나오게 크기에 매매 구분의 부호를 붙인다.
      */
+    /**
+     * 5일 순매도 경고 문구 — 금액은 이미 억원(investor_daily_trade)이다. 예전엔 1억으로 또 나눠 "외국인 순매도 0억"이었다
+     * (10/6 운영 화면: 삼성전기 5일 −1,063억 → '0억'). 순수.
+     */
+    static String sellWarning(String investor, BigDecimal net5DaysEok) {
+        return "⚠️ " + investor + " 순매도 " + net5DaysEok.abs().setScale(0, RoundingMode.HALF_UP).toPlainString()
+                + "억 (최근 5일) - 신중히 접근!";
+    }
+
     static BigDecimal signedNet(InvestorDailyTrade t) {
         BigDecimal v = t.getNetBuyAmount();
         if (v == null) return BigDecimal.ZERO;

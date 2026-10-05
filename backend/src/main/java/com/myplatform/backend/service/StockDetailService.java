@@ -2205,8 +2205,11 @@ public class StockDetailService {
                 sb.append(fiveDay != null ? fiveDay
                         : "수급: 당일 장전 미거래 · 최근 수급 데이터 미수집\n");
             } else {
-                sb.append(String.format("외국인 순매수: %s억, 기관 순매수: %s억, 체결강도: %s%% (%s)\n",
-                        s.getForeignNetBuy(), s.getInstNetBuy(), s.getVolumePower(),
+                // 모르는 값은 'null' 이 아니라 '미집계' — 예전엔 프롬프트에 null 이 그대로 실려 Gemini 가 "'null'로 제공되어"라고 썼다
+                sb.append(String.format("외국인 순매수: %s, 기관 순매수: %s, 체결강도: %s (%s)\n",
+                        s.getForeignNetBuy() != null ? s.getForeignNetBuy() + "억" : "미집계",
+                        s.getInstNetBuy() != null ? s.getInstNetBuy() + "억" : "미집계",
+                        s.getVolumePower() != null ? s.getVolumePower() + "%" : "미집계",
                         s.getDataSource() != null ? s.getDataSource() : "실시간"));
             }
         }
@@ -2528,17 +2531,22 @@ public class StockDetailService {
      * Gemini 응답에서 "■ XX" 섹션 본문 추출.
      * 다음 "■" 나 문서 끝까지.
      */
+    /**
+     * '■ 제목' 섹션 본문 — 제목 바로 뒤부터 다음 '■' 까지(같은 줄 포함). Gemini 는 "**■ 종합 판단:** **관망** - …"처럼 판단어를
+     * 머리줄에 붙이고 다음 섹션도 "**■"로 시작한다 — 예전엔 머리줄을 건너뛰고 "\n■"만 찾아, 판단어를 잃고 뒤 섹션의 '순매수'로
+     * BUY 를 냈다(10/6 운영: 본문 '관망' · 배지 BUY).
+     */
     private String extractSection(String response, String sectionTitle) {
         if (response == null || sectionTitle == null) return null;
-        int start = response.indexOf("■ " + sectionTitle);
+        String marker = "■ " + sectionTitle;
+        int start = response.indexOf(marker);
         if (start < 0) return null;
-        int bodyStart = response.indexOf("\n", start);
-        if (bodyStart < 0) return null;
-        int nextSection = response.indexOf("\n■", bodyStart);
+        int bodyStart = start + marker.length();
+        int nextSection = response.indexOf("■", bodyStart);
         String body = nextSection > 0
                 ? response.substring(bodyStart, nextSection)
                 : response.substring(bodyStart);
-        String trimmed = body.trim();
+        String trimmed = body.replaceFirst("^[\\s:*]+", "").replaceFirst("[\\s*]+$", "").trim();
         return trimmed.isEmpty() ? null : trimmed;
     }
 

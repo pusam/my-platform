@@ -6,7 +6,8 @@
 <template>
   <div class="ai-strategy-section">
     <h2>AI 매매 전략</h2>
-    <p class="ai-note">Gemini 서술 · 미검증 — 숫자 점수·목표가는 만들지 않습니다. 매수·매도 판단은 결론 카드를 따르세요.</p>
+    <!-- 서술 속 진입·청산 가격은 Gemini 의견이다 — '목표가는 만들지 않는다'고 하면 화면의 165만·155만과 모순(10/6 운영 화면) -->
+    <p class="ai-note">Gemini 서술 · 미검증 — 서술 속 진입·청산 가격은 검증되지 않은 의견입니다. 손절·목표와 매수·매도 판단은 결론 카드(검증 규칙)를 따르세요.</p>
 
     <!-- 차트 시그널 칩 (규칙 기반 확정 신호) -->
     <div v-if="aiAnalysis?.chartSignals?.length" class="chart-signal-chips">
