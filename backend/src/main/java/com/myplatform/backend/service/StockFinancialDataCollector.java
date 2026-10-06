@@ -268,7 +268,7 @@ public class StockFinancialDataCollector {
                 BigDecimal ttmEps = netIncome
                         .multiply(new BigDecimal("100000000"))
                         .divide(lstnStcn, 0, RoundingMode.HALF_UP);
-                log.info("[Simple TTM EPS] {} - KIS EPS(지배주주·최근 결산): {} → TTM 연결 EPS(비지배 포함): {} (순이익: {}억, 주식수: {})",
+                log.debug("[Simple TTM EPS] {} - KIS EPS(지배주주·최근 결산): {} → TTM 연결 EPS(비지배 포함): {} (순이익: {}억, 주식수: {})",
                         stockCode, eps, ttmEps, netIncome, lstnStcn);
                 eps = ttmEps;
 
@@ -401,11 +401,12 @@ public class StockFinancialDataCollector {
 
             // 손익계산서 데이터 저장 여부 로깅
             if (operatingProfit != null || netIncome != null || revenue != null) {
-                log.info("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}, EPS(TTM): {}, PER(TTM): {} [{}]",
+                log.debug("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}, EPS(TTM): {}, PER(TTM): {} [{}]",
                         stockName, stockCode, revenue, operatingProfit, netIncome, eps, per, perBasis);
             } else {
-                log.warn("[Simple저장] {} ({}) - 손익계산서 데이터 없음 (영업이익률: {})",
+                log.debug("[Simple저장] {} ({}) - 손익계산서 데이터 없음 (영업이익률: {})",
                         stockName, stockCode, operatingMargin);
+                noteState("손익계산서 없음(손익 없이 저장)");
             }
             return true;
 
@@ -413,6 +414,41 @@ public class StockFinancialDataCollector {
             log.debug("재무 데이터 수집 실패 [{}]: {}", stockCode, e.getMessage());
             return false;
         }
+    }
+
+    // ==================== 회차 상태 집계(2026-10-06) ====================
+
+    /**
+     * 종목마다 되풀이되는 '데이터 상태'(연속 4분기 부족·응답 비어 있음·자본총계 없음 등)를 회차 단위로 센다. 같은 종목들이 매 회차
+     * 같은 상태라 종목마다 WARN 을 남기면 회차당 수백 줄이었고, 정상 종목도 INFO 8줄 남짓이라 한 회차가 2만 줄을 넘었다(10/6 15:38
+     * 회차 20,579줄). 종목별 줄은 DEBUG, 회차 끝에 상태별 종목 수 한 줄(INFO, {@link StockFinancialDataService}). API 오류·응답 없음
+     * 같은 <b>실패는 그대로 WARN</b> — 경보를 끄는 게 아니라 반복만 없앤다(CLAUDE.md §5).
+     */
+    private final java.util.concurrent.ConcurrentMap<String, java.util.concurrent.atomic.LongAdder> stateTally =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private void noteState(String state) {
+        stateTally.computeIfAbsent(state, k -> new java.util.concurrent.atomic.LongAdder()).increment();
+    }
+
+    /** 이번 회차 상태 집계를 꺼내고 비운다 — 회차 시작에 한 번(지난 수동 수집 잔여분 비우기), 끝에 한 번(요약 로그). */
+    public String drainStateSummary() {
+        Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        for (String key : List.copyOf(stateTally.keySet())) {
+            java.util.concurrent.atomic.LongAdder adder = stateTally.remove(key);
+            if (adder != null) counts.put(key, adder.sum());
+        }
+        return formatStateSummary(counts);
+    }
+
+    /** "TTM 미산출(연속 4분기 부족) 137 · 재무상태표 자본총계 없음(분기·연간) 65 · …" — 많은 순, 0 은 뺀다. 없으면 "없음". 순수 함수. */
+    static String formatStateSummary(Map<String, Long> counts) {
+        String s = counts.entrySet().stream()
+                .filter(e -> e.getValue() != null && e.getValue() > 0)
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+                .map(e -> e.getKey() + " " + e.getValue())
+                .collect(java.util.stream.Collectors.joining(" · "));
+        return s.isEmpty() ? "없음" : s;
     }
 
     /**
@@ -482,7 +518,7 @@ public class StockFinancialDataCollector {
                         // ★ 각 분기 raw 데이터 로깅 (디버깅용)
                         for (int i = 0; i < quarterCount; i++) {
                             JsonNode q = output.get(i);
-                            log.info("[손익계산서 RAW] {} Q{}: stac_yymm={}, 매출={}, 영업이익={}, 순이익={}",
+                            log.debug("[손익계산서 RAW] {} Q{}: stac_yymm={}, 매출={}, 영업이익={}, 순이익={}",
                                     stockCode, i, q.path("stac_yymm").asText(),
                                     q.path("sale_account").asText(),
                                     q.path("bsop_prti").asText(),
@@ -521,15 +557,16 @@ public class StockFinancialDataCollector {
                         BigDecimal ttmOperatingProfitRaw = (ttm != null && ttm[1] != null) ? ttm[1] : BigDecimal.ZERO;
                         BigDecimal ttmNetIncomeRaw = (ttm != null && ttm[2] != null) ? ttm[2] : BigDecimal.ZERO;
 
-                        log.info("[손익계산서 TTM] {} - 원본 {}분기 → 개별 {}분기 (누적:{}): 매출액: {}, 영업이익: {}, 당기순이익: {}",
+                        log.debug("[손익계산서 TTM] {} - 원본 {}분기 → 개별 {}분기 (누적:{}): 매출액: {}, 영업이익: {}, 당기순이익: {}",
                                 stockCode, rawFigures.size(), individuals.size(), isCumulative,
                                 ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
 
                         if (ttm == null) {
                             // §4c — 12개월치를 못 만든 것이지 "실적 0" 이 아니다. 0 으로 흘러가면
                             // 아래 !=0 가드가 걸러 ratios 에 안 담기고, 그게 의도된 동작이다.
-                            log.warn("[손익계산서 TTM] {} - 연속 4분기 확보 실패(원본 {} / 개별 {}) — TTM 미산출",
+                            log.debug("[손익계산서 TTM] {} - 연속 4분기 확보 실패(원본 {} / 개별 {}) — TTM 미산출",
                                     stockCode, rawFigures.size(), individuals.size());
+                            noteState("TTM 미산출(연속 4분기 부족)");
                         }
 
                         // ★ 단위: KIS 원본이 이미 **억원**이다 — /100 하지 않는다(2026-08-28 실측 정정).
@@ -565,7 +602,8 @@ public class StockFinancialDataCollector {
                         // 실은 순이익 증가율(ntin_inrt)이었다(2026-09-30). ROE 는 호출부가 TTM 순이익으로 다시 계산한다
                         // (EPS÷BPS, 자본총계가 있으면 순이익÷자본총계).
                     } else {
-                        log.warn("[손익계산서] {} - output이 비어있음", stockCode);
+                        log.debug("[손익계산서] {} - output이 비어있음", stockCode);
+                        noteState("손익계산서 응답 비어 있음");
                     }
                 } else {
                     log.warn("[손익계산서] {} - API 오류: {}", stockCode, root.path("msg1").asText());
@@ -604,7 +642,7 @@ public class StockFinancialDataCollector {
                                 BigDecimal totalLblt = parseBigDecimal(latestBs.path("total_lblt").asText());
 
                                 if (totalCptl.compareTo(BigDecimal.ZERO) <= 0) {
-                                    log.warn("[재무상태표] {} - FID_DIV_CLS_CODE={} 자본총계 0 또는 없음, 다음 시도", stockCode, divClsCode);
+                                    log.debug("[재무상태표] {} - FID_DIV_CLS_CODE={} 자본총계 0 또는 없음, 다음 시도", stockCode, divClsCode);
                                     if ("1".equals(divClsCode)) {
                                         Thread.sleep(100);
                                     }
@@ -612,7 +650,7 @@ public class StockFinancialDataCollector {
                                 }
 
                                 bsDataFound = true;
-                                log.info("[재무상태표] {} - FID_DIV_CLS_CODE={} 데이터 사용 (raw 자본총계: {})", stockCode, divClsCode, totalCptl);
+                                log.debug("[재무상태표] {} - FID_DIV_CLS_CODE={} 데이터 사용 (raw 자본총계: {})", stockCode, divClsCode, totalCptl);
 
                                 // ★ 단위: 손익계산서와 동일하게 원본이 이미 억원 — /100 하지 않는다(2026-08-28).
                                 //   ⚠ 둘을 반드시 함께 고쳐야 한다. ROE = 순이익 / 자본총계 라
@@ -634,7 +672,7 @@ public class StockFinancialDataCollector {
                                             .divide(totalEquity, 6, RoundingMode.HALF_UP)
                                             .multiply(new BigDecimal("100"))
                                             .setScale(2, RoundingMode.HALF_UP);
-                                    log.info("[재무상태표] {} ROE 직접 계산: {}% (TTM순이익: {}억 / 자본총계: {}억), 기존 ROE: {}%",
+                                    log.debug("[재무상태표] {} ROE 직접 계산: {}% (TTM순이익: {}억 / 자본총계: {}억), 기존 ROE: {}%",
                                             stockCode, directRoe, ttmNetIncome, totalEquity, ratios.get("roe"));
                                     ratios.put("roe", directRoe);
                                 }
@@ -648,10 +686,10 @@ public class StockFinancialDataCollector {
                                     ratios.put("debtRatio", directDebtRatio);
                                 }
 
-                                log.info("[재무상태표] {} - 총자산: {}억, 자본총계: {}억, 부채총계: {}억",
+                                log.debug("[재무상태표] {} - 총자산: {}억, 자본총계: {}억, 부채총계: {}억",
                                         stockCode, ratios.get("totalAssets"), ratios.get("totalEquity"), ratios.get("totalDebt"));
                             } else {
-                                log.warn("[재무상태표] {} - FID_DIV_CLS_CODE={} output 비어있음", stockCode, divClsCode);
+                                log.debug("[재무상태표] {} - FID_DIV_CLS_CODE={} output 비어있음", stockCode, divClsCode);
                                 if ("1".equals(divClsCode)) {
                                     Thread.sleep(100);
                                 }
@@ -664,6 +702,7 @@ public class StockFinancialDataCollector {
                         }
                     }
                 }
+                if (!bsDataFound) noteState("재무상태표 자본총계 없음(분기·연간)");
             } catch (Exception e) {
                 log.warn("[재무상태표] {} - 조회 실패: {}", stockCode, e.getMessage());
             }
@@ -734,7 +773,7 @@ public class StockFinancialDataCollector {
         }
 
         if (saved > 0) {
-            log.info("[분기재무] {} - {}개 분기 적재(누적:{}) {} (스킵 {})",
+            log.debug("[분기재무] {} - {}개 분기 적재(누적:{}) {} (스킵 {})",
                     stockCode, saved, isCumulative, savedPeriods, skipped);
         } else if (skipped > 0) {
             log.debug("[분기재무] {} - 적재 0건 (스킵 {})", stockCode, skipped);

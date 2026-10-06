@@ -155,6 +155,7 @@ public class StockFinancialDataService {
         int successCount = 0;
         int failCount = 0;
         int progressInterval = Math.max(totalCount / 20, 1);
+        collector.drainStateSummary();   // 지난 수동 수집이 남긴 집계를 비운다 — 아래 요약은 이번 회차만
 
         for (int i = 0; i < allStockCodes.size(); i++) {
             String stockCode = allStockCodes.get(i);
@@ -196,6 +197,8 @@ public class StockFinancialDataService {
         log.info("========== 전 종목 재무 데이터 수집 완료 ==========");
         log.info("총 {}개 종목 중 성공: {}, 실패: {}, 소요시간: {}초",
                 totalCount, successCount, failCount, elapsedTime / 1000);
+        // 종목별 줄은 DEBUG 라(2026-10-06) 되풀이되는 데이터 상태는 여기 한 줄로 본다 — 숫자가 갑자기 뛰면 응답이 바뀐 것이다
+        log.info("종목별 데이터 상태(이번 회차, 종목 수): {}", collector.drainStateSummary());
 
         result.put("success", true);
         result.put("total", totalCount);
@@ -215,6 +218,7 @@ public class StockFinancialDataService {
         long startTime = System.currentTimeMillis();
 
         log.info("지정 종목 재무 데이터 수집 시작: {}개", stockCodes.size());
+        collector.drainStateSummary();
 
         int successCount = 0;
         int failCount = 0;
@@ -242,6 +246,8 @@ public class StockFinancialDataService {
         }
 
         long elapsedTime = System.currentTimeMillis() - startTime;
+        log.info("지정 종목 재무 데이터 수집 완료 — 성공 {}, 실패 {} · 종목별 데이터 상태: {}",
+                successCount, failCount, collector.drainStateSummary());
 
         result.put("success", true);
         result.put("total", stockCodes.size());
