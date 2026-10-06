@@ -22,12 +22,24 @@ class FinancialCollectionUniverseTest {
 
     private final StockFinancialDataRepository financialRepo = mock(StockFinancialDataRepository.class);
     private final StockMasterRepository masterRepo = mock(StockMasterRepository.class);
+    private final StockStatusService status = mock(StockStatusService.class);   // 기본: 상폐 판정 없음(동기화 전과 같다)
 
     private StockFinancialDataService service() {
         return new StockFinancialDataService(
                 financialRepo, masterRepo,
                 mock(StockFinancialDataCollector.class),
-                mock(SseEmitterService.class));
+                mock(SseEmitterService.class), status);
+    }
+
+    @Test
+    @DisplayName("재현: 상장폐지된 코드는 뺀다 — 자기참조 유니버스에 남아 매 회차 KIS 를 부르고 시총 0 행을 쓰던 것(10/6 63종목)")
+    void delistedCodesAreDropped() {
+        when(financialRepo.findAllStockCodes()).thenReturn(List.of("005930", "000010", "082640"));
+        when(masterRepo.findActiveEquityCodes()).thenReturn(List.of("005930", "082640"));   // KIND 시드는 상폐를 안 지운다
+        when(status.isKnownDelisted("000010")).thenReturn(true);
+        when(status.isKnownDelisted("082640")).thenReturn(true);
+
+        assertThat(service().resolveCollectionUniverse()).containsExactly("005930");
     }
 
     @Test

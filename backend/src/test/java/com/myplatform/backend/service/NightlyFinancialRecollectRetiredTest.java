@@ -83,7 +83,7 @@ class NightlyFinancialRecollectRetiredTest {
         when(collector.collectStockFinancialDataSimple("005930")).thenReturn(true);
         StockFinancialDataService service = new StockFinancialDataService(
                 mock(StockFinancialDataRepository.class), mock(StockMasterRepository.class),
-                collector, mock(SseEmitterService.class));
+                collector, mock(SseEmitterService.class), mock(StockStatusService.class));
 
         assertThat(service.collectSingleStock("005930")).isTrue();
 

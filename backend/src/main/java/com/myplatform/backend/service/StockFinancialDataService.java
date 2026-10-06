@@ -27,6 +27,7 @@ public class StockFinancialDataService {
     private final com.myplatform.backend.repository.StockMasterRepository stockMasterRepository;
     private final StockFinancialDataCollector collector;
     private final SseEmitterService sseEmitterService;
+    private final StockStatusService stockStatusService;
 
     /**
      * 특정 종목 재무 데이터 수동 수집
@@ -123,8 +124,26 @@ public class StockFinancialDataService {
                     existingCount, e.getMessage());
         }
 
-        log.info("[재무수집] 유니버스 {}종목 (기존 {} + 마스터 신규 {})",
-                union.size(), existingCount, added);
+        // 상장폐지 코드는 뺀다(2026-10-07) — 기존 수집분(자기참조)에 오래전 상폐 코드가 남아 매 회차 KIS 를 두 번씩 부르고 시총 0 인
+        // 빈 행을 썼다(10/6 운영 63종목 — 이름 칸이 코드인 000010·000090 … + KIND 시드가 지우지 않는 동양생명·현대홈쇼핑). 온전한 KIS
+        // 종목마스터에 없을 때만 — 동기화 전·잘린 목록이면 아무것도 빼지 않는다(R5 '줄지 않는다'는 그 경우 그대로). 거래량 정지는
+        // 상장 유지라 남긴다.
+        int delisted = 0;
+        List<String> delistedSample = new java.util.ArrayList<>();
+        for (java.util.Iterator<String> it = union.iterator(); it.hasNext(); ) {
+            String code = it.next();
+            if (stockStatusService.isKnownDelisted(code)) {
+                it.remove();
+                delisted++;
+                if (delistedSample.size() < 10) delistedSample.add(code);
+            }
+        }
+
+        log.info("[재무수집] 유니버스 {}종목 (기존 {} + 마스터 신규 {}{})",
+                union.size(), existingCount, added, delisted > 0 ? " − 상폐 " + delisted : "");
+        if (delisted > 0) {
+            log.info("[재무수집] KIS 종목마스터에 없는(상폐) {}종목 제외 — 예: {}", delisted, delistedSample);
+        }
         if (dropped > 0) {
             // 조용히 거르면 쓰레기 코드가 어디서 오는지 아무도 모른다(§4c 침묵 금지).
             log.warn("[재무수집] 형식이 틀린 종목코드 {}건을 유니버스에서 제외했다 — 재무 테이블/마스터에 잘못된 코드가 있다",

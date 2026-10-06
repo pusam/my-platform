@@ -144,6 +144,26 @@ public class StockStatusService {
         return haltGateLoaded;
     }
 
+    /**
+     * 마스터가 '온전하다'고 볼 최소 크기 — 문서 기대값 KOSPI 2,110 + KOSDAQ 1,824 ≈ 3,934 의 약 90%(2026-10-07). 동기화 게이트는
+     * '빈 시장'과 '100건 미만'만 막아서 한 시장이 일부만 내려받힌 목록도 통과한다 — 그런 목록에서 '없다'를 상폐로 쓰면 멀쩡한 종목이
+     * 빠진다. 상폐로 쓸 때만 이 문턱을 더 건다(게이트 {@link #isActive} 의 극성·동작은 그대로).
+     */
+    static final int MIN_MASTER_SIZE_FOR_DELISTED = 3_500;
+
+    /**
+     * 상장폐지로 확인된 종목인가 — 온전한 KIS 종목마스터에 없을 때만 true(2026-10-07). 동기화 전·잘린 목록이면 false(모른다, §4c).
+     * <b>거래량 정지는 상폐가 아니다</b>(상장 유지 — 재개하면 바로 다시 다뤄야 한다). 재무 수집 유니버스가 오래전 상폐 코드를 빼는 데 쓴다.
+     */
+    public boolean isKnownDelisted(String stockCode) {
+        return knownDelisted(activeStockCodes, stockCode);
+    }
+
+    /** 순수 판정 — 마스터가 문턱 이상이고 그 목록에 없으면 상폐. */
+    static boolean knownDelisted(Set<String> master, String code) {
+        return code != null && master.size() >= MIN_MASTER_SIZE_FOR_DELISTED && !master.contains(code);
+    }
+
     public enum ActiveStatus {
         /** 상장 목록에서 확인됨. */
         ACTIVE,
