@@ -130,7 +130,7 @@
 import { ref, computed, onMounted } from 'vue';
 import apiClient from '../../utils/api';
 
-const emit = defineEmits(['open-stock', 'switch-to-list']);
+const emit = defineEmits(['open-stock', 'switch-to-list', 'loaded']);
 
 // 보드 → 상세 왕복 네비(순수 프론트): 현재 표시 순서의 종목코드 리스트를 sessionStorage 로 전달
 // (새 라우트·쿼리 오염 금지 — window.open 새 탭은 sessionStorage 복사본을 상속).
@@ -164,10 +164,13 @@ const loadSavedScope = () => {
 const scope = ref(loadSavedScope());   // 'momentum'(빠름) | 'union'(발굴 트랙 포함)
 
 // 진행 중 요청 — 60초 폴링·탭 복귀·토글이 겹쳐도 한 번만 부른다.
+// 받았는지(true/false)를 돌려주고 'loaded' 로 알린다 — 허브가 실패한 갱신에 '방금' 시각을 찍지 않게(2026-10-07).
+// 이미 진행 중이면 undefined(이번 호출은 아무것도 받지 않았다).
 let inFlight = false;
 const load = async () => {
-  if (inFlight) return;
+  if (inFlight) return undefined;
   inFlight = true;
+  let received = false;
   // '불러오는 중' 자리표시는 보여줄 보드가 없을 때만 — 60초 갱신마다 보드를 지우고 자리표시로
   // 바꾸면 화면이 분마다 깜빡인다. 새 결과(실패 포함)는 도착한 뒤에 교체한다.
   if (!board.value) loading.value = true;
@@ -178,6 +181,7 @@ const load = async () => {
       throw new Error('보드 데이터 미가용');
     }
     board.value = data?.data || null;
+    received = true;
   } catch (e) {
     board.value = null;
     error.value = true;
@@ -185,6 +189,8 @@ const load = async () => {
     loading.value = false;
     inFlight = false;
   }
+  emit('loaded', received);
+  return received;
 };
 
 // 발굴 트랙 포함 토글 — union 은 5트랙 조립이라 무거움(백엔드 캐시). 켤 때만 호출 + 상태 저장.

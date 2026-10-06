@@ -9,8 +9,8 @@
         @tab-change="activeGnbTab = $event"
       />
 
-      <!-- 데이터 갱신 상태 — 라이브 탭(시장·발굴)에서만 노출 -->
-      <div class="freshness-bar" v-if="isLiveTab">
+      <!-- 데이터 갱신 상태 — 60초마다 다시 읽는 화면(시장 탭·발굴 종합판단)에서만. 백테스트는 다시 읽는 게 없다(2026-10-07) -->
+      <div class="freshness-bar" v-if="showFreshness">
         <DataFreshness
           :lastUpdated="lastUpdated"
           :isRefreshing="isRefreshing"
@@ -560,7 +560,7 @@
         <template v-if="activeGnbTab === 'discover' && discoverGroup === 'deep'">
           <div class="embedded-content">
             <SectionTotalRecommendation v-if="discoverSubTab === 'total'" />
-            <SectionJudgmentBoard ref="judgmentBoard" v-if="discoverSubTab === 'board'" @open-stock="goToStock" @switch-to-list="goDiscoverListDefault" />
+            <SectionJudgmentBoard ref="judgmentBoard" v-if="discoverSubTab === 'board'" @open-stock="goToStock" @switch-to-list="goDiscoverListDefault" @loaded="onBoardLoaded" />
             <AiStrategyDashboardPage v-if="discoverSubTab === 'ai-strategy'" :embedded="true" />
             <SectionBacktest v-if="discoverSubTab === 'backtest'" />
             <EarningsScreenerPage v-if="discoverSubTab === 'screener'" :embedded="true" />
@@ -814,12 +814,14 @@ export default {
   watch: {
     activeGnbTab(tab) {
       // P-IA: 글로벌은 시장 탭의 서브섹션으로 임베드됨 — 더 이상 별도 라우팅하지 않음.
-      this.loadTabData(tab)
-      // 60초 갱신은 보이는 탭의 데이터만 읽으므로(2026-10-07) 돌아온 탭은 바로 한 번 읽는다 — 첫 진입은 loadTabData 가 읽는다.
-      if (this.dataLoaded.market) {
-        if (tab === 'market') { this.loadMarketMap(); this.loadSupplyPanel() }
-        else if (tab === 'today') this.loadMarketLine()
-      }
+      // 첫 진입이면 loadTabData 가 시장 지도를 읽고 그 Promise 를 돌려준다(아니면 null). 예전엔 loadTabData 가 dataLoaded 를
+      // 이미 true 로 바꾼 뒤에 그 값을 봐서 첫 진입에 같은 지도를 두 번 불렀다(2026-10-07).
+      const firstMap = this.loadTabData(tab)
+      // 갱신 시각은 보이는 화면의 데이터 기준 — 다른 탭에서 받은 시각을 이 탭에 보이지 않는다(2026-10-07)
+      this.lastUpdated = null
+      // 60초 갱신은 보이는 탭의 데이터만 읽으므로(2026-10-07) 돌아온 탭은 바로 한 번 읽는다
+      if (tab === 'market') this._markWhenReceived([firstMap || this.loadMarketMap(), this.loadSupplyPanel()], tab)
+      else if (tab === 'today' && !firstMap) this.loadMarketLine()
       // 탭 전환 시 스크롤 초기화
       window.scrollTo({ top: 0, behavior: 'smooth' })
     },
@@ -830,13 +832,19 @@ export default {
     },
     phaseSignalCodes(codes) {
       this.loadPhaseQuotes(codes)
+    },
+    discoverSubTab() {
+      // 종합판단 ↔ 백테스트 — 보드는 다시 마운트되며 스스로 읽고 @loaded 로 알린다. 그 전엔 이전 화면의 시각을 보이지 않는다(2026-10-07)
+      this.lastUpdated = null
     }
   },
   mounted() {
     // 초기 로드 스태거 — 한꺼번에 같은 KIS 창구로 몰려 EGW00201 을 유발하던 것 완화.
     // 백엔드 KisApiRateLimiter 가 400ms 간격으로 직렬화하지만, 큐가 과부하일 땐
     // 뒤쪽 요청이 10초 타임아웃을 맞을 수 있어 프론트에서 미리 간격을 둔다.
-    this.loadTabData(this.activeGnbTab)   // 즉시 (시장맵/AI전략/수급 — 내부적으로도 스태거됨)
+    const firstMap = this.loadTabData(this.activeGnbTab)   // 즉시 (시장맵/AI전략/수급 — 내부적으로도 스태거됨)
+    // 갱신 시각은 받았을 때만(2026-10-07) — 예전엔 1.5초 뒤 결과와 무관하게 찍었다. 시장 탭은 지도가, 발굴 탭은 보드(@loaded)가 찍는다.
+    if (this.activeGnbTab === 'market') this._markWhenReceived([firstMap], 'market')
     setTimeout(() => this.loadTodaySummary(), 400)  // 관심종목 + AI TOP5 등
     setTimeout(() => this.loadNews(), 1200)         // 뉴스는 비KIS 경로라 가장 늦어도 OK
     // 섹터 카드 초기 뷰 — 장중 시간대 기본은 거래대금, 그 외엔 시장 지도
@@ -845,13 +853,6 @@ export default {
     // 60초마다 트레이드 탭 데이터 자동 갱신 — 페이지 가시성에 따라 자동 일시정지/재개
     this._startPolling()
     this._startCountdown()
-    // 초기 로드 후 lastUpdated 마킹 (스태거 로드가 끝나는 1.5초 뒤)
-    setTimeout(() => {
-      if (this.isLiveTab && !this.lastUpdated) {
-        this.lastUpdated = new Date()
-        this.nextRefreshIn = 60
-      }
-    }, 1500)
     // 시간대 국면 1분 틱 — currentPhaseKey 가 08:00/20:00 경계를 실시간 반영하게
     this._phaseTimer = setInterval(() => { this.phaseNow = Date.now() }, 60_000)
     this._onVisibilityChange = () => {
@@ -894,6 +895,10 @@ export default {
     // 매매(trade) 탭은 라이브 폴링 불필요(봇/페이퍼는 자체 갱신).
     isLiveTab() {
       return this.activeGnbTab === 'market' || this.activeGnbTab === 'discover'
+    },
+    // 갱신 시각 막대 — 60초마다 다시 읽는 화면만(2026-10-07). 발굴의 백테스트는 다시 읽는 게 없어 시각이 그 화면 것이 아니었다.
+    showFreshness() {
+      return this.activeGnbTab === 'market' || (this.activeGnbTab === 'discover' && this.discoverSubTab === 'board')
     },
     currentPhaseKey() {
       // phaseNow(1분 틱)에 반응해야 한다 — new Date() 만 읽으면 반응형 의존성이 없어
@@ -1116,17 +1121,31 @@ export default {
         // 보이는 탭의 데이터만(2026-10-07): 시장 지도(5콜)·수급 패널(3콜)은 시장 탭에만 있는데 발굴 탭에서도 60초마다 다시 읽었고,
         // 오늘 탭의 시장 한 줄(KOSPI·KOSDAQ·진단)은 반대로 한 번도 다시 읽지 않아 페이지를 연 시점 값이 그대로 보였다.
         const tab = this.activeGnbTab
-        await Promise.allSettled([
+        // 갱신 시각은 하나라도 실제로 받았을 때만(2026-10-07) — 예전엔 전부 실패해도 '방금 갱신'이었다. 다음 시도 카운트다운은 그대로 돈다.
+        await this._markWhenReceived([
           ...(tab === 'market' ? [this.loadMarketMap(), this.loadSupplyPanel()] : []),
           ...(tab === 'today' ? [this.loadMarketLine()] : []),
           this.$refs.todayBriefing?.refresh(),
           this.$refs.judgmentBoard?.refresh()
-        ])
-        this.lastUpdated = new Date()
+        ], tab)
         this.nextRefreshIn = 60
       } finally {
         this.isRefreshing = false
       }
+    },
+    /**
+     * 보이는 화면의 데이터를 하나라도 실제로 받았을 때만 갱신 시각을 찍는다(2026-10-07) — 실패한 갱신을 '방금 갱신'으로 보이지 않게.
+     * 로더는 받았으면 true 를 돌려준다(그 밖의 값은 못 받은 것). 기다리는 사이 다른 탭으로 옮겼으면 찍지 않는다 — 그 탭의 시각이 아니다.
+     */
+    async _markWhenReceived(loads, tab) {
+      const results = await Promise.allSettled(loads)
+      const received = results.some(r => r.status === 'fulfilled' && r.value === true)
+      if (received && this.activeGnbTab === tab) this.lastUpdated = new Date()
+      return received
+    },
+    /** 종합판단 보드가 스스로 읽은 결과(첫 표시·범위 토글·60초 갱신) — 받았을 때만 갱신 시각(2026-10-07) */
+    onBoardLoaded(ok) {
+      if (ok === true && this.activeGnbTab === 'discover') this.lastUpdated = new Date()
     },
     manualRefresh() {
       this._refreshAll()
@@ -1302,13 +1321,15 @@ export default {
     },
 
     // ---- 탭별 데이터 로딩 ----
+    /** 탭 첫 진입 로드. 시장 지도를 여기서 처음 읽었으면 그 Promise(받았는지 true/false)를, 아니면 null 을 돌려준다(2026-10-07). */
     loadTabData(tab) {
+      let firstMap = null
       // P-IA: 시장·발굴 탭은 라이브 시장 데이터(시장상태바·시장맵) + AI 스냅샷(phaseSignals용) 공유.
       // '오늘' 탭도 시장 한 줄 표시를 위해 marketData 로드 (후보/적중률은 컴포넌트가 자체 fetch).
       if ((tab === 'today' || tab === 'market' || tab === 'discover') && !this.dataLoaded.market) {
         // 스태거 발사 — 같은 KIS 창구로 몰리지 않게 500ms 간격(순서·간격 보존).
         // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, AI 전략은 뒤로.
-        this.loadMarketMap()
+        firstMap = this.loadMarketMap()
         setTimeout(() => this.loadAiStrategy(), 500)   // phaseSignals(pre/post)용 aiTopPicks
         this.dataLoaded.market = true
       }
@@ -1319,6 +1340,7 @@ export default {
         if (this.discoverGroup === 'list') this.ensureDiscoverListLoaded(this.discoverListTab)
         this.refreshSectorStrength()   // 상단 '덜 빠지는 섹터' 배지(1h 캐시, 1회)
       }
+      return firstMap
     },
 
     // ---- 뉴스 로딩 (공용) ----
@@ -1543,8 +1565,11 @@ export default {
           consecutiveFailed,
           tradeDay
         }
+        // 받았는지 — 세 호출 중 하나라도 응답을 받았으면(빈 목록도 응답이다 — 10시 전 기관 순위는 비는 게 정상)
+        return !consecutiveFailed || fData != null || iData != null
       } catch (e) {
         this.supplyPanelData = { daily: [], consecutive: [], rallySignal: null, state: 'ready', consecutiveFailed: true, tradeDay: null }
+        return false
       }
     },
     getScoreBreakdown(rec) {
@@ -1636,9 +1661,12 @@ export default {
     async loadMarketLine() {
       try {
         const res = await withTimeout(marketAPI.getStatus(), 10000)
-        this.marketData = transformMarketData(this.extractData(res)) || {}
+        const line = transformMarketData(this.extractData(res))
+        this.marketData = line || {}
+        return line != null
       } catch {
         this.marketData = {}
+        return false
       }
     },
 
@@ -1662,9 +1690,10 @@ export default {
           }
         }
         this.sectorData = sectorArr
+        let transformed = null
         if (marketRes.status === 'fulfilled') {
           const d = this.extractData(marketRes.value)
-          const transformed = transformMarketData(d)
+          transformed = transformMarketData(d)
           this.marketData = transformed || {}
         } else {
           this.marketData = {}
@@ -1676,11 +1705,14 @@ export default {
           newGlobalData.nasdaqFutures = (d && d.price) ? d : null
         }
         this.globalData = newGlobalData
+        // 받았는지 — 섹터·시장 상태·나스닥 선물 중 하나라도 화면에 쓸 값이 왔으면
+        return sectorArr.length > 0 || transformed != null || newGlobalData.nasdaqFutures != null
       } catch {
         this.sectorData = []
         this.marketData = {}
         this.globalData = {}
         this.sections.marketMap.error = true
+        return false
       } finally {
         this.sections.marketMap.loading = false
       }

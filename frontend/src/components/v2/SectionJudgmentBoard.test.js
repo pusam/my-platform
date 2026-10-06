@@ -340,3 +340,32 @@ describe('SectionJudgmentBoard — 섹터 열 이름표(2026-10-06)', () => {
     expect(headers.join(' ')).not.toMatch(/섹터\(테마\)/)
   })
 })
+
+describe('SectionJudgmentBoard — 갱신 결과(2026-10-07)', () => {
+  it('refresh 는 받았는지를 돌려준다 — 허브가 실패한 갱신에 “방금” 시각을 찍지 않게', async () => {
+    const w = await mountBoard([row()])
+    apiClient.get.mockResolvedValue(boardResp([row()]))
+    expect(await w.vm.refresh()).toBe(true)
+    apiClient.get.mockRejectedValue(new Error('network'))
+    expect(await w.vm.refresh()).toBe(false)
+  })
+
+  it('스스로 읽은 결과도 알린다(첫 표시·범위 토글) — 허브가 그때 갱신 시각을 찍는다', async () => {
+    const w = await mountBoard([row()])
+    expect(w.emitted('loaded')).toEqual([[true]])          // 마운트 로드
+    apiClient.get.mockRejectedValue(new Error('network'))
+    await w.vm.refresh()
+    expect(w.emitted('loaded')).toEqual([[true], [false]])
+  })
+
+  it('진행 중 중복 호출은 받은 게 없다(undefined) — 알리지도 않는다', async () => {
+    const w = await mountBoard([row()])
+    let resolveNext
+    apiClient.get.mockImplementation(() => new Promise(r => { resolveNext = r }))
+    const pending = w.vm.refresh()
+    expect(await w.vm.refresh()).toBeUndefined()
+    resolveNext(boardResp([row()]))
+    expect(await pending).toBe(true)
+    expect(w.emitted('loaded')).toEqual([[true], [true]])
+  })
+})

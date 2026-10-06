@@ -11,7 +11,7 @@ describe('후보·발굴 갱신 연결', () => {
       activeGnbTab: tab, isRefreshing: false,
       $refs: tab === 'today' ? { todayBriefing: { refresh } } : { judgmentBoard: { refresh } },
       loadMarketMap: vi.fn().mockResolvedValue(), loadSupplyPanel: vi.fn().mockResolvedValue(),
-      loadMarketLine: vi.fn().mockResolvedValue()
+      loadMarketLine: vi.fn().mockResolvedValue(), _markWhenReceived: M._markWhenReceived
     }
     await M._refreshAll.call(ctx)
     expect(refresh).toHaveBeenCalledOnce()
@@ -33,9 +33,9 @@ describe('후보·발굴 갱신 연결', () => {
 
 describe('60초 갱신은 보이는 탭의 데이터만(2026-10-07)', () => {
   const ctxFor = (tab) => ({
-    activeGnbTab: tab, isRefreshing: false, $refs: {},
+    activeGnbTab: tab, isRefreshing: false, lastUpdated: null, $refs: {},
     loadMarketMap: vi.fn().mockResolvedValue(), loadSupplyPanel: vi.fn().mockResolvedValue(),
-    loadMarketLine: vi.fn().mockResolvedValue()
+    loadMarketLine: vi.fn().mockResolvedValue(), _markWhenReceived: M._markWhenReceived
   })
 
   it('재현: 발굴 탭에선 시장 탭 데이터(시장 지도 5콜·수급 패널 3콜)를 다시 읽지 않는다 — 화면에 없다', async () => {
@@ -63,21 +63,137 @@ describe('60초 갱신은 보이는 탭의 데이터만(2026-10-07)', () => {
     const scrollTo = window.scrollTo
     window.scrollTo = vi.fn()
     try {
-      const market = { ...ctxFor('market'), dataLoaded: { market: true }, loadTabData: vi.fn() }
+      const market = { ...ctxFor('market'), dataLoaded: { market: true }, loadTabData: M.loadTabData }
       Comp.watch.activeGnbTab.call(market, 'market')
       expect(market.loadMarketMap).toHaveBeenCalledOnce()
       expect(market.loadSupplyPanel).toHaveBeenCalledOnce()
 
-      const today = { ...ctxFor('today'), dataLoaded: { market: true }, loadTabData: vi.fn() }
+      const today = { ...ctxFor('today'), dataLoaded: { market: true }, loadTabData: M.loadTabData }
       Comp.watch.activeGnbTab.call(today, 'today')
       expect(today.loadMarketLine).toHaveBeenCalledOnce()
-
-      const first = { ...ctxFor('market'), dataLoaded: { market: false }, loadTabData: vi.fn() }
-      Comp.watch.activeGnbTab.call(first, 'market')
-      expect(first.loadMarketMap).not.toHaveBeenCalled()   // 첫 진입은 loadTabData 가 이미 읽는다
     } finally {
       window.scrollTo = scrollTo
     }
+  })
+
+  it('재현: 첫 진입에도 시장 지도는 한 번만 — 예전엔 loadTabData 가 dataLoaded 를 바꾼 뒤 그 값을 봐서 같은 지도를 두 번 불렀다', () => {
+    const scrollTo = window.scrollTo
+    window.scrollTo = vi.fn()
+    try {
+      // 매매 탭으로 열었다가 처음 시장 탭으로 — 실제 loadTabData(가짜로 두면 이 중복이 안 보인다)
+      const first = { ...ctxFor('market'), dataLoaded: { market: false }, loadTabData: M.loadTabData, loadAiStrategy: vi.fn() }
+      Comp.watch.activeGnbTab.call(first, 'market')
+      expect(first.loadMarketMap).toHaveBeenCalledOnce()
+      expect(first.loadSupplyPanel).toHaveBeenCalledOnce()
+
+      // 오늘 탭 첫 진입은 지도가 시장 한 줄까지 채우므로 따로 읽지 않는다
+      const today = { ...ctxFor('today'), dataLoaded: { market: false }, loadTabData: M.loadTabData, loadAiStrategy: vi.fn() }
+      Comp.watch.activeGnbTab.call(today, 'today')
+      expect(today.loadMarketMap).toHaveBeenCalledOnce()
+      expect(today.loadMarketLine).not.toHaveBeenCalled()
+    } finally {
+      window.scrollTo = scrollTo
+    }
+  })
+})
+
+describe('갱신 시각은 실제로 받았을 때만(2026-10-07)', () => {
+  const ctxWith = (tab, ok) => ({
+    activeGnbTab: tab, isRefreshing: false, lastUpdated: null, nextRefreshIn: 0, $refs: {},
+    loadMarketMap: vi.fn().mockResolvedValue(ok), loadSupplyPanel: vi.fn().mockResolvedValue(ok),
+    loadMarketLine: vi.fn().mockResolvedValue(ok), _markWhenReceived: M._markWhenReceived
+  })
+
+  it('재현: 갱신이 전부 실패하면 시각을 바꾸지 않는다 — 예전엔 실패해도 “방금 갱신”이었다', async () => {
+    const ctx = ctxWith('market', false)
+    await M._refreshAll.call(ctx)
+    expect(ctx.lastUpdated).toBeNull()
+    expect(ctx.nextRefreshIn).toBe(60)   // 다음 시도까지 카운트다운은 그대로
+  })
+
+  it('하나라도 받았으면 그 시각', async () => {
+    const ctx = ctxWith('market', false)
+    ctx.loadMarketMap = vi.fn().mockResolvedValue(true)
+    await M._refreshAll.call(ctx)
+    expect(ctx.lastUpdated).toBeInstanceOf(Date)
+  })
+
+  it('발굴 탭은 종합판단 보드가 받았는지로 본다', async () => {
+    const ok = ctxWith('discover', false)
+    ok.$refs = { judgmentBoard: { refresh: vi.fn().mockResolvedValue(true) } }
+    await M._refreshAll.call(ok)
+    expect(ok.lastUpdated).toBeInstanceOf(Date)
+
+    const failed = ctxWith('discover', false)
+    failed.$refs = { judgmentBoard: { refresh: vi.fn().mockResolvedValue(false) } }
+    await M._refreshAll.call(failed)
+    expect(failed.lastUpdated).toBeNull()
+  })
+
+  it('기다리는 사이 다른 탭으로 옮겼으면 찍지 않는다 — 그 탭의 시각이 아니다', async () => {
+    const ctx = ctxWith('market', true)
+    let resolveMap
+    const pending = M._markWhenReceived.call(ctx, [new Promise(r => { resolveMap = r })], 'market')
+    ctx.activeGnbTab = 'discover'
+    resolveMap(true)
+    expect(await pending).toBe(true)
+    expect(ctx.lastUpdated).toBeNull()
+  })
+
+  it('탭을 옮기면 이전 탭의 시각을 지우고, 시장 탭은 받은 뒤에 다시 찍는다', async () => {
+    const scrollTo = window.scrollTo
+    window.scrollTo = vi.fn()
+    try {
+      const earlier = new Date(Date.now() - 50_000)
+      const ctx = { ...ctxWith('market', true), lastUpdated: earlier, dataLoaded: { market: true }, loadTabData: M.loadTabData }
+      Comp.watch.activeGnbTab.call(ctx, 'market')
+      expect(ctx.lastUpdated).toBeNull()          // 받기 전엔 '대기 중'
+      await vi.waitFor(() => expect(ctx.lastUpdated).toBeInstanceOf(Date))
+      expect(ctx.lastUpdated.getTime()).toBeGreaterThan(earlier.getTime())
+
+      const discover = { ...ctxWith('discover', true), lastUpdated: earlier, dataLoaded: { market: true },
+        loadTabData: M.loadTabData, discoverGroup: 'deep', refreshSectorStrength: vi.fn() }
+      Comp.watch.activeGnbTab.call(discover, 'discover')
+      expect(discover.lastUpdated).toBeNull()     // 발굴은 보드가 받은 뒤(@loaded) 찍는다
+    } finally {
+      window.scrollTo = scrollTo
+    }
+  })
+
+  it('발굴 보드가 스스로 읽은 결과 — 받았을 때만, 발굴 탭일 때만', () => {
+    const ctx = { activeGnbTab: 'discover', lastUpdated: null }
+    M.onBoardLoaded.call(ctx, false)
+    expect(ctx.lastUpdated).toBeNull()
+    M.onBoardLoaded.call(ctx, true)
+    expect(ctx.lastUpdated).toBeInstanceOf(Date)
+
+    const elsewhere = { activeGnbTab: 'market', lastUpdated: null }
+    M.onBoardLoaded.call(elsewhere, true)
+    expect(elsewhere.lastUpdated).toBeNull()
+  })
+
+  it('발굴 서브탭을 옮기면 이전 화면의 시각을 지운다', () => {
+    const ctx = { lastUpdated: new Date() }
+    Comp.watch.discoverSubTab.call(ctx, 'backtest')
+    expect(ctx.lastUpdated).toBeNull()
+  })
+
+  it('갱신 시각 막대는 60초마다 다시 읽는 화면에만 — 백테스트는 다시 읽는 게 없다', () => {
+    const show = (tab, sub) => Comp.computed.showFreshness.call({ activeGnbTab: tab, discoverSubTab: sub })
+    expect(show('market', 'board')).toBe(true)
+    expect(show('discover', 'board')).toBe(true)
+    expect(show('discover', 'backtest')).toBe(false)
+    expect(show('today', 'board')).toBe(false)
+    expect(show('trade', 'board')).toBe(false)
+  })
+
+  it('재현: 마운트가 결과와 무관하게 갱신 시각을 찍지 않는다 — 예전엔 1.5초 뒤 무조건 찍었다', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(join(process.cwd(), 'src', 'views', 'StockTradingDashboardV2.vue'), 'utf8')
+    const mountedBody = src.slice(src.indexOf('  mounted() {'), src.indexOf('  beforeUnmount() {'))
+    expect(mountedBody).not.toMatch(/this\.lastUpdated = new Date\(\)/)
+    expect(mountedBody).toMatch(/_markWhenReceived\(\[firstMap\], 'market'\)/)
   })
 })
 
