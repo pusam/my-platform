@@ -232,6 +232,10 @@ jobs:
           $SCP_CMD /tmp/frontend-dist.tar.gz "$USER@$HOST:/tmp/"
           $SSH_CMD "$USER@$HOST" "mkdir -p $TARGET/frontend/dist && rm -rf $TARGET/frontend/dist/* && tar -xzf /tmp/frontend-dist.tar.gz -C $TARGET/frontend/dist && rm /tmp/frontend-dist.tar.gz"
 
+          # ★ 동거 사이트 인증서 — conf 를 마운트했는데 인증서가 없으면 아래 nginx -t 전에 webroot 로 발급한다.
+          #   발급이 안 되면 그 conf 를 이번 배포 동안 끈다(아래 nginx -t·재기동이 다른 사이트를 막지 않게). 항상 성공.
+          $SSH_CMD "$USER@$HOST" "cd $TARGET && bash scripts/ensure-site-cert.sh nsf-news.conf nsf-news.dhkim-lab.duckdns.org"
+
           # ★ 재바인드 재시작 '전에' 설정을 검증한다.
           #   방금 올린 nginx 설정에 문법 오류가 있으면 아래 restart 에서 nginx 가 뜨지 못하고,
           #   `|| true` 가 그 실패를 삼켜 두 사이트(dhkim-lab / vorj-map)가 함께 죽는다.
@@ -315,16 +319,9 @@ jobs:
               NGINX_SKIP="seah 인증서 없음"
             fi
 
-            # nsf-news(news-shorts-factory) 동거 — nsf-news.conf 가 nginx 에 "마운트돼 있을 때만" 인증서 필수 (seah 와 같은 가드).
-            if [ -z "$NGINX_SKIP" ] && [ -f "./nginx/nsf-news.conf" ] \
-               && grep -qE '^[[:space:]]*-[[:space:]]*\./nginx/nsf-news\.conf:' ./docker-compose.yml \
-               && [ ! -f "./nginx/ssl/live/nsf-news.duckdns.org/fullchain.pem" ]; then
-              echo "❌ nsf-news.conf 는 있으나 nsf-news 인증서가 없습니다."
-              echo "   먼저 발급하세요(webroot):"
-              echo "     docker run --rm -v \$PWD/nginx/ssl:/etc/letsencrypt -v \$PWD/nginx/certbot-webroot:/var/www/certbot \\"
-              echo "       certbot/certbot certonly --webroot -w /var/www/certbot -d nsf-news.duckdns.org --agree-tos -n --email <이메일>"
-              NGINX_SKIP="nsf-news 인증서 없음"
-            fi
+            # nsf-news(news-shorts-factory) 동거 — 인증서는 Copy 단계의 scripts/ensure-site-cert.sh 가 발급하고, 못 하면
+            # 그 배포 동안 nsf-news.conf 를 주석뿐인 파일로 끈다. 그래서 여기에는 가드를 두지 않는다
+            # (두면 끈 배포마다 NGINX_SKIP 이 켜져 nginx 재생성이 막힌다 — 위 seah 가드 주석의 2026-08-20~09-01 사고).
 
             # 최종 안전망 — 실제 마운트된 설정으로 nginx -t 검증. 실패(인증서 누락/문법오류) 시 재기동 스킵.
             # ⚠️ 이 스크립트는 ssh 의 stdin(heredoc)으로 흘러 들어온다. `docker compose run` 은 stdin 을 컨테이너에

@@ -261,7 +261,7 @@ services:
       #    (read-only file system) nginx 검증이 실패한다. 반드시 html 바깥 형제 경로에 마운트.
       - ./nginx/jewelry-dist:/usr/share/nginx/jewelry:ro
       # ── news-shorts-factory(nsf-news) 동거 — 서버블록만(화면·API 는 nsf-frontend 컨테이너가 서빙) ──
-      # ⚠️ nsf-news.conf 는 nsf-news.duckdns.org 인증서가 있어야 nginx 가 뜬다(① 인증서 발급 → ② 이 줄 반영).
+      # 인증서(nsf-news.dhkim-lab.duckdns.org)는 배포의 scripts/ensure-site-cert.sh 가 발급한다 — 못 하면 그 배포 동안 conf 를 끈다.
       - ./nginx/nsf-news.conf:/etc/nginx/conf.d/nsf-news.conf:ro
       # ── seah(세아 생산관리) 동거 — 마운트 보류(2026-08-21) ────────────────
       # nginx/seah.conf 는 그대로 두고 마운트만 뺀다.
