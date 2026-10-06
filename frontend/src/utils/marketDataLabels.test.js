@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf, impactLabel, impactTone, marketConditionText, topNetSum, latestTradeDay } from './marketDataLabels'
+import { toMonthDay, tradeDataLabel, commodityFromResponse, krwFromFuturesQuote, storedPriceLabel, stockNameOnce, signedPercentOrDash, marketTotalOf, impactLabel, impactTone, marketConditionText, topNetSum, latestTradeDay, quoteNumberText } from './marketDataLabels'
 
 describe('marketTotalOf — 섹터 총 거래대금은 종목을 한 번만 센다', () => {
   it('재현: 섹터 합계를 더하면 겹치는 종목이 두 번 — 백엔드 marketTotalTradingValue 를 쓴다', () => {
@@ -137,5 +137,25 @@ describe('topNetSum / latestTradeDay — 시장 탭 수급 패널(2026-10-03)', 
   it('데이터의 거래일로 말한다 — 가장 최근 tradeDate', () => {
     expect(latestTradeDay([{ tradeDate: '2026-10-01' }, { tradeDate: '2026-10-02' }])).toBe('10.02')
     expect(latestTradeDay([])).toBeNull()
+  })
+})
+
+describe('quoteNumberText — 해외 시세 숫자 자릿수(2026-10-06)', () => {
+  it('재현: 유로/달러 1.1218 이 1.12 로, 등락 −0.0005 가 0.00 으로 잘렸다 — 10 미만은 넷째 자리까지', () => {
+    expect(quoteNumberText(1.1218)).toBe('1.1218')
+    expect(quoteNumberText(-0.0005, { signed: true })).toBe('-0.0005')
+    expect(quoteNumberText(6.65)).toBe('6.65')
+  })
+
+  it('큰 값은 종전처럼 둘째 자리 · 부호 · 천 단위', () => {
+    expect(quoteNumberText(7834.5)).toBe('7,834.50')
+    expect(quoteNumberText(8.25, { signed: true })).toBe('+8.25')
+    expect(quoteNumberText(53.5, { signed: true })).toBe('+53.50')
+  })
+
+  it('모르면 \'-\' — 0 으로 그리지 않는다', () => {
+    expect(quoteNumberText(null)).toBe('-')
+    expect(quoteNumberText(undefined, { signed: true })).toBe('-')
+    expect(quoteNumberText('abc')).toBe('-')
   })
 })

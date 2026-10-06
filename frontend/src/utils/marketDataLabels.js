@@ -181,3 +181,17 @@ export function multipleOrDash(v, digits = 1) {
   if (!Number.isFinite(n) || n <= 0) return '-'
   return `${n.toFixed(digits)}배`
 }
+
+/**
+ * 해외 시세 숫자(가격·차액) — 크기에 맞춘 자릿수(2026-10-06). 10 미만(유로/달러 1.1218·구리 6.65)은 소수 넷째 자리까지,
+ * 나머지는 둘째 자리. 예전엔 전부 둘째 자리로 잘라 유로/달러 등락 −0.0005 가 '0.00'이었다. 모르면 '-'.
+ */
+export function quoteNumberText(v, { signed = false } = {}) {
+  if (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) return '-'
+  const n = Number(v)
+  const text = n.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: Math.abs(n) < 10 ? 4 : 2
+  })
+  return signed && n > 0 ? '+' + text : text
+}

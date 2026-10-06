@@ -325,8 +325,9 @@
         <div v-for="q in futuresQuotes" :key="q.symbol" class="futures-card">
           <div class="futures-name">{{ q.name }}</div>
           <div class="futures-price">{{ formatFuturesPrice(q.currentPrice) }}</div>
-          <div class="futures-change" :class="q.changeRate >= 0 ? 'positive' : 'negative'">
-            {{ q.changeRate >= 0 ? '+' : '' }}{{ Number(q.changeRate).toFixed(2) }}%
+          <!-- 등락률을 모르면 '-' — Number(null) 은 0 이라 예전엔 '+0.00%'(2026-10-06) -->
+          <div class="futures-change" :class="q.changeRate == null ? '' : (q.changeRate >= 0 ? 'positive' : 'negative')">
+            {{ signedPercentOrDash(q.changeRate) }}
           </div>
         </div>
       </div>
@@ -405,7 +406,7 @@ const props = defineProps({
 });
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI } from '../utils/api';
-import { commodityFromResponse, krwFromFuturesQuote, impactLabel, impactTone, marketConditionText } from '../utils/marketDataLabels';
+import { commodityFromResponse, krwFromFuturesQuote, impactLabel, impactTone, marketConditionText, signedPercentOrDash } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import GlobalNav from '../components/GlobalNav.vue';
 import DataFreshness from '../components/DataFreshness.vue';

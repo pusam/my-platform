@@ -175,8 +175,7 @@ public class OvernightUsMarketService {
         addRate(d, "SOX", in.soxRate());
         if (in.vixLevel() != null) {
             double v = in.vixLevel();
-            String zone = v >= 30 ? "극심한 공포" : v >= 25 ? "공포" : v >= 20 ? "경계" : "안정";
-            d.add(String.format("VIX %.1f(%s)", v, zone));
+            d.add(String.format("VIX %.1f(%s)", v, VixZone.label(v)));
         }
         return d;
     }

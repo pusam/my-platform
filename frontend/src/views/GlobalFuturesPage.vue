@@ -95,7 +95,7 @@
         <div class="vix-body">
           <div class="vix-price">{{ formatPrice(vixQuote.currentPrice) }}</div>
           <div class="vix-change" :class="getChangeClass(vixQuote)">
-            {{ formatChange(vixQuote.changePrice) }} ({{ formatRate(vixQuote.changeRate) }}%)
+            {{ formatChange(vixQuote.changePrice) }} ({{ formatRate(vixQuote.changeRate) }})
           </div>
         </div>
         <div class="vix-meter">
@@ -105,7 +105,8 @@
           <div class="vix-meter-labels">
             <span>0</span>
             <span class="vix-zone-low">안정 (&lt;15)</span>
-            <span class="vix-zone-mid">경계 (15~25)</span>
+            <!-- 배지와 같은 공용 기준(composables/useMarketStatus VIX_TIERS): 15~20 보통 · 20~25 경계 — 노란 구간은 둘을 함께 덮는다 -->
+            <span class="vix-zone-mid">보통~경계 (15~25)</span>
             <span class="vix-zone-high">공포 (&ge;25)</span>
             <span>50+</span>
           </div>
@@ -124,7 +125,7 @@
         <div class="sentiment-card-body">
           <div class="sentiment-price">{{ formatPrice(us10yQuote.currentPrice) }}%</div>
           <div class="sentiment-change" :class="getChangeClass(us10yQuote)">
-            {{ formatChange(us10yQuote.changePrice) }} ({{ formatRate(us10yQuote.changeRate) }}%)
+            {{ formatChange(us10yQuote.changePrice) }} ({{ formatRate(us10yQuote.changeRate) }})
           </div>
         </div>
         <div class="bond-meter">
@@ -196,7 +197,7 @@
         <span class="price">{{ formatPrice(kospiQuote.currentPrice) }}</span>
         <div class="change" :class="getChangeClass(kospiQuote)">
           <span class="change-price">{{ formatChange(kospiQuote.changePrice) }}</span>
-          <span class="change-rate">({{ formatRate(kospiQuote.changeRate) }}%)</span>
+          <span class="change-rate">({{ formatRate(kospiQuote.changeRate) }})</span>
         </div>
       </div>
       <div class="main-details">
@@ -243,7 +244,7 @@
               {{ formatPrice(q.currentPrice) }}
             </div>
             <div class="card-change" :class="getChangeClass(q)">
-              {{ formatChange(q.changePrice) }} ({{ formatRate(q.changeRate) }}%)
+              {{ formatChange(q.changePrice) }} ({{ formatRate(q.changeRate) }})
             </div>
             <div class="card-range">
               <span>L {{ formatPrice(q.lowPrice) }}</span>
@@ -269,7 +270,7 @@
               {{ formatPrice(q.currentPrice) }}
             </div>
             <div class="card-change" :class="getChangeClass(q)">
-              {{ formatChange(q.changePrice) }} ({{ formatRate(q.changeRate) }}%)
+              {{ formatChange(q.changePrice) }} ({{ formatRate(q.changeRate) }})
             </div>
             <div class="card-range">
               <span>L {{ formatPrice(q.lowPrice) }}</span>
@@ -293,7 +294,7 @@
               {{ formatPrice(q.currentPrice) }}
             </div>
             <div class="card-change" :class="getChangeClass(q)">
-              {{ formatChange(q.changePrice) }} ({{ formatRate(q.changeRate) }}%)
+              {{ formatChange(q.changePrice) }} ({{ formatRate(q.changeRate) }})
             </div>
             <div class="card-range">
               <span>L {{ formatPrice(q.lowPrice) }}</span>
@@ -333,7 +334,7 @@
                 {{ q.success ? formatChange(q.changePrice) : '-' }}
               </td>
               <td class="right" :class="getChangeClass(q)">
-                {{ q.success ? formatRate(q.changeRate) + '%' : '-' }}
+                {{ q.success ? formatRate(q.changeRate) : '-' }}
               </td>
               <td class="right">{{ q.success ? formatPrice(q.highPrice) : '-' }}</td>
               <td class="right">{{ q.success ? formatPrice(q.lowPrice) : '-' }}</td>
@@ -362,7 +363,7 @@
 </template>
 
 <script setup>
-import { impactLabel, impactTone } from '../utils/marketDataLabels';
+import { impactLabel, impactTone, quoteNumberText, signedPercentOrDash } from '../utils/marketDataLabels';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { globalFuturesAPI } from '../utils/api';
@@ -586,30 +587,12 @@ const stopAutoRefresh = () => {
 };
 
 // 포맷 함수
-const formatPrice = (price) => {
-  if (price == null) return '-';
-  return Number(price).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-};
+// 가격·차액은 크기에 맞춘 자릿수(유로/달러 1.1218), 모르는 등락률은 '-'(예전엔 '0.00' — 보합처럼 보였다, 2026-10-06)
+const formatPrice = (price) => quoteNumberText(price);
 
-const formatChange = (change) => {
-  if (change == null) return '-';
-  const num = Number(change);
-  const prefix = num > 0 ? '+' : '';
-  return prefix + num.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-};
+const formatChange = (change) => quoteNumberText(change, { signed: true });
 
-const formatRate = (rate) => {
-  if (rate == null) return '0.00';
-  const num = Number(rate);
-  const prefix = num > 0 ? '+' : '';
-  return prefix + num.toFixed(2);
-};
+const formatRate = (rate) => signedPercentOrDash(rate);
 
 const formatVolume = (vol) => {
   if (vol == null) return '-';

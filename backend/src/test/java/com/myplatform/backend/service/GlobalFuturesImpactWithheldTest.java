@@ -9,6 +9,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -86,5 +87,43 @@ class GlobalFuturesImpactWithheldTest {
         assertThat(a.get("impactScore")).isEqualTo(50);
         assertThat(a.get("factorCount")).isEqualTo(5);
         assertThat((String) a.get("comment")).doesNotContain("개로 계산");
+    }
+
+    private static List<GlobalFuturesService.FuturesQuote> neutralQuotes() {
+        return List.of(ok("NQ", "0.14", "31361"), ok("ES", "0.10", "7833"), ok("CL", "-0.25", "89"),
+                ok("KRW", "0.15", "1342"), ok("VIX", "1.37", "15.5"));
+    }
+
+    @Test
+    @DisplayName("재현: 장이 이미 열린 09:30 에 '보합 출발 예상'이라 했다 — 장중엔 해외 지표 기준 방향이라고만 말한다(10/6 화면)")
+    void duringKrxSessionNotOpeningForecast() {
+        Map<String, Object> a = service(mock(RestTemplate.class))
+                .analyzeImpact(neutralQuotes(), LocalDateTime.of(2026, 10, 6, 9, 30));
+
+        assertThat(a.get("alertLevel")).isEqualTo("NEUTRAL");
+        assertThat((String) a.get("comment")).doesNotContain("출발 예상").contains("보합 — 해외 지표 기준");
+    }
+
+    @Test
+    @DisplayName("장 시작 전·마감 뒤·주말엔 종전대로 '출발 예상'(다음 출발)")
+    void outsideSessionKeepsOpeningForecast() {
+        GlobalFuturesService svc = service(mock(RestTemplate.class));
+
+        assertThat((String) svc.analyzeImpact(neutralQuotes(), LocalDateTime.of(2026, 10, 6, 8, 0)).get("comment"))
+                .contains("보합 출발 예상");
+        assertThat((String) svc.analyzeImpact(neutralQuotes(), LocalDateTime.of(2026, 10, 6, 21, 0)).get("comment"))
+                .contains("보합 출발 예상");
+        // 토요일 10시 — 장이 열려 있지 않다
+        assertThat((String) svc.analyzeImpact(neutralQuotes(), LocalDateTime.of(2026, 10, 10, 10, 0)).get("comment"))
+                .contains("보합 출발 예상");
+    }
+
+    @Test
+    @DisplayName("재현: NQ 는 나스닥 100 선물인데 문장엔 '나스닥 +0.14%'로 나와 지수처럼 읽혔다")
+    void nasdaqIsLabeledAsFutures() {
+        Map<String, Object> a = service(mock(RestTemplate.class))
+                .analyzeImpact(neutralQuotes(), LocalDateTime.of(2026, 10, 6, 8, 0));
+
+        assertThat((String) a.get("comment")).contains("나스닥 선물 +0.14%");
     }
 }

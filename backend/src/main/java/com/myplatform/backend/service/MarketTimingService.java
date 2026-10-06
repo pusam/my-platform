@@ -807,6 +807,17 @@ public class MarketTimingService {
     }
 
     /**
+     * 진단 문장의 등락비 조각 — 그 값의 거래일을 붙인다(2026-10-06 화면 점검). 등락비는 장 마감 확정치(16:30 저장)라 장 시작
+     * 전·장중엔 직전 거래일 값인데 '당일 등락비'라 해서 오늘 값처럼 읽혔다. 거래일을 모르면 날짜를 지어내지 않는다. 순수 함수.
+     */
+    static String dailyRatioNote(String marketName, MarketStatusDto s) {
+        if (s == null || s.getDailyRatio() == null) return "";
+        String day = s.getTradeDate() == null ? "날짜 모름"
+                : s.getTradeDate().format(java.time.format.DateTimeFormatter.ofPattern("MM/dd"));
+        return String.format("| %s 등락비(%s): %.1f ", marketName, day, s.getDailyRatio());
+    }
+
+    /**
      * 시장 진단 메시지 생성
      */
     private String generateDiagnosis(MarketStatusDto kospi, MarketStatusDto kosdaq, BigDecimal combinedAdr) {
@@ -832,15 +843,11 @@ public class MarketTimingService {
             }
         }
 
-        // 당일 상황 추가
-        if (kospi != null && kospi.getDailyRatio() != null) {
-            sb.append(String.format("| 코스피 당일 등락비: %.1f ", kospi.getDailyRatio()));
-        }
-        if (kosdaq != null && kosdaq.getDailyRatio() != null) {
-            sb.append(String.format("| 코스닥 당일 등락비: %.1f", kosdaq.getDailyRatio()));
-        }
+        // 등락비 — 그 값의 거래일과 함께
+        sb.append(dailyRatioNote("코스피", kospi));
+        sb.append(dailyRatioNote("코스닥", kosdaq));
 
-        return sb.toString();
+        return sb.toString().trim();
     }
 
     /**

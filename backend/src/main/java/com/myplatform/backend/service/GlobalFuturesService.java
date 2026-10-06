@@ -222,15 +222,11 @@ public class GlobalFuturesService {
                 return createErrorQuote(info, "현재가 없음");
             }
 
-            // 등락 계산
-            BigDecimal changePrice = BigDecimal.ZERO;
-            BigDecimal changeRate = BigDecimal.ZERO;
-            if (prevClose != null && prevClose.compareTo(BigDecimal.ZERO) > 0) {
-                changePrice = currentPrice.subtract(prevClose).setScale(2, RoundingMode.HALF_UP);
-                changeRate = changePrice.divide(prevClose, 4, RoundingMode.HALF_UP)
-                        .multiply(new BigDecimal("100"))
-                        .setScale(2, RoundingMode.HALF_UP);
-            }
+            // 등락 계산 — 모르면 null, 낮은 가격도 정밀하게(changeOf)
+            Change change = changeOf(currentPrice, prevClose);
+            BigDecimal changePrice = change.price();
+            BigDecimal changeRate = change.rate();
+            int scale = priceScale(currentPrice);
 
             // 고가/저가 — Yahoo 는 일부 지수(VIX·^TNX)에 0 을 준다: 0 은 모름(2026-10-02, 화면 '고가 0.00' 위장)
             BigDecimal highPrice = zeroAsMissing(parseBd(meta.path("regularMarketDayHigh").asText()));
@@ -275,10 +271,13 @@ public class GlobalFuturesService {
                 stale = dataAgeMinutes > 30; // 30분 이상 경과 시 stale
             }
 
-            // sign 결정
-            String sign = "3"; // 보합
-            if (changeRate.compareTo(BigDecimal.ZERO) > 0) sign = "2"; // 상승
-            else if (changeRate.compareTo(BigDecimal.ZERO) < 0) sign = "5"; // 하락
+            // sign 결정 — 등락을 모르면 부호도 모른다(null)
+            String sign = null;
+            if (changeRate != null) {
+                sign = "3"; // 보합
+                if (changeRate.compareTo(BigDecimal.ZERO) > 0) sign = "2"; // 상승
+                else if (changeRate.compareTo(BigDecimal.ZERO) < 0) sign = "5"; // 하락
+            }
 
             FuturesQuote quote = FuturesQuote.builder()
                     .symbol(symbol)
@@ -286,11 +285,11 @@ public class GlobalFuturesService {
                     .shortName(info.getShortName())
                     .category(info.getCategory())
                     .exchange(info.getExchange())
-                    .currentPrice(currentPrice.setScale(2, RoundingMode.HALF_UP))
+                    .currentPrice(currentPrice.setScale(scale, RoundingMode.HALF_UP))
                     .changePrice(changePrice)
                     .changeRate(changeRate)
-                    .highPrice(highPrice != null ? highPrice.setScale(2, RoundingMode.HALF_UP) : null)
-                    .lowPrice(lowPrice != null ? lowPrice.setScale(2, RoundingMode.HALF_UP) : null)
+                    .highPrice(highPrice != null ? highPrice.setScale(scale, RoundingMode.HALF_UP) : null)
+                    .lowPrice(lowPrice != null ? lowPrice.setScale(scale, RoundingMode.HALF_UP) : null)
                     .volume(volumeBd)
                     .sign(sign)
                     .tradingTime(tradingTime)
@@ -337,6 +336,23 @@ public class GlobalFuturesService {
      * 지표만큼 움직이므로, 지표가 없을 때의 50·'보합 출발 예상'은 계산값이 아니라 시작값이었다(2026-10-03, §4c).
      */
     Map<String, Object> analyzeImpact(List<FuturesQuote> quotes) {
+        return analyzeImpact(quotes, LocalDateTime.now(ZoneId.of("Asia/Seoul")));
+    }
+
+    /**
+     * '출발 예상'은 코스피가 열리기 전(장 시작 전·마감 뒤·주말 — 다음 출발)에만 맞는 말이다. 평일 09:00~15:30 엔 이미 열린 장이라
+     * 해외 지표가 가리키는 방향이라고만 말한다(2026-10-06 화면 점검: 09:30 에 '보합 출발 예상'). 휴장 평일도 이 말은 틀리지 않는다.
+     * 순수 함수.
+     */
+    static String directionHeadline(String direction, LocalDateTime kstNow) {
+        boolean weekday = kstNow != null && kstNow.getDayOfWeek() != DayOfWeek.SATURDAY
+                && kstNow.getDayOfWeek() != DayOfWeek.SUNDAY;
+        boolean inSession = weekday && !kstNow.toLocalTime().isBefore(LocalTime.of(9, 0))
+                && kstNow.toLocalTime().isBefore(LocalTime.of(15, 30));
+        return inSession ? direction + " — 해외 지표 기준" : direction + " 출발 예상";
+    }
+
+    Map<String, Object> analyzeImpact(List<FuturesQuote> quotes, LocalDateTime kstNow) {
         Map<String, Object> analysis = new LinkedHashMap<>();
 
         // 종목별 추출
@@ -555,15 +571,15 @@ public class GlobalFuturesService {
         } else if (impactScore <= 45) {
             impact = "NEGATIVE";
             alertLevel = "WEAK_NEGATIVE";
-            comment = buildComment(quoteMap, "소폭 약세 출발 예상");
+            comment = buildComment(quoteMap, directionHeadline("소폭 약세", kstNow));
         } else if (impactScore <= 55) {
             impact = "NEUTRAL";
             alertLevel = "NEUTRAL";
-            comment = buildComment(quoteMap, "보합 출발 예상");
+            comment = buildComment(quoteMap, directionHeadline("보합", kstNow));
         } else if (impactScore <= 65) {
             impact = "POSITIVE";
             alertLevel = "WEAK_POSITIVE";
-            comment = buildComment(quoteMap, "소폭 강세 출발 예상");
+            comment = buildComment(quoteMap, directionHeadline("소폭 강세", kstNow));
         } else if (impactScore <= 80) {
             impact = "POSITIVE";
             alertLevel = "POSITIVE";
@@ -606,12 +622,35 @@ public class GlobalFuturesService {
         return factor;
     }
 
+    /** 전일 대비 등락(차액·등락률). 모르면 둘 다 null. */
+    record Change(BigDecimal price, BigDecimal rate) {}
+
+    /**
+     * 전일 종가 대비 등락 — 등락률은 반올림 전 차액으로 낸다(2026-10-06 화면 점검). 예전엔 차액을 소수 둘째 자리로 먼저 반올림해
+     * 유로/달러(1.12)의 −0.0005·−0.04% 가 '0.00 (0.00%)'였다. 전일 종가가 없으면 모름(null) — 예전엔 0(보합)으로 채웠다(§4c).
+     * 순수 함수.
+     */
+    static Change changeOf(BigDecimal current, BigDecimal prevClose) {
+        if (current == null || prevClose == null || prevClose.signum() <= 0) return new Change(null, null);
+        BigDecimal raw = current.subtract(prevClose);
+        BigDecimal rate = raw.divide(prevClose, 8, RoundingMode.HALF_UP)
+                .multiply(new BigDecimal("100"))
+                .setScale(2, RoundingMode.HALF_UP);
+        return new Change(raw.setScale(priceScale(current), RoundingMode.HALF_UP), rate);
+    }
+
+    /** 표시 자릿수 — 10 미만 가격(유로/달러·구리 등)은 소수 넷째 자리, 나머지는 둘째 자리. 순수 함수. */
+    static int priceScale(BigDecimal price) {
+        return price != null && price.abs().compareTo(BigDecimal.TEN) < 0 ? 4 : 2;
+    }
+
     private String buildComment(Map<String, FuturesQuote> quoteMap, String headline) {
         StringBuilder sb = new StringBuilder(headline).append(".");
 
         FuturesQuote nq = quoteMap.get("NQ");
         if (nq != null && nq.getChangeRate() != null) {
-            sb.append(String.format(" 나스닥 %+.2f%%", nq.getChangeRate().doubleValue()));
+            // NQ 는 나스닥 100 선물 — 지수(^NDX)와 다른 값이다(아시아 시간에도 움직인다)
+            sb.append(String.format(" 나스닥 선물 %+.2f%%", nq.getChangeRate().doubleValue()));
         }
 
         FuturesQuote cl = quoteMap.get("CL");
@@ -627,11 +666,7 @@ public class GlobalFuturesService {
         FuturesQuote vix = quoteMap.get("VIX");
         if (vix != null && vix.getCurrentPrice() != null) {
             double vixLevel = vix.getCurrentPrice().doubleValue();
-            sb.append(String.format(", VIX %.1f", vixLevel));
-            if (vixLevel >= 30) sb.append("(극심한 공포)");
-            else if (vixLevel >= 25) sb.append("(공포)");
-            else if (vixLevel >= 20) sb.append("(경계)");
-            else sb.append("(안정)");
+            sb.append(String.format(", VIX %.1f(%s)", vixLevel, VixZone.label(vixLevel)));
         }
 
         sb.append(".");
