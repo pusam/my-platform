@@ -337,6 +337,7 @@ public class MarketTimingService {
                 .strategy(strategy)
                 .dataAge(dataAge)
                 .dataStale(dataStale)
+                .marketClosedToday(marketCalendar.isMarketClosed())
                 .build();
     }
 
@@ -890,6 +891,7 @@ public class MarketTimingService {
                 .analysisDate(LocalDate.now())
                 .diagnosis("시장 데이터가 없습니다. 먼저 데이터를 수집해주세요.")
                 .strategy("데이터 수집 후 분석을 이용해주세요.")
+                .marketClosedToday(marketCalendar.isMarketClosed())   // 데이터가 없어도 휴장 여부는 안다
                 .build();
     }
 

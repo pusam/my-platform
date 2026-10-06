@@ -49,6 +49,12 @@ public class MarketTimingDto {
     private Boolean dataStale;
 
     /**
+     * 오늘이 휴장일인가(주말·공휴일 — {@code MarketCalendarService} 단일 출처, 2026-10-07). 허브 시간대 배너가 주말만 알아서 평일
+     * 공휴일에 '장 진행 중'이라고 했다 — 화면에 두 번째 달력을 만들지 않고 이 값을 읽는다.
+     */
+    private Boolean marketClosedToday;
+
+    /**
      * 개별 시장 현황
      */
     @Data

@@ -664,7 +664,9 @@ function transformMarketData(d) {
       adr: d.combinedAdr != null ? Number(d.combinedAdr) : null,
       dailyRatio: dailyRatio,
       marketStatus: d.diagnosis || '',
-      analysisDate: d.analysisDate || null
+      analysisDate: d.analysisDate || null,
+      // 오늘 휴장(주말·공휴일) — 백엔드 달력 단일 출처(2026-10-07). 시간대 배너가 평일 공휴일에 '장 진행 중'이라 하지 않게
+      marketClosedToday: d.marketClosedToday === true
     }
   }
   return null
@@ -899,8 +901,9 @@ export default {
       // 시각은 KST 고정(해외/UTC 기기에서 국면 오판정 방지).
       const d = new Date(this.phaseNow)
       const wd = d.toLocaleDateString('en-US', { timeZone: 'Asia/Seoul', weekday: 'short' })
-      // 주말 → 장 후
-      if (wd === 'Sat' || wd === 'Sun') return 'post'
+      // 주말·휴장일 → 장 후. 평일 공휴일(10/9 한글날 등)은 백엔드 달력이 시장 상태 응답에 실어 준다(2026-10-07) — 예전엔 주말만 알아서
+      // 공휴일 08~20시 내내 '장 진행 중 · 실시간 추적 중'이었다. 화면에 두 번째 휴장 달력을 두지 않는다.
+      if (wd === 'Sat' || wd === 'Sun' || this.marketData?.marketClosedToday === true) return 'post'
       const [h, m] = d.toLocaleTimeString('en-GB', {
         timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit'
       }).split(':').map(Number)
