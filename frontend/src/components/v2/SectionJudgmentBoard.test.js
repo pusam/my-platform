@@ -331,3 +331,12 @@ describe('SectionJudgmentBoard — 키보드로 연다', () => {
     expect(names()).toEqual(['다', '나', '가'])                       // 같은 머리글 → 오름차순
   })
 })
+
+describe('SectionJudgmentBoard — 섹터 열 이름표(2026-10-06)', () => {
+  it('재현: Gemini 테마 가산을 점수에서 뺐다 — 열 이름에 "(테마)"를 남기지 않는다', async () => {
+    const w = await mountBoard([row()])
+    const headers = w.findAll('thead th').map(th => th.text())
+    expect(headers.some(t => t.startsWith('섹터'))).toBe(true)
+    expect(headers.join(' ')).not.toMatch(/섹터\(테마\)/)
+  })
+})

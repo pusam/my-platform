@@ -66,7 +66,7 @@
             <th @click="setSort('totalScore')" @keydown.enter.self="setSort('totalScore')" @keydown.space.self.prevent="setSort('totalScore')" tabindex="0" class="th-sort">종합{{ sortMark('totalScore') }}</th>
             <th @click="setSort('technical')" @keydown.enter.self="setSort('technical')" @keydown.space.self.prevent="setSort('technical')" tabindex="0" class="th-sort th-tech">기술{{ sortMark('technical') }}</th>
             <th @click="setSort('earnings')" @keydown.enter.self="setSort('earnings')" @keydown.space.self.prevent="setSort('earnings')" tabindex="0" class="th-sort">실적{{ sortMark('earnings') }}</th>
-            <th @click="setSort('sectorMomentum')" @keydown.enter.self="setSort('sectorMomentum')" @keydown.space.self.prevent="setSort('sectorMomentum')" tabindex="0" class="th-sort">섹터(테마){{ sortMark('sectorMomentum') }}</th>
+            <th @click="setSort('sectorMomentum')" @keydown.enter.self="setSort('sectorMomentum')" @keydown.space.self.prevent="setSort('sectorMomentum')" tabindex="0" class="th-sort">섹터{{ sortMark('sectorMomentum') }}</th>
             <th @click="setSort('timingScore')" @keydown.enter.self="setSort('timingScore')" @keydown.space.self.prevent="setSort('timingScore')" tabindex="0" class="th-sort"
                 title="백테스트 hitRate 31% · 점수–수익 역상관 — 숫자 높다고 좋은 자리 아님(예측력 낮음 확인)">차트타이밍<small class="poor-badge">예측력↓</small>{{ sortMark('timingScore') }}</th>
             <th class="th-unv">섹터강도<small>미검증</small></th>

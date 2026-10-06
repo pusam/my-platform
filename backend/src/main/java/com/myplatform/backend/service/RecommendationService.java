@@ -2130,8 +2130,11 @@ public class RecommendationService {
             log.warn("[종합추천] 섹터 로테이션 실패 — regime UNKNOWN(가중 미적용): {}", e.getMessage());
         }
 
-        // 2. AI 스냅샷에서 테마 보너스 (있으면)
-        Map<String, Integer> themeScores = new HashMap<>();
+        // 2. AI 스냅샷의 등락률(스냅샷 시점 값) — 아래 3단계 등락률 보너스에 1회만 쓴다.
+        // ⚠ Gemini 테마 가산(테마 개수로 최대 +10)은 2026-10-06 점수에서 뺐다(사용자 결정) — Gemini 무료 한도가 하루 20회
+        //   (한국 16시 초기화)라 장중 회차엔 테마가 거의 안 붙고, 같은 종목이 한도 상태에 따라 섹터 축 +10(100점 환산 +12.5)을
+        //   받거나 못 받았다. 테마는 AI 전략 화면 표시용으로만 남는다. 10/1 "LLM 은 점수·순위를 바꾸지 않는다"와 같은 원칙 —
+        //   되살리지 말 것(RecommendationGeminiThemeTest). 이 날이 종합추천 섹터 축의 표본 경계다.
         Map<String, BigDecimal> snapChangeRates = new HashMap<>();
         try {
             var response = aiStrategyService.getAllLatestSnapshots();
@@ -2139,33 +2142,20 @@ public class RecommendationService {
                 for (List<AiStrategySnapshotDto> stocks : response.getStrategies().values()) {
                     if (stocks == null) continue;
                     for (AiStrategySnapshotDto snap : stocks) {
-                        if (snap.getStockCode() == null) continue;
-                        // 테마 점수만 — 등락률 보너스는 아래 3단계 per-stock 루프에서 1회만 부여.
-                        // (기존엔 여기서도 같은 changeRate 로 최대 +4 를 더해 이중가산 — AI 스냅샷
-                        //  종목이 한 등락률로 최대 +8 을 받아 phase 38 anti-추격 취지 위반, 2026-07-28 제거)
-                        int ts = 0;
-                        String themes = snap.getAiThemes();
-                        if (themes != null && !themes.isBlank()) {
-                            ts = Math.min(10, 4 + themes.split(",").length * 2);
-                        }
-                        themeScores.merge(snap.getStockCode(), ts, Math::max);
-                        if (snap.getChangeRate() != null) {
-                            snapChangeRates.putIfAbsent(snap.getStockCode(), snap.getChangeRate());
-                        }
+                        if (snap.getStockCode() == null || snap.getChangeRate() == null) continue;
+                        // (2026-07-28: 여기서도 같은 changeRate 로 최대 +4 를 더하던 이중가산 제거 — 3단계에서 1회만)
+                        snapChangeRates.putIfAbsent(snap.getStockCode(), snap.getChangeRate());
                     }
                 }
             }
         } catch (Exception e) {
-            log.debug("[종합추천] AI테마 조회 실패: {}", e.getMessage());
+            log.debug("[종합추천] AI 스냅샷 등락률 조회 실패: {}", e.getMessage());
         }
 
-        // 3. 종목별 섹터 점수 — AI 테마 + 종목 등락률만 (시장분위기 일괄 가산 제거, P1).
+        // 3. 종목별 섹터 점수 — 종목 등락률만 (시장분위기 일괄 가산 제거 P1, Gemini 테마 가산 제거 2026-10-06).
         int scored = 0;
         for (StockScore stock : scoreMap.values()) {
             int ss = 0;
-            // AI 테마 점수 (있으면)
-            Integer ts = themeScores.get(stock.stockCode);
-            if (ts != null) ss += ts;
             // 종목 자체 등락률 보너스
             BigDecimal cr = snapChangeRates.getOrDefault(stock.stockCode, stock.changeRate);
             if (cr != null) {
