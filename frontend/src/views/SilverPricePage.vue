@@ -17,7 +17,7 @@
             <h2>오늘의 은 시세</h2>
           </div>
           <span class="update-time" v-if="silverPrice">
-            {{ formatUpdateTime(silverPrice.fetchedAt) }}
+            {{ asOfTimeText(silverPrice.fetchedAt) }}
           </span>
         </div>
 
@@ -50,7 +50,8 @@
             </div>
           </div>
 
-          <div class="price-range">
+          <!-- '종가' 칸은 지웠다 — 백엔드가 조회 시점 가격을 넣은 것(closePrice = 현재가)이라 종가가 아니고 위 큰 숫자와 같다(2026-10-06) -->
+          <div class="price-range" v-if="silverPrice.openPrice != null || silverPrice.highPrice != null || silverPrice.lowPrice != null">
             <div class="range-item" v-if="silverPrice.openPrice != null">
               <span class="label">시가 (1돈)</span>
               <span class="value">{{ formatPrice(silverPrice.openPrice) }}원</span>
@@ -62,10 +63,6 @@
             <div class="range-item" v-if="silverPrice.lowPrice != null">
               <span class="label">저가 (1돈)</span>
               <span class="value low">{{ formatPrice(silverPrice.lowPrice) }}원</span>
-            </div>
-            <div class="range-item">
-              <span class="label">종가 (1돈)</span>
-              <span class="value">{{ formatPrice(silverPrice.closePrice) }}원</span>
             </div>
           </div>
 
@@ -110,7 +107,7 @@
 </template>
 
 <script setup>
-import { signedPercentOrDash } from '@/utils/marketDataLabels'
+import { signedPercentOrDash, asOfTimeText } from '@/utils/marketDataLabels'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { silverAPI } from '../utils/api'
@@ -335,15 +332,6 @@ const formatPrice = (price) => {
 const formatDate = (dateStr) => {
   if (!dateStr || dateStr.length !== 8) return dateStr
   return `${dateStr.substring(0, 4)}.${dateStr.substring(4, 6)}.${dateStr.substring(6, 8)}`
-}
-
-const formatUpdateTime = (dateTime) => {
-  if (!dateTime) return ''
-  const date = new Date(dateTime)
-  const hours = date.getHours()
-  const ampm = hours < 12 ? '오전' : '오후'
-  const displayHour = hours <= 12 ? hours : hours - 12
-  return `${ampm} ${displayHour}시 기준`
 }
 
 onMounted(() => {

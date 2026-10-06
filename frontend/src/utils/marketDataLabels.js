@@ -195,3 +195,16 @@ export function quoteNumberText(v, { signed = false } = {}) {
   })
   return signed && n > 0 ? '+' + text : text
 }
+
+/**
+ * 시세 기준 시각 '오전 9:41 기준' — 분까지(2026-10-06). 예전 금·은·원유 화면은 시(時)만 남겨 60초마다 갱신되는 원유가
+ * 09:41 에도 '오전 9시 기준'이었다. 모르면 빈 문자열.
+ */
+export function asOfTimeText(dateTime) {
+  if (!dateTime) return ''
+  const d = new Date(dateTime)
+  if (Number.isNaN(d.getTime())) return ''
+  const h = d.getHours()
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h < 12 ? '오전' : '오후'} ${h12}:${String(d.getMinutes()).padStart(2, '0')} 기준`
+}
