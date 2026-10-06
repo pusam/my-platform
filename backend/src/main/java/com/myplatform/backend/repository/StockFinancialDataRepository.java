@@ -17,14 +17,13 @@ import java.util.Optional;
 public interface StockFinancialDataRepository extends JpaRepository<StockFinancialData, Long>,
                                                       JpaSpecificationExecutor<StockFinancialData> {
 
-    Optional<StockFinancialData> findTopByStockCodeOrderByReportDateDesc(String stockCode);
-
     /**
      * 쓸 수 있는 EPS 성장률 — 종목당 최신 1건(2026-09-21).
      *
-     * <p>⚠ <b>{@code findTopByStockCodeOrderByReportDateDesc} 를 이 용도로 쓰면 안 된다</b> —
-     * report_date 최댓값이 <b>미래(12-31 추정치 행)</b> 일 수 있다(§4c 미래 날짜 항목). 실제로 그 함정에
-     * 빠져 삼성전자 EPS 성장률이 <b>315.39%</b> 로 잡히고 Forward PER 이 41.8 → 10 으로 뒤집혔다.
+     * <p>⚠ <b>미래 날짜를 거르지 않고 최신 1건을 집으면 안 된다</b>(예전 {@code findTopByStockCodeOrderByReportDateDesc} —
+     * 2026-10-07 삭제, {@code StockFinancialLatestRowGuardTest}) — report_date 최댓값이 <b>미래(12-31 추정치 행)</b> 일 수
+     * 있다(§4c 미래 날짜 항목). 실제로 그 함정에 빠져 삼성전자 EPS 성장률이 <b>315.39%</b> 로 잡히고 Forward PER 이
+     * 41.8 → 10 으로 뒤집혔다.
      *
      * <p>그래서 ① {@code report_date <= CURDATE()} ② {@code eps_growth <> 0} 두 조건을 건다.
      * 0 을 빼는 이유는 <b>무성장과 미산출을 구분할 수 없어서</b>다 — 당일 수집분 2,587행이 전부 0 이었다
@@ -47,77 +46,9 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
 
     List<StockFinancialData> findByReportDate(LocalDate reportDate);
 
-    // 퀀트 스크리닝 쿼리
-    @Query("SELECT s FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
-           "AND (:minPer IS NULL OR s.per >= :minPer) " +
-           "AND (:maxPer IS NULL OR s.per <= :maxPer) " +
-           "AND (:minRoe IS NULL OR s.roe >= :minRoe) " +
-           "AND (:maxRoe IS NULL OR s.roe <= :maxRoe) " +
-           "AND (:minPbr IS NULL OR s.pbr >= :minPbr) " +
-           "AND (:maxPbr IS NULL OR s.pbr <= :maxPbr) " +
-           "AND (:minMarketCap IS NULL OR s.marketCap >= :minMarketCap) " +
-           "AND (:maxMarketCap IS NULL OR s.marketCap <= :maxMarketCap) " +
-           "AND (:minDividendYield IS NULL OR s.dividendYield >= :minDividendYield) " +
-           "AND (:market IS NULL OR s.market = :market) " +
-           "AND (:sector IS NULL OR s.sector = :sector)")
-    List<StockFinancialData> findByQuantCriteria(
-        @Param("minPer") BigDecimal minPer,
-        @Param("maxPer") BigDecimal maxPer,
-        @Param("minRoe") BigDecimal minRoe,
-        @Param("maxRoe") BigDecimal maxRoe,
-        @Param("minPbr") BigDecimal minPbr,
-        @Param("maxPbr") BigDecimal maxPbr,
-        @Param("minMarketCap") BigDecimal minMarketCap,
-        @Param("maxMarketCap") BigDecimal maxMarketCap,
-        @Param("minDividendYield") BigDecimal minDividendYield,
-        @Param("market") String market,
-        @Param("sector") String sector
-    );
-
-    // 저PER 우량주
-    @Query("SELECT s FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
-           "AND s.per > 0 AND s.per <= :maxPer " +
-           "AND s.roe >= :minRoe " +
-           "AND s.marketCap >= :minMarketCap " +
-           "ORDER BY s.per ASC")
-    List<StockFinancialData> findLowPerHighRoeStocks(
-        @Param("maxPer") BigDecimal maxPer,
-        @Param("minRoe") BigDecimal minRoe,
-        @Param("minMarketCap") BigDecimal minMarketCap
-    );
-
-    // 저PBR 우량주
-    @Query("SELECT s FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
-           "AND s.pbr > 0 AND s.pbr <= :maxPbr " +
-           "AND s.roe >= :minRoe " +
-           "AND s.marketCap >= :minMarketCap " +
-           "ORDER BY s.pbr ASC")
-    List<StockFinancialData> findLowPbrHighRoeStocks(
-        @Param("maxPbr") BigDecimal maxPbr,
-        @Param("minRoe") BigDecimal minRoe,
-        @Param("minMarketCap") BigDecimal minMarketCap
-    );
-
-    // 고배당주
-    @Query("SELECT s FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
-           "AND s.dividendYield >= :minDividendYield " +
-           "AND s.marketCap >= :minMarketCap " +
-           "ORDER BY s.dividendYield DESC")
-    List<StockFinancialData> findHighDividendStocks(
-        @Param("minDividendYield") BigDecimal minDividendYield,
-        @Param("minMarketCap") BigDecimal minMarketCap
-    );
-
-    // 업종별 통계
-    @Query("SELECT s.sector, COUNT(s), AVG(s.per), AVG(s.roe), AVG(s.pbr) " +
-           "FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
-           "GROUP BY s.sector")
-    List<Object[]> getSectorStatistics();
+    // ⚠ 종목별 최신 행을 미래 날짜 가드 없이 집던 조회 8개(퀀트 조건·저PER·저PBR·고배당·업종 통계·순이익 최신·종목별 최신 1행·
+    //   최신 1건)는 호출처가 하나도 없어 지웠다(2026-10-07). 최신 행 조회를 새로 만들면 report_date <= CURDATE() 를 걸 것 —
+    //   StockFinancialLatestRowGuardTest 가 이 저장소 전체를 본다.
 
     // ⚠ 세 스크리너 쿼리(마법의 공식·PEG·성장)의 "종목별 최신 행"은 미래 날짜를 뺀다(2026-10-01) — 네이버 연말 추정치 행
     //   (report_date=12-31, PER 없음 342개)을 최신으로 집으면 조건을 못 넘어 종목이 통째로 빠졌다(오늘 행 기준 251종목).
@@ -166,12 +97,6 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     @Query("SELECT DISTINCT s.stockCode FROM StockFinancialData s")
     List<String> findAllStockCodes();
 
-    // 최신 재무 데이터만 조회
-    @Query("SELECT s FROM StockFinancialData s WHERE " +
-           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
-           "AND s.netIncome IS NOT NULL")
-    List<StockFinancialData> findLatestDataWithNetIncome();
-
     // 종목코드와 날짜로 조회
     Optional<StockFinancialData> findByStockCodeAndReportDate(String stockCode, LocalDate reportDate);
 
@@ -211,8 +136,8 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     /**
      * 종목별 최근 N행 일괄 조회 — 필드별 합성용 (AUDIT 2026-08-21 R4).
      *
-     * <p>{@link #findLatestPerStock()} 는 종목당 <b>1행</b>이라, 그 행이 0 placeholder 투성이면
-     * 그대로 채점된다(실측: 005930 debt_ratio=0.00 → 18점이어야 할 종목이 5점).
+     * <p>예전 {@code findLatestPerStock()}(2026-10-07 삭제)은 종목당 <b>1행</b>이라, 그 행이 0 placeholder 투성이면
+     * 그대로 채점됐다(실측: 005930 debt_ratio=0.00 → 18점이어야 할 종목이 5점).
      * 여기서 여러 행을 가져와 {@code FinancialRowSynthesizer} 가 필드별로 메운다.
      *
      * <p>종목당 per-stock 쿼리(N+1)를 피하려고 윈도우 함수로 한 방에 뽑는다 —
@@ -228,16 +153,6 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
             + ") ranked WHERE rn <= :limitPerStock",
             nativeQuery = true)
     List<StockFinancialData> findRecentPerStock(@Param("limitPerStock") int limitPerStock);
-
-    /**
-     * 종목별 최신 재무 데이터 1건씩 조회 (N+1 방지)
-     */
-    @Query(value = "SELECT s.* FROM stock_financial_data s " +
-           "INNER JOIN (SELECT stock_code, MAX(report_date) as max_date " +
-           "FROM stock_financial_data GROUP BY stock_code) latest " +
-           "ON s.stock_code = latest.stock_code AND s.report_date = latest.max_date",
-           nativeQuery = true)
-    List<StockFinancialData> findLatestPerStock();
 
     /**
      * 최신 일별 스냅샷 날짜의 <b>필드 충전율</b> — 입력층 건강 진단 (2026-08-26).
