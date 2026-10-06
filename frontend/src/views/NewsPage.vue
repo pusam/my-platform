@@ -46,7 +46,8 @@
               <span class="news-source">{{ news.sourceName }}</span>
               <span v-if="news._sector" class="sector-tag">{{ news._sector }}</span>
               <span v-if="news._isHot" class="hot-badge">HOT</span>
-              <span class="news-time">{{ formatNewsTime(news.summarizedAt) }}</span>
+              <!-- 기사 발행 시각 — 저장 시각으로 그리면 밤사이 기사가 아침 수집 직후 '방금 전'이었다(2026-10-06) -->
+              <span class="news-time">{{ newsTimeText(news.publishedAt, news.summarizedAt) }}</span>
             </div>
             <!-- 제목이 키보드 경로(Tab·Enter) — 카드 click 은 마우스용으로 그대로, 링크 click 은 전파를 막아 두 번 안 연다 -->
             <h3>
@@ -90,6 +91,7 @@ const props = defineProps({
 });
 import { useRouter } from 'vue-router';
 import { newsAPI } from '../utils/api';
+import { newsTimeText, sortByNewsTime } from '../utils/newsTime';
 import { UserManager } from '../utils/auth';
 import { toast } from '../utils/toast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
@@ -141,7 +143,7 @@ const parseBullets = (summary) => {
 
 // ═══ 뉴스 가공 computed ═══
 const enrichedNews = computed(() =>
-  newsList.value.map(news => ({
+  sortByNewsTime(newsList.value).map(news => ({
     ...news,
     _isHot: isHot(news.title || ''),
     _sector: detectSector(news.title || ''),
@@ -189,16 +191,6 @@ const openNewsUrl = (url) => {
   if (safe) {
     window.open(safe, '_blank', 'noopener,noreferrer');
   }
-};
-
-const formatNewsTime = (dateStr) => {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffHours = Math.floor((now - date) / (1000 * 60 * 60));
-  if (diffHours < 1) return '방금 전';
-  if (diffHours < 24) return `${diffHours}시간 전`;
-  return date.toLocaleDateString('ko-KR');
 };
 
 const logout = () => {

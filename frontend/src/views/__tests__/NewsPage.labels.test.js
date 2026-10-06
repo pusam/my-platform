@@ -22,3 +22,11 @@ describe('NewsPage 이름표', () => {
     expect(src).toMatch(/평일 07:30/)
   })
 })
+
+describe('NewsPage 시각 — 발행 시각으로(2026-10-06)', () => {
+  it('재현: 저장 시각(summarizedAt)으로 ‘방금 전’을 그리지 않는다', () => {
+    expect(src).not.toMatch(/formatNewsTime\(news\.summarizedAt\)/)
+    expect(src).toMatch(/newsTimeText\(news\.publishedAt, news\.summarizedAt\)/)
+    expect(src).toMatch(/sortByNewsTime\(/)
+  })
+})
