@@ -21,6 +21,7 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
@@ -961,6 +962,11 @@ public class GeminiService {
 
         // P2-CAT2: AI전략 스냅샷은 저우선(배경 작업) — quota 압박 시 자발적 양보(스킵→기존 폴백).
         // 고우선(재료 분류·StockDetail 사용자 트리거)은 게이트 없이 진행해 rate 슬롯을 양보받는다.
+        // 하루 한도 창의 저우선 예산(2026-10-07)도 같은 양보 — 429 를 맞기 전에 물러나 재료 분류 몫을 남긴다.
+        if (!lowPriorityBudgetLeft()) {
+            log.debug("[AI Scoring] {} - 하루 한도 창의 저우선 예산 소진 → 코멘트 없이 진행", strategyType);
+            return Collections.emptyMap();
+        }
         if (shouldYieldLowPriority(quotaResetTime, consecutiveErrors.get(), lastRateLimitAt, LocalDateTime.now())) {
             log.info("[AI Scoring] {} - quota 압박(리셋: {}, 연속에러: {}, 마지막429: {}) → 저우선 양보 (코멘트 없이 진행)",
                     strategyType, quotaResetTime, consecutiveErrors.get(), lastRateLimitAt);
@@ -1125,6 +1131,7 @@ public class GeminiService {
         trackDailyUsage();
 
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            noteQuotaWindowCall();   // 하루 한도 창(태평양) — 재시도도 요청이라 시도마다 센다(저우선 예산 판정용)
             try {
                 String url = apiUrl + "?key=" + apiKey;
 
@@ -1368,6 +1375,7 @@ public class GeminiService {
     private String callGeminiApi(String prompt) {
         // 일일 사용량은 실제 HTTP 시도마다 집계 — 텍스트 경로(withRetry/patient) 공통 지점.
         trackDailyUsage();
+        noteQuotaWindowCall();   // 하루 한도 창(태평양) — 저우선 예산 판정용
         String url = apiUrl + "?key=" + apiKey;
 
         // Request body 구성
@@ -1494,6 +1502,64 @@ public class GeminiService {
             }
         }
         return DEFAULT_RETRY_DELAY_MS;
+    }
+
+    // ==================== 무료 하루 한도 나눠 쓰기(2026-10-07) ====================
+    // 429 본문(10/6 15:07): GenerateRequestsPerDayPerProjectPerModel-FreeTier · 한도 20 · gemini-2.5-flash-lite. 하루 한도는
+    // 태평양 자정(한국 16시, 서머타임 끝나면 17시)에 초기화된다(공식 문서). 16~19시 AI 전략 회차가 새 창을 먼저 쓰면 다음 날 아침
+    // 재료 분류·종목 상세 분석이 429 를 맞았다 — 저우선(AI 전략 코멘트·테마, 10/6 부터 점수와 무관)은 창의 호출이
+    // (한도 − 고우선 예약분) 미만일 때만 부른다. 0 이하로 두면 끈다(종전 동작).
+    @Value("${gemini.quota.daily-requests:20}")
+    private int quotaDailyRequests;
+    @Value("${gemini.quota.high-priority-reserve:12}")
+    private int quotaHighPriorityReserve;
+    static final ZoneId QUOTA_ZONE = ZoneId.of("America/Los_Angeles");
+    private final AtomicInteger quotaWindowCalls = new AtomicInteger(0);
+    private volatile LocalDate quotaWindowDay = null;
+    /** 저우선 예산 소진을 그 창에 한 번만 알린다(§5 상태가 바뀐 순간만). */
+    private final java.util.concurrent.atomic.AtomicReference<LocalDate> lowPriorityExhaustedNoted =
+            new java.util.concurrent.atomic.AtomicReference<>(null);
+
+    /** 한도 창의 날짜 — 태평양 기준. 순수 함수. */
+    static LocalDate quotaDay(java.time.Instant now) {
+        return now.atZone(QUOTA_ZONE).toLocalDate();
+    }
+
+    /** 저우선 호출을 해도 되는가 — 창의 호출이 (한도 − 예약분) 미만. 한도 0 이하 = 기능 끔. 순수 함수. */
+    static boolean lowPriorityAllowed(int callsInWindow, int dailyRequests, int highPriorityReserve) {
+        if (dailyRequests <= 0) return true;
+        return callsInWindow < dailyRequests - Math.max(0, highPriorityReserve);
+    }
+
+    /** 실제 HTTP 호출 1건을 창에 센다(재시도 포함 — 보수적으로). 프로세스 메모리라 재시작하면 0 부터다. */
+    void noteQuotaWindowCall() {
+        quotaWindowCallsNow(java.time.Instant.now());
+        quotaWindowCalls.incrementAndGet();
+    }
+
+    private int quotaWindowCallsNow(java.time.Instant now) {
+        LocalDate day = quotaDay(now);
+        if (!day.equals(quotaWindowDay)) {
+            synchronized (this) {
+                if (!day.equals(quotaWindowDay)) {
+                    quotaWindowCalls.set(0);
+                    quotaWindowDay = day;
+                }
+            }
+        }
+        return quotaWindowCalls.get();
+    }
+
+    private boolean lowPriorityBudgetLeft() {
+        java.time.Instant now = java.time.Instant.now();
+        int calls = quotaWindowCallsNow(now);
+        if (lowPriorityAllowed(calls, quotaDailyRequests, quotaHighPriorityReserve)) return true;
+        LocalDate day = quotaDay(now);
+        if (!day.equals(lowPriorityExhaustedNoted.getAndSet(day))) {
+            log.info("[Gemini] 하루 한도 창({}, 태평양) 호출 {}회 — 저우선(AI 전략 코멘트) 예산 {}회 소진, 남은 {}회는 재료 분류·종목 분석 몫",
+                    day, calls, quotaDailyRequests - quotaHighPriorityReserve, Math.max(0, quotaDailyRequests - calls));
+        }
+        return false;
     }
 
     private static final ObjectMapper QUOTA_BODY_MAPPER = new ObjectMapper();
