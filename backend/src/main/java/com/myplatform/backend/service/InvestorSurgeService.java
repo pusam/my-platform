@@ -64,6 +64,9 @@ public class InvestorSurgeService {
     // 알림 재발송 금지 (30분 내 동일 종목)
     private static final long ALERT_COOLDOWN_MINUTES = 30;
 
+    /** 투자자 유형별로 마지막에 '오래됨'을 알린 스냅샷(날짜 시각) — 같은 스냅샷이면 조회마다 되풀이하지 않는다(2026-10-07, §5). */
+    private final java.util.concurrent.ConcurrentMap<String, String> lastStaleWarned = new java.util.concurrent.ConcurrentHashMap<>();
+
     /**
      * 장중 10분마다 외국인/기관 순매수 데이터 수집
      * 평일 08:00 ~ 20:00 (프리마켓/정규장/애프터마켓 전체)
@@ -330,7 +333,7 @@ public class InvestorSurgeService {
      */
     @Transactional(readOnly = true)
     public List<InvestorSurgeDto> getSurgeStocks(String investorType, BigDecimal minChange) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
 
         // 주말이면 금요일 데이터 조회
         if (today.getDayOfWeek() == DayOfWeek.SATURDAY) {
@@ -368,7 +371,7 @@ public class InvestorSurgeService {
 
         // ★ Freshness check: 거래시간(평일 08:00~20:00, NXT 포함)에 30분 이상 오래된 스냅샷이면 경고
         LocalDateTime snapshotDateTime = LocalDateTime.of(today, latestTime);
-        LocalDateTime now = DateTimeUtil.kstNow();
+        LocalDateTime now = LocalDateTime.now(clock);   // 주입 시계(수집 경로와 같은 출처) — 벽시계면 이 판정을 시험할 수 없다
         long staleMinutes = java.time.Duration.between(snapshotDateTime, now).toMinutes();
         // 휴장일엔 수집이 멈추므로(collectIntradaySnapshot 가드) '오래됨'이 정상이다 — 같은 달력으로 판정해야
         // 평일 공휴일에 조회마다 WARN 이 쌓이지 않는다(달력은 주말을 포함한다).
@@ -376,8 +379,14 @@ public class InvestorSurgeService {
                 && now.toLocalTime().isAfter(LocalTime.of(8, 0))
                 && now.toLocalTime().isBefore(LocalTime.of(20, 0));
         if (isTradingHours && staleMinutes > 30) {
-            log.warn("[InvestorSurge] ⚠ 스냅샷 데이터 오래됨! 최신: {} {} ({}분 전) - investorType={}",
-                    today, latestTime, staleMinutes, investorType);
+            // 같은 스냅샷이 오래된 동안은 조회마다 되풀이하지 않는다(2026-10-07) — 10시 전 기관 수급은 KIS 가 아직 안 줘서
+            // 직전 거래일 스냅샷이 최신인 게 정상인데, 화면·워머가 부를 때마다 같은 WARN 이 쌓였다(하루 ~30줄). 새 스냅샷이 와도
+            // 계속 오래되면 그 스냅샷으로 한 번 더 알린다 — 경보를 끄는 게 아니라 반복만 없앤다(§5).
+            String key = today + " " + latestTime;
+            if (!key.equals(lastStaleWarned.put(investorType, key))) {
+                log.warn("[InvestorSurge] ⚠ 스냅샷 데이터 오래됨! 최신: {} {} ({}분 전) - investorType={}",
+                        today, latestTime, staleMinutes, investorType);
+            }
         }
 
         // 화면이 부를 때마다 도는 조회 경로다 — 요청당 로그는 DEBUG (2026-08-31).
