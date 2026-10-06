@@ -163,19 +163,4 @@ flags:
       ⚠ 9월 하순 첫 판정 후 이 항목을 지울 것.
     recorded_on: 2026-08-31
     ref: ControlGroupService, StockPriceHistoryRepository.findActiveStockCodesWithMinHistory
-  - id: forecast-fallback-fixed-probabilities
-    severity: info
-    title: AI 예측 fallback 의 시나리오 확률·근거 문구가 상수다
-    key: GeminiService
-    body: >
-      2026-09-22 예측상세 모달 검증에서 확인. AI 분석 실패 시 fallback 이 Bull 30% / Base 50% /
-      Bear 20% 와 "외국인 매수 유입 시 상승 가능" 같은 근거 문구를 고정값으로 돌려준다.
-      D+5 목표가는 지수 기반이 맞다(currentIndex x (1 +- 0.005 x day)) — 확률과 근거만 상수다.
-      화면에 "AI 분석 일시 불가 — 현재 지수 기반 기계적 예측입니다" 와 "AI 분석 데이터 부족으로
-      기본 예측을 제공합니다" 두 줄이 붙고 응답에 fallback:true 가 있어 **위장은 아니다**.
-      다만 "지수 기반"이라는 표현은 목표가에만 해당하고 확률에는 해당하지 않는다.
-      판단 사안 — fallback 에서 확률·근거를 빼고 기계적 가격 밴드만 보여줄지.
-      severity 를 info 로 둔 것은 공시가 이미 붙어 있기 때문이다.
-    recorded_on: 2026-09-22
-    ref: GeminiService 예측 fallback, ForecastDetailModal.vue, SectionMarketMap.vue
 ```
