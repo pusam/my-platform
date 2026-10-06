@@ -157,6 +157,17 @@ public class AiStrategySnapshotService {
     // ========== 스케줄러 (Dual Track) ==========
 
     /**
+     * 휴장일엔 회차를 만들지 않는다(2026-10-06) — 크론 요일 필드(MON-FRI)는 공휴일을 모른다. 대체공휴일 10/5 에 로테이션이
+     * 34회 돌아 직전 거래일 시세로 휴장일 날짜 스냅샷을 만들고 그때마다 Gemini 를 불렀다(무료 일일 한도는 한국 16시에 초기화되니
+     * 16시 이후 회차는 다음 거래일 몫을 쓴다). 기동 워밍은 별개다 — 재시작 직후 스냅샷이 비지 않게 그대로 둔다.
+     */
+    private boolean closedToday() {
+        if (!marketCalendarService.isMarketClosed(DateTimeUtil.kstNow().toLocalDate())) return false;
+        log.debug("[Scheduler] 휴장일 — AI 전략 회차 건너뜀");
+        return true;
+    }
+
+    /**
      * Track A: 스캘핑 전략 스냅샷 (30분 간격, Gemini Rate Limit 방지)
      * - 기존 5분 → 30분 (Gemini 호출이 Rate Limit의 주범)
      * - 장중 09:05 ~ 15:20
@@ -164,6 +175,7 @@ public class AiStrategySnapshotService {
     @Scheduled(scheduler = "cacheScheduler", cron = "0 0,30 8-19 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void collectScalpingSnapshot() {
+        if (closedToday()) return;
         LocalTime now = LocalTime.now();
         if (now.isBefore(LocalTime.of(8, 0)) || now.isAfter(LocalTime.of(20, 0))) {
             return;
@@ -187,6 +199,7 @@ public class AiStrategySnapshotService {
     @Scheduled(scheduler = "cacheScheduler", cron = "0 0 8-19 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void collectLongTermSnapshots() {
+        if (closedToday()) return;
         LocalTime now = LocalTime.now();
         if (now.isAfter(LocalTime.of(20, 0))) return;
 
@@ -231,6 +244,7 @@ public class AiStrategySnapshotService {
      */
     @Scheduled(scheduler = "cacheScheduler", cron = "0 40 15 * * MON-FRI", zone = "Asia/Seoul")
     public void updateClosingPrices() {
+        if (closedToday()) return;
         log.info("[Closing Batch] 장 마감 확정 배치 시작");
         long startTime = System.currentTimeMillis();
 

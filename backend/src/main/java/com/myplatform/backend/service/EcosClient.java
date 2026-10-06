@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.util.SecretRedaction;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -24,6 +25,8 @@ import java.util.List;
  * <p><b>함정 방어 4종</b>:
  * <ul>
  *   <li><b>키가 URL path 에 포함</b>되는 API — 실패 로그에 URI 절대 미출력(키 유출 방지). 메시지만 남긴다.
+ *       ⚠ 그 메시지에도 URL 이 들어 있다(RestTemplate 오류 메시지는 쿼리만 떼고 경로는 남긴다) — 그래서 호출을
+ *       {@link SecretRedaction#redactingErrors} 로 감싼다(2026-10-06, 그 전엔 시간 초과 한 번에 키가 WARN 에 남는 구조였다).
  *   <li>ECOS 는 "데이터 없음(INFO-200)"·"키 오류(INFO-100)"를 <b>HTTP 200 + RESULT body</b> 로 반환
  *       → 파서가 조용히 빈 리스트(키 발급 전 매일 ERROR 스팸 방지, §4c 미수집=null 강등).
  *   <li>bp 변환(×100)은 명명된 순수 헬퍼 {@link #trendBp} 로 분리(단위 무음 버그 방지).
@@ -94,10 +97,11 @@ public class EcosClient {
                             statCode, "D", start.format(YMD), end.format(YMD), itemCode)
                     .build()
                     .toUri();
-            String body = restTemplate.getForObject(uri, String.class);
+            // 오류 메시지에는 요청 URL 이 실린다 — Spring 은 쿼리만 떼고 경로(= 키)는 남긴다. 가린 사본으로 받는다(2026-10-06).
+            String body = SecretRedaction.redactingErrors(() -> restTemplate.getForObject(uri, String.class));
             return parseStatisticSearch(body == null ? null : objectMapper.readTree(body));
         } catch (Exception e) {
-            log.warn("ECOS {} 조회 실패: {}", statCode, e.getMessage());   // URI 미출력(키 보호)
+            log.warn("ECOS {} 조회 실패: {}", statCode, e.getMessage());   // 메시지의 키는 위에서 가렸다
             return List.of();
         }
     }

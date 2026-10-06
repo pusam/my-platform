@@ -472,6 +472,7 @@ public class GeminiService {
             } catch (HttpClientErrorException.TooManyRequests e) {
                 // 서버가 Retry-After 헤더로 알려준 값이 있으면 그걸 우선, 없으면 지수 백오프.
                 // 단 상한을 넘진 않도록 min 처리.
+                warnQuotaViolationOnChange(e);
                 long serverHint = parseRetryDelay(e);
                 long expBackoff = baseWaitMs * (1L << Math.min(attempt, 3)); // 1x, 2x, 4x, 8x, 8x
                 long retryDelay = Math.min(serverHint, expBackoff);
@@ -1156,7 +1157,7 @@ public class GeminiService {
                 // 슬롯 예약은 enforceRateLimit()/RateLimiter 가 담당(전역 직렬화).
 
                 // URL 에 key 가 있다 — I/O 오류 메시지에 실리지 않게(SecretRedaction, 2026-10-06)
-                ResponseEntity<Map> response = SecretRedaction.redactingIoErrors(
+                ResponseEntity<Map> response = SecretRedaction.redactingErrors(
                         () -> restTemplate.postForEntity(url, entity, Map.class));
 
                 log.info("[Gemini JSON] 응답 상태: {}", response.getStatusCode());
@@ -1212,6 +1213,7 @@ public class GeminiService {
                 long retryDelay = Math.min(baseDelay * (1L << attempt), 60_000L);
                 consecutiveErrors.incrementAndGet();
                 lastRateLimitAt = LocalDateTime.now();   // 저우선 양보 판정의 시간 감쇠 앵커
+                warnQuotaViolationOnChange(e);
                 log.warn("[Gemini JSON] Rate Limit (시도 {}/{}) - {}ms 후 재시도",
                         attempt + 1, MAX_RETRIES, retryDelay);
 
@@ -1331,6 +1333,7 @@ public class GeminiService {
                 consecutiveErrors.incrementAndGet();
                 lastRateLimitAt = LocalDateTime.now();   // 저우선 양보 판정의 시간 감쇠 앵커
                 callRateLimit.increment();
+                warnQuotaViolationOnChange(e);
 
                 log.warn("Gemini Rate Limit (시도 {}/{}) - {}ms 후 재시도 (지수 백오프)",
                         attempt + 1, MAX_RETRIES, retryDelay);
@@ -1393,7 +1396,7 @@ public class GeminiService {
         // 슬롯 예약은 enforceRateLimit()/RateLimiter 가 담당(전역 직렬화).
 
         // URL 에 key 가 있다 — I/O 오류 메시지에 실리지 않게(SecretRedaction, 2026-10-06)
-        ResponseEntity<Map> response = SecretRedaction.redactingIoErrors(
+        ResponseEntity<Map> response = SecretRedaction.redactingErrors(
                 () -> restTemplate.postForEntity(url, entity, Map.class));
 
         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
@@ -1491,6 +1494,56 @@ public class GeminiService {
             }
         }
         return DEFAULT_RETRY_DELAY_MS;
+    }
+
+    private static final ObjectMapper QUOTA_BODY_MAPPER = new ObjectMapper();
+    /** 마지막으로 WARN 한 429 원인(날짜|원인) — 같은 원인은 하루 한 번만 남긴다(§5 상태가 바뀐 순간만). */
+    private final java.util.concurrent.atomic.AtomicReference<String> lastQuotaViolation =
+            new java.util.concurrent.atomic.AtomicReference<>("");
+
+    /**
+     * 429 본문에서 어느 한도에 걸렸는지 읽는다 — 하루 한도(…PerDay…)인지 분당 한도(…PerMinute…)인지(2026-10-06 진단).
+     * 10/6 은 09:30 부터 AI 전략 회차마다 429 였는데 본문을 한 줄도 남기지 않아 원인을 가릴 수 없었다. 이 결과(테마)는 종합추천
+     * 섹터 축 가산(최대 +10)으로 들어간다. 키·프로젝트 번호는 읽지 않는다 — 한도 이름·값·모델, 없으면 상태와 메시지 첫 줄.
+     * 본문이 없거나 JSON 이 아니면 null(모른다, §4c). 순수 함수.
+     */
+    static String quotaViolationOf(String body) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            JsonNode error = QUOTA_BODY_MAPPER.readTree(body).path("error");
+            if (error.isMissingNode()) return null;
+            List<String> violations = new ArrayList<>();
+            for (JsonNode detail : error.path("details")) {
+                for (JsonNode v : detail.path("violations")) {
+                    String id = v.path("quotaId").asText("");
+                    if (id.isEmpty()) continue;
+                    StringBuilder sb = new StringBuilder(id);
+                    String value = v.path("quotaValue").asText("");
+                    if (!value.isEmpty()) sb.append(" · 한도 ").append(value);
+                    String model = v.path("quotaDimensions").path("model").asText("");
+                    if (!model.isEmpty()) sb.append(" · ").append(model);
+                    violations.add(sb.toString());
+                }
+            }
+            if (!violations.isEmpty()) return String.join(" / ", violations);
+            String status = error.path("status").asText("");
+            String firstLine = error.path("message").asText("").lines().findFirst().orElse("").trim();
+            if (firstLine.length() > 160) firstLine = firstLine.substring(0, 160) + "…";
+            if (status.isEmpty() && firstLine.isEmpty()) return null;
+            return status.isEmpty() ? firstLine : firstLine.isEmpty() ? status : status + " · " + firstLine;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 429 원인이 바뀐 순간(또는 그날 처음)만 WARN — 재시도 로그는 종전대로 두고 원인 한 줄만 더한다. */
+    private void warnQuotaViolationOnChange(HttpClientErrorException e) {
+        String why = quotaViolationOf(e.getResponseBodyAsString());
+        if (why == null) return;
+        String key = LocalDate.now(KST) + "|" + why;
+        if (!key.equals(lastQuotaViolation.getAndSet(key))) {
+            log.warn("[Gemini] 429 원인 — {}", why);
+        }
     }
 
     /**

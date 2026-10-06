@@ -488,8 +488,9 @@ public class TelegramNotificationService {
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
-        // I/O 오류 메시지는 요청 URL(= 봇 토큰)을 담아 ERROR 로그로 새었다(10/6 부팅 알림 Read timed out) — 가린 사본으로 던진다
-        ResponseEntity<String> response = SecretRedaction.redactingIoErrors(
+        // 오류 메시지는 요청 URL 경로(= 봇 토큰)를 담는다 — I/O 오류(10/6 부팅 알림 Read timed out 으로 ERROR 로그에 남았다)도,
+        // 응답 오류(400 HTML 파싱 실패·429 등 — Spring 7 은 "… on POST request for \"URL\"" 을 붙인다)도. 가린 사본으로 던진다(타입 유지).
+        ResponseEntity<String> response = SecretRedaction.redactingErrors(
                 () -> restTemplate.exchange(url, HttpMethod.POST, request, String.class));
 
         if (!response.getStatusCode().is2xxSuccessful()) {

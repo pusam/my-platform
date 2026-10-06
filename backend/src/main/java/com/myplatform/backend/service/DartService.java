@@ -132,7 +132,7 @@ public class DartService {
         try {
             String url = DART_BASE_URL + "/corpCode.xml?crtfc_key=" + dartApiKey;
             // URL 에 crtfc_key 가 있다 — I/O 오류 메시지에 실리지 않게(SecretRedaction, 2026-10-06)
-            byte[] zipBytes = SecretRedaction.redactingIoErrors(() -> corpCodeRestTemplate.getForObject(url, byte[].class));
+            byte[] zipBytes = SecretRedaction.redactingErrors(() -> corpCodeRestTemplate.getForObject(url, byte[].class));
             if (zipBytes == null || zipBytes.length == 0) {
                 log.error("[DART] corpCode.xml 다운로드 응답 없음");
                 return;
@@ -265,7 +265,7 @@ public class DartService {
             // 이 두 줄만으로 배치 한 번에 100줄이 넘는다. 건별은 DEBUG (2026-08-31).
             log.debug("[DART] 공시 조회: corpCode={}, period={} ~ {}", corpCode, startDate, endDate);
 
-            ResponseEntity<String> response = SecretRedaction.redactingIoErrors(
+            ResponseEntity<String> response = SecretRedaction.redactingErrors(
                     () -> restTemplate.getForEntity(url, String.class));   // crtfc_key 가 URL 에 있다
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
@@ -362,7 +362,7 @@ public class DartService {
                     .build()
                     .toUriString();
 
-            ResponseEntity<String> response = SecretRedaction.redactingIoErrors(
+            ResponseEntity<String> response = SecretRedaction.redactingErrors(
                     () -> restTemplate.getForEntity(url, String.class));   // crtfc_key 가 URL 에 있다
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {

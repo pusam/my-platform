@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.dto.EarningSurpriseDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
@@ -19,6 +20,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -37,6 +40,7 @@ class QuantScreenerSuspensionGateTest {
     @Mock private KoreaInvestmentService koreaInvestmentService;
     @Mock private StockPriceService stockPriceService;
     @Mock private StockStatusService stockStatusService;
+    @Mock private EarningSurpriseService earningSurpriseService;
 
     @InjectMocks private QuantScreenerService service;
 
@@ -82,5 +86,44 @@ class QuantScreenerSuspensionGateTest {
         List<ScreenerResultDto> results = service.getMagicFormulaStocks(5, null);
 
         assertThat(results).hasSize(2);
+    }
+
+    private static EarningSurpriseDto turnaround(String code, String name, String latestNet) {
+        return EarningSurpriseDto.builder()
+                .stockCode(code).stockName(name)
+                .surpriseType(EarningSurpriseDto.SurpriseType.TURNAROUND)
+                .latestNetIncome(new BigDecimal(latestNet)).previousNetIncome(new BigDecimal("-40"))
+                .latestReportDate(LocalDate.of(2026, 6, 30)).previousReportDate(LocalDate.of(2026, 3, 31))
+                .build();
+    }
+
+    private static StockFinancialData dailyRow(String code, String name, String marketCap) {
+        return StockFinancialData.builder()
+                .stockCode(code).stockName(name)
+                .reportDate(LocalDate.of(2026, 10, 6))
+                .marketCap(new BigDecimal(marketCap))
+                .build();
+    }
+
+    @Test
+    @DisplayName("재현: 거래정지·상폐 종목은 턴어라운드 결과에서도 빠진다 — 일별 행만 걸러서 실적 판정 목록으로 그대로 들어왔다")
+    void suspendedStockExcludedFromTurnaround() {
+        // 2026-10-06 운영 실측: 상장폐지된 동양생명(082640 — 8/28 뒤로 봉이 없다)·현대홈쇼핑(057050)이 분기 실적 판정 목록을
+        // 타고 결과에 남았다. 게이트는 일별 행에만 걸려 있어 걸러진 종목이 '일별 행 없음 = 시총 모름(포함)'으로 되살아났고,
+        // 회차마다 시세 보충 조회(KIS 실패 → 네이버 409 → 네이버 서킷 60초 차단)를 냈다. 이 목록 상위가 AI 턴어라운드
+        // 전략을 거쳐 종합추천 AI 시드·테마 가산이 된다.
+        when(earningSurpriseService.detectEarningSurprises()).thenReturn(List.of(
+                turnaround("082640", "동양생명", "500"),
+                turnaround("030530", "원익홀딩스", "120")));
+        when(stockFinancialDataRepository.findAllRecentData(any())).thenReturn(List.of(
+                dailyRow("082640", "동양생명", "0"),
+                dailyRow("030530", "원익홀딩스", "22553")));
+        when(stockStatusService.isActive(anyString()))
+                .thenAnswer(inv -> !"082640".equals(inv.getArgument(0, String.class)));
+
+        List<ScreenerResultDto> results = service.getTurnaroundStocks(10);
+
+        assertThat(results).extracting(ScreenerResultDto::getStockCode).containsExactly("030530");
+        verify(stockPriceService, never()).getStockPrice("082640");
     }
 }

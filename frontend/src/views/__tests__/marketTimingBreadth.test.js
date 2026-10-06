@@ -84,3 +84,11 @@ describe('연속 순매수 목록의 연기금 행(2026-10-03)', () => {
     expect(hub).toMatch(/item\.investorType === 'PENSION' \? '연' : '기'/)
   })
 })
+
+describe('오래됨 배지는 거래일로 — 서버 판정(dataStale)만 따른다(2026-10-06)', () => {
+  it('재현: 달력 날짜(dataAge >= 2)로 매주 월요일·연휴 다음 날 "N일 전 데이터" 배지를 달았다', () => {
+    const src = read('views/MarketTimingPage.vue')
+    expect(src).not.toMatch(/dataAge >= 2/)
+    expect(src).toMatch(/v-if="marketData\?\.dataStale"/)
+  })
+})

@@ -185,6 +185,15 @@ public class MarketTimingService {
         return !current.equals(holder.getAndSet(current));
     }
 
+    /**
+     * 시장 폭 데이터가 '오래됨'인가 — 거래일로 판정한다(2026-10-06). 달력 날짜로 세면 매주 월요일 "3일 전", 연휴 다음 날 "4일 전"이
+     * 되어 받을 수 있는 가장 최신 값에도 배지·WARN 이 붙었다. 마지막 마감 거래일에서 1거래일까지는 정상(15:40 마감 ~ 16:30 수집 사이
+     * 포함) — 관제실 규칙 ⑮(거래일 2일 이상 밀림)과 같은 기준. 순수 함수(달력만 읽는다).
+     */
+    static boolean breadthStale(LocalDate latest, java.time.LocalDateTime now, MarketCalendarService calendar) {
+        return !calendar.isFreshWithin(latest, now, 1);
+    }
+
     private MarketTimingDto computeCurrentMarketTiming() {
         // 캐시 워머가 분당 1회 호출한다 — 정상 동작 로그는 DEBUG (2026-08-31 로그 잡음 정리).
         log.debug("시장 타이밍 분석 시작");
@@ -199,15 +208,14 @@ public class MarketTimingService {
 
         LocalDate analysisDate = latestData.get(0).getTradeDate();
 
-        // ★ Freshness check: 데이터 경과일 계산
+        // ★ Freshness check: 경과일(달력 — 화면 표기용)과 '오래됨'(거래일 — 판정)을 나눈다(2026-10-06)
         long dataAgeDays = java.time.temporal.ChronoUnit.DAYS.between(analysisDate, LocalDate.now());
-        Integer dataAge = null;
-        if (dataAgeDays > 0) {
-            log.debug("DB 최신 데이터가 과거임 ({}), {}일 전 데이터, 실시간 지수로 보충 예정", analysisDate, dataAgeDays);
-            dataAge = (int) dataAgeDays;
+        Integer dataAge = dataAgeDays > 0 ? (int) dataAgeDays : null;
+        boolean dataStale = breadthStale(analysisDate, java.time.LocalDateTime.now(), marketCalendar);
+        if (dataStale) {
             // 경보 자체는 유지하되 분당 반복은 없앤다 — 같은 경고가 하루 1,400줄 쌓이면
             // 사람이 읽지 않게 되고, 정작 다른 로그를 뒤로 밀어낸다(2026-08-31).
-            if (dataAgeDays >= 2 && changedSinceLast(lastStaleWarnKey, analysisDate + "/" + dataAgeDays)) {
+            if (changedSinceLast(lastStaleWarnKey, analysisDate + "/" + dataAgeDays)) {
                 log.warn("[MarketTiming] ⚠ 시장 데이터 오래됨! 최신 거래일: {} ({}일 전) - ADR 분석 신뢰도 저하", analysisDate, dataAgeDays);
             }
         } else {
@@ -328,6 +336,7 @@ public class MarketTimingService {
                 .diagnosis(diagnosis)
                 .strategy(strategy)
                 .dataAge(dataAge)
+                .dataStale(dataStale)
                 .build();
     }
 

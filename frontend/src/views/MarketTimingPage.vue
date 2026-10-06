@@ -36,7 +36,8 @@
         </div>
         <div class="status-date" v-if="marketData?.analysisDate">
           {{ formatDate(marketData.analysisDate) }} 기준
-          <span v-if="marketData?.dataAge >= 2" class="stale-badge">{{ marketData.dataAge }}일 전 데이터</span>
+          <!-- 오래됨은 서버의 거래일 판정만 따른다(2026-10-06) — 달력 날짜로 세면 매주 월요일·연휴 다음 날 최신 값에도 붙었다 -->
+          <span v-if="marketData?.dataStale" class="stale-badge">수집 지연 · {{ marketData.dataAge }}일 전 데이터</span>
         </div>
       </div>
 

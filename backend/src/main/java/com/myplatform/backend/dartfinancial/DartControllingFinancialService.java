@@ -317,7 +317,7 @@ public class DartControllingFinancialService {
         run.calls++;
         try {
             if (callIntervalMillis > 0) Thread.sleep(callIntervalMillis);
-            String body = SecretRedaction.redactingIoErrors(
+            String body = SecretRedaction.redactingErrors(
                     () -> restTemplate.getForObject(uri, String.class));   // crtfc_key 가 URL 에 있다
             return body == null ? null : objectMapper.readTree(body);
         } catch (InterruptedException e) {

@@ -57,6 +57,18 @@ public class QuantScreenerService {
         return active;
     }
 
+    /** 턴어라운드의 유니버스는 실적 판정 목록이다 — 같은 게이트를 그 목록에 건다(공유 캐시라 새 목록을 만든다). */
+    private List<EarningSurpriseDto> activeSurprises(List<EarningSurpriseDto> surprises) {
+        if (surprises == null) return List.of();
+        List<EarningSurpriseDto> active = surprises.stream()
+                .filter(e -> e != null && e.getStockCode() != null && stockStatusService.isActive(e.getStockCode()))
+                .collect(Collectors.toList());
+        if (active.size() != surprises.size()) {
+            log.info("턴어라운드: 거래정지/상폐 {}건 제외(실적 판정 목록)", surprises.size() - active.size());
+        }
+        return active;
+    }
+
     /**
      * 이익의 질이 무너진 종목 제외(2026-09-30, {@link EarningsQuality}) — 마법의 공식·PEG 는 PER·ROE·영업이익률의
      * <b>극단</b>을 1등으로 올린다. 순이익이 영업이익의 2배를 넘거나(영업외 이익) 영업이익이 매출보다 크면 그 극단은
@@ -446,7 +458,9 @@ public class QuantScreenerService {
         // 판정은 실적 서프라이즈(분기 원본 V55 — 흑자전환은 연속 적자·전년 동기 개선 조건) 단일 출처(2026-10-03).
         // 예전엔 종목별 최신 두 행을 '분기'로 비교했는데 8/27 이후 그 두 행은 이틀 연속 일별 행(TTM)이라 하루 차이를
         // '이전 2026.4Q → 현재 2026.4Q'로 표기했고, 결과가 없으면 TTM 전년 대비로 조용히 바꿔 같은 이름표 아래 정의가 둘이었다.
-        List<EarningSurpriseDto> surprises = earningSurpriseService.detectEarningSurprises();
+        // 실적 판정 목록에도 같은 게이트(2026-10-06) — 일별 행에만 걸면 걸러진 종목이 '일별 행 없음 = 시총 모름(포함)'으로
+        // 되살아났다(상장폐지된 동양생명·현대홈쇼핑이 결과에 남아 회차마다 시세 보충 조회 → KIS 실패 → 네이버 409 → 서킷 오픈).
+        List<EarningSurpriseDto> surprises = activeSurprises(earningSurpriseService.detectEarningSurprises());
 
         LocalDate minDate = LocalDate.now().minusMonths(12);
         Map<String, StockFinancialData> latestDaily = new LinkedHashMap<>();

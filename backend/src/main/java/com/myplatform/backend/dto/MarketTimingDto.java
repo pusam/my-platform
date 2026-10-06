@@ -39,8 +39,14 @@ public class MarketTimingDto {
     /** 투자 전략 제안 */
     private String strategy;
 
-    /** 데이터 경과일 (N일 전 데이터) - null이면 당일 데이터 */
+    /** 데이터 경과일 (N일 전 데이터, 달력 날짜) - null이면 당일 데이터 */
     private Integer dataAge;
+
+    /**
+     * 수집이 밀렸는가 — 거래일 판정(마지막 마감 거래일에서 1거래일까지 정상). 화면의 '오래됨' 배지는 이것만 따른다(2026-10-06 —
+     * 달력 날짜 dataAge 로 판정하면 매주 월요일·연휴 다음 날 최신 값에도 배지가 붙었다).
+     */
+    private Boolean dataStale;
 
     /**
      * 개별 시장 현황
