@@ -164,14 +164,44 @@ public class TradingDiaryService {
                 + " — 분석할 거래가 없어 AI 분석을 생략했습니다. 거래가 없는 주에는 조언을 만들지 않습니다.";
     }
 
+    // 읽기 전용 트랜잭션 — 아래 다시 세기가 엔티티에 값을 얹어도 DB 로 가지 않는다(저장 행은 그대로 둔다)
+    @Transactional(readOnly = true)
     public Optional<WeeklyTradingReport> getLatest(String mode) {
         String normMode = "VIRTUAL".equalsIgnoreCase(mode) ? "VIRTUAL" : "REAL";
-        return reportRepo.findFirstByModeOrderByWeekStartDesc(normMode);
+        return reportRepo.findFirstByModeOrderByWeekStartDesc(normMode).map(this::withRecountedVirtualTrades);
     }
 
+    @Transactional(readOnly = true)
     public List<WeeklyTradingReport> getRecent(String mode) {
         String normMode = "VIRTUAL".equalsIgnoreCase(mode) ? "VIRTUAL" : "REAL";
-        return reportRepo.findTop12ByModeOrderByWeekStartDesc(normMode);
+        List<WeeklyTradingReport> rows = reportRepo.findTop12ByModeOrderByWeekStartDesc(normMode);
+        rows.forEach(this::withRecountedVirtualTrades);
+        return rows;
+    }
+
+    /**
+     * 10/3 이전에 만든 모의 주차 행은 매수·매도 횟수·금액을 감사 기록에서만 세어 0 으로 저장됐다 — 손익·승패는 체결 기록이라
+     * 맞아서 화면 히스토리가 "매수/매도 0 / 0 · 승률 43.75%"처럼 서로 모순됐다(2026-10-06 화면 점검). 그런 행만 같은 주
+     * 체결 기록으로 다시 세어 응답에 담는다. 체결 기록이 없으면 고칠 근거가 없으니 그대로 둔다.
+     */
+    WeeklyTradingReport withRecountedVirtualTrades(WeeklyTradingReport r) {
+        if (!tradeCountsMissing(r)) return r;
+        List<VirtualTradeHistory> hist = historyRepo.findVirtualBetween(REAL_ACCOUNT_ID,
+                r.getWeekStart().atStartOfDay(), r.getWeekEnd().plusDays(1).atStartOfDay());
+        Stats s = aggregate("VIRTUAL", List.of(), hist);
+        if (s.totalBuys() + s.totalSells() == 0) return r;
+        r.setTotalBuys(s.totalBuys());
+        r.setTotalSells(s.totalSells());
+        r.setTotalBuyAmount(s.totalBuyAmount());
+        r.setTotalSellAmount(s.totalSellAmount());
+        return r;
+    }
+
+    /** 모의 행인데 승패(체결 기록)는 있고 매수·매도 횟수는 0 — 10/3 이전 집계로 만든 행. 순수 함수. */
+    static boolean tradeCountsMissing(WeeklyTradingReport r) {
+        return r != null && "VIRTUAL".equals(r.getMode()) && r.getWeekStart() != null && r.getWeekEnd() != null
+                && r.getTotalBuys() + r.getTotalSells() == 0
+                && r.getWinCount() + r.getLossCount() > 0;
     }
 
     // ============================================================

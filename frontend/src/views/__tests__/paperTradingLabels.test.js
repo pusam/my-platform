@@ -21,6 +21,13 @@ describe('PaperTradingPage 이름표', () => {
   })
 })
 
+describe('주간 리포트 히스토리 — 빈 주를 행으로 보인다(2026-10-06)', () => {
+  it('재현: 표가 저장된 행만 돌아 생성되지 않은 주(8/17~8/23)가 조용히 빠졌다', () => {
+    expect(src).toMatch(/weeklyHistoryWithGaps\(weeklyHistory\.value\)/)
+    expect(src).toMatch(/리포트 없음/)
+  })
+})
+
 describe('갱신 시각 — 실패한 갱신을 "방금"으로 말하지 않는다(2026-10-04)', () => {
   it('재현: 매매 탭 loadData 는 하나라도 받았을 때만 lastUpdated 를 바꾼다(예전엔 finally 에서 늘 new Date())', () => {
     expect(src).toMatch(/if \(results\.some\(Boolean\)\) lastUpdated\.value = new Date\(\);/)

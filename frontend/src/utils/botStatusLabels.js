@@ -28,3 +28,34 @@ export function profitFactorText(pf) {
   if (n >= 999.99) return '손실 없음'
   return n.toFixed(2)
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function parseDay(iso) {
+  const m = typeof iso === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso) : null
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null
+}
+
+function isoDay(ms) {
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+/**
+ * 주간 리포트 히스토리(최신 주부터) 사이의 빈 주를 '리포트 없음' 행으로 채운다(2026-10-06). 예전엔 저장된 행만 돌아
+ * 생성되지 않은 주(8/17~8/23 — 서버 다운)가 조용히 빠졌고 13주에 걸친 12행을 '최근 12주'라 했다(§4c). 날짜를 못 읽는
+ * 행 사이는 비교하지 않는다.
+ */
+export function weeklyHistoryWithGaps(rows) {
+  if (!Array.isArray(rows)) return []
+  const out = []
+  rows.forEach((row, i) => {
+    out.push(row)
+    const cur = parseDay(row?.weekStart)
+    const older = parseDay(rows[i + 1]?.weekStart)
+    if (cur == null || older == null) return
+    for (let start = cur - 7 * DAY_MS; start > older; start -= 7 * DAY_MS) {
+      out.push({ missing: true, key: 'missing-' + isoDay(start), weekStart: isoDay(start), weekEnd: isoDay(start + 6 * DAY_MS) })
+    }
+  })
+  return out
+}

@@ -35,6 +35,17 @@ describe('TradingSafetyWidget', () => {
     w.unmount()
   })
 
+  it('재현: 실전(KIS) 주문만 막는다고 밝힌다 — 모의 탭 위에서 "매매 정상"·"비상 정지"가 모의 봇까지 다루는 것처럼 보였다(10/6)', async () => {
+    getStatus.mockResolvedValue({ data: { success: true, data: { killSwitchEnabled: false, dailyBuyLimitKrw: 500000, todayBuyAmountKrw: 0, remainingKrw: 500000 } } })
+    const w = mount(TradingSafetyWidget)
+    await flushPromises()
+    expect(w.find('.status-badge').text()).toContain('실전 매매 정상')
+    expect(w.find('.btn-kill').text()).toContain('실전 비상 정지')
+    expect(w.find('.limit-meta').text()).toContain('실전 일일 매수 한도')
+    expect(w.find('.safety-scope').text()).toContain('모의')
+    w.unmount()
+  })
+
   it('성공 뒤 갱신이 실패하면 마지막 상태를 현재처럼 보이지 않는다', async () => {
     getStatus.mockResolvedValueOnce({ data: { success: true, data: { killSwitchEnabled: false } } })
     const w = mount(TradingSafetyWidget)

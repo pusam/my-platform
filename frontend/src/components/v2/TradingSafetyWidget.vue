@@ -12,19 +12,23 @@
                 class="btn-kill"
                 :disabled="acting"
                 @click="confirmKill">
-          🛑 비상 정지
+          🛑 실전 비상 정지
         </button>
         <button v-else-if="known"
                 class="btn-resume"
                 :disabled="acting"
                 @click="confirmResume">
-          ▶ 매매 재개
+          ▶ 실전 매매 재개
         </button>
         <button class="btn-refresh" :disabled="loading" @click="loadStatus" title="갱신">
           {{ loading ? '⏳' : '↻' }}
         </button>
       </div>
     </div>
+
+    <!-- 적용 범위 — 비상 정지·일일 한도는 실전(KIS) 주문 경로(RealTradeService)만 막는다. 모의 탭 위에 '매매 정상'·'비상 정지'로만
+         있어 모의 봇까지 멈추는 버튼처럼 보였다(2026-10-06 화면 점검) -->
+    <p class="safety-scope">실전(KIS) 주문만 막습니다 — 모의 봇은 봇 카드의 '봇 중지'로 멈춥니다.</p>
 
     <!-- 비상 정지 사유 -->
     <div v-if="known && status.killSwitchEnabled" class="kill-reason">
@@ -38,7 +42,7 @@
     <!-- 일일 매수 한도 progress -->
     <div v-if="known && status.dailyBuyLimitKrw" class="limit-row">
       <div class="limit-meta">
-        <span>일일 매수 한도</span>
+        <span>실전 일일 매수 한도</span>
         <span class="limit-amount" :class="limitClass">
           {{ formatKrw(status.todayBuyAmountKrw) }} / {{ formatKrw(status.dailyBuyLimitKrw) }}
         </span>
@@ -82,7 +86,7 @@ export default {
   computed: {
     badgeText() {
       if (!this.known) return this.loadFailed ? '상태 확인 실패' : '상태 확인 중'
-      return this.status.killSwitchEnabled ? '비상 정지 ON' : '매매 정상'
+      return this.status.killSwitchEnabled ? '실전 비상 정지 ON' : '실전 매매 정상'
     },
     badgeClass() {
       if (!this.known) return 'unknown'
@@ -140,7 +144,7 @@ export default {
       this.loadFailed = true
     },
     async confirmKill() {
-      const reason = window.prompt('비상 정지 사유 (선택):', '수동 비상 정지')
+      const reason = window.prompt('실전 비상 정지 사유 (선택) — 실전(KIS) 주문만 막습니다:', '수동 비상 정지')
       if (reason === null) return
       this.acting = true
       try {
@@ -153,7 +157,7 @@ export default {
       }
     },
     async confirmResume() {
-      if (!window.confirm('매매를 재개하시겠습니까?\n비상 정지가 해제됩니다.')) return
+      if (!window.confirm('실전 매매를 재개하시겠습니까?\n실전 비상 정지가 해제됩니다.')) return
       this.acting = true
       try {
         await tradingSafetyAPI.disableKillSwitch('수동 해제')
@@ -235,6 +239,11 @@ export default {
 }
 
 .safety-actions { display: flex; gap: 6px; }
+.safety-scope {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+}
 .btn-kill, .btn-resume, .btn-refresh {
   border: none;
   padding: 8px 14px;

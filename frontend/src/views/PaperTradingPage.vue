@@ -776,7 +776,7 @@
 
           <!-- 12주 히스토리 -->
           <div v-if="weeklyHistory.length > 1" class="weekly-history">
-            <h3 class="weekly-history-title">최근 {{ weeklyHistory.length }}주 히스토리</h3>
+            <h3 class="weekly-history-title">최근 {{ weeklyHistoryRows.length }}주 히스토리</h3>
             <div class="weekly-history-table-wrap">
               <table class="weekly-history-table">
                 <thead>
@@ -789,7 +789,12 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="r in weeklyHistory" :key="r.id"
+                  <template v-for="r in weeklyHistoryRows" :key="r.missing ? r.key : r.id">
+                  <tr v-if="r.missing" class="row-missing">
+                    <td>{{ formatDate(r.weekStart) }}~{{ formatDate(r.weekEnd) }}</td>
+                    <td class="right" colspan="4">리포트 없음 — 이 주는 생성되지 않았습니다</td>
+                  </tr>
+                  <tr v-else
                       :class="{ 'row-active': weeklyLatest && r.id === weeklyLatest.id }">
                     <td>{{ formatDate(r.weekStart) }}~{{ formatDate(r.weekEnd) }}</td>
                     <td class="right" :class="getProfitClass(r.realizedPnl)">
@@ -801,6 +806,7 @@
                     </td>
                     <td class="right">{{ r.blockedCount }}</td>
                   </tr>
+                  </template>
                 </tbody>
               </table>
             </div>
@@ -938,7 +944,7 @@ import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import GlobalNav from '../components/GlobalNav.vue';
 import TradingSafetyWidget from '../components/v2/TradingSafetyWidget.vue';
-import { botStatusText, profitFactorText } from '../utils/botStatusLabels';
+import { botStatusText, profitFactorText, weeklyHistoryWithGaps } from '../utils/botStatusLabels';
 import StockCodeInput from '../components/StockCodeInput.vue';
 import DataFreshness from '../components/DataFreshness.vue';
 import BotPnlChart from '../components/v2/BotPnlChart.vue';
@@ -1110,6 +1116,8 @@ const switchToBotPerformanceTab = () => {
 const weeklyMode = ref('REAL');
 const weeklyLatest = ref(null);
 const weeklyHistory = ref([]);
+// 생성되지 않은 주를 '리포트 없음' 행으로 — 저장된 행만 돌면 빈 주가 조용히 빠진다(2026-10-06)
+const weeklyHistoryRows = computed(() => weeklyHistoryWithGaps(weeklyHistory.value));
 const weeklyLoading = ref(false);
 const weeklyGenerating = ref(false);
 
@@ -2738,6 +2746,10 @@ onUnmounted(() => {
 }
 .weekly-history-table td.right,
 .weekly-history-table th.right { text-align: right; }
+.weekly-history-table tr.row-missing td {
+  color: var(--text-secondary, #94a3b8);
+  font-style: italic;
+}
 .weekly-history-table tr.row-active {
   background: rgba(102,126,234,0.05);
   font-weight: 600;
