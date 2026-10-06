@@ -191,3 +191,38 @@ describe('SectionLiveSurge — 직전 거래일 값은 그렇게 말한다', () 
     expect(src).not.toMatch(/⚡<\/span> 실시간 수급 급증/)
   })
 })
+
+/**
+ * 카드 안 시점 — 2026-10-06 화면 점검. 10시 전 '기관' 탭은 순매수가 직전 거래일(10/02 19:50) 값인데 현재가·등락률은 오늘
+ * 실시간이라, 섹션 머리말을 지나 카드만 보면 "삼성전자 기관 +494억 · +0.72%"가 오늘 한 쌍처럼 읽혔다.
+ */
+describe('SectionLiveSurge — 카드 안에서도 순매수의 날짜를 밝힌다', () => {
+  const card = (over = {}) => ({
+    stockCode: '005930', stockName: '삼성전자', currentRank: 1,
+    formattedNetBuyAmount: '+494억', netBuyAmount: 494, currentPrice: 278000, changeRate: 0.72,
+    snapshotDate: '2026-10-02', snapshotTime: '19:50:00', ...over
+  })
+  const mountWith = async (stocks) => {
+    const w = mount(SectionLiveSurge, { props: { active: false } })
+    w.vm.allStocks = { INSTITUTION: stocks }
+    w.vm.investor = 'INSTITUTION'
+    await w.vm.$nextTick()
+    return w
+  }
+
+  it('재현: 직전 거래일 카드의 순매수 이름표에 그 날짜를 붙인다', async () => {
+    const w = await mountWith([card({ previousSession: true, outdated: true })])
+    expect(w.find('.stock-card .detail-row.highlight .label').text()).toBe('누적 순매수(10/02)')
+  })
+
+  it('오늘 값이면 날짜를 붙이지 않는다', async () => {
+    const w = await mountWith([card({ snapshotDate: '2026-10-06', previousSession: false })])
+    expect(w.find('.stock-card .detail-row.highlight .label').text()).toBe('누적 순매수')
+  })
+
+  it('재현: 등락률 0%(보합)는 모름(-)이 아니다', async () => {
+    const w = await mountWith([card({ changeRate: 0, snapshotDate: '2026-10-06', previousSession: false })])
+    const rateRow = w.findAll('.stock-card .detail-row').find(r => r.find('.label').text() === '등락률')
+    expect(rateRow.find('.value').text()).toBe('0.00%')
+  })
+})

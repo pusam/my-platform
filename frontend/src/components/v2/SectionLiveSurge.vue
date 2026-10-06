@@ -81,7 +81,8 @@
         </div>
         <div class="stock-details">
           <div class="detail-row highlight">
-            <span class="label">{{ investor === 'COMMON' ? '합산 순매수' : '누적 순매수' }}</span>
+            <!-- 직전 거래일 순매수면 이름표에 날짜 — 현재가·등락률은 오늘 실시간이라 카드만 보면 한 쌍처럼 읽혔다(2026-10-06) -->
+            <span class="label">{{ investor === 'COMMON' ? '합산 순매수' : '누적 순매수' }}{{ netBuyDateSuffix(stock) }}</span>
             <span class="value amount" :class="getAmountClass(stock.netBuyAmount)">
               {{ stock.formattedNetBuyAmount || '-' }}
             </span>
@@ -116,8 +117,9 @@
           </div>
           <div class="detail-row">
             <span class="label">등락률</span>
-            <span class="value rate" :class="stock.changeRate ? getRateClass(stock.changeRate) : 'missing'">
-              {{ stock.changeRate ? formatRate(stock.changeRate) : '-' }}
+            <!-- 0%(보합)는 값이다 — 모를 때(null)만 '-'(2026-10-06) -->
+            <span class="value rate" :class="stock.changeRate != null ? getRateClass(stock.changeRate) : 'missing'">
+              {{ stock.changeRate != null ? formatRate(stock.changeRate) : '-' }}
             </span>
           </div>
         </div>
@@ -267,7 +269,7 @@ export default {
     cardLabel(stock) {
       const parts = [stock.stockName || stock.stockCode]
       if (stock.formattedNetBuyAmount) parts.push(`순매수 ${stock.formattedNetBuyAmount}`)
-      if (stock.changeRate) parts.push(`등락률 ${this.formatRate(stock.changeRate)}`)
+      if (stock.changeRate != null) parts.push(`등락률 ${this.formatRate(stock.changeRate)}`)
       if (stock.outdated) parts.push('갱신 지연')
       return `${parts.join(', ')} — 상세 보기`
     },
@@ -302,6 +304,10 @@ export default {
       return change > 0 ? 'rank-up' : change < 0 ? 'rank-down' : ''
     },
     hasFormattedChange(val) { return val && val !== '-' },
+    netBuyDateSuffix(stock) {
+      const d = stock && stock.previousSession && typeof stock.snapshotDate === 'string' ? stock.snapshotDate.split('-') : null
+      return d && d.length === 3 ? `(${d[1]}/${d[2]})` : ''
+    },
     snapshotLabel(stock) {
       const t = stock && stock.snapshotTime
       if (!t || typeof t !== 'string') return ''
