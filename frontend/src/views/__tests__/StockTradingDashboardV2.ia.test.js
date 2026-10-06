@@ -10,7 +10,8 @@ describe('후보·발굴 갱신 연결', () => {
     const ctx = {
       activeGnbTab: tab, isRefreshing: false,
       $refs: tab === 'today' ? { todayBriefing: { refresh } } : { judgmentBoard: { refresh } },
-      loadMarketMap: vi.fn().mockResolvedValue(), loadSupplyPanel: vi.fn().mockResolvedValue()
+      loadMarketMap: vi.fn().mockResolvedValue(), loadSupplyPanel: vi.fn().mockResolvedValue(),
+      loadMarketLine: vi.fn().mockResolvedValue()
     }
     await M._refreshAll.call(ctx)
     expect(refresh).toHaveBeenCalledOnce()
@@ -27,6 +28,68 @@ describe('후보·발굴 갱신 연결', () => {
       M._stopPolling.call(ctx)
       vi.useRealTimers()
     }
+  })
+})
+
+describe('60초 갱신은 보이는 탭의 데이터만(2026-10-07)', () => {
+  const ctxFor = (tab) => ({
+    activeGnbTab: tab, isRefreshing: false, $refs: {},
+    loadMarketMap: vi.fn().mockResolvedValue(), loadSupplyPanel: vi.fn().mockResolvedValue(),
+    loadMarketLine: vi.fn().mockResolvedValue()
+  })
+
+  it('재현: 발굴 탭에선 시장 탭 데이터(시장 지도 5콜·수급 패널 3콜)를 다시 읽지 않는다 — 화면에 없다', async () => {
+    const ctx = ctxFor('discover')
+    await M._refreshAll.call(ctx)
+    expect(ctx.loadMarketMap).not.toHaveBeenCalled()
+    expect(ctx.loadSupplyPanel).not.toHaveBeenCalled()
+  })
+
+  it('재현: 오늘 탭은 시장 한 줄(KOSPI·KOSDAQ·진단)을 다시 읽는다 — 예전엔 페이지를 연 시점 값 그대로였다', async () => {
+    const ctx = ctxFor('today')
+    await M._refreshAll.call(ctx)
+    expect(ctx.loadMarketLine).toHaveBeenCalledOnce()
+    expect(ctx.loadMarketMap).not.toHaveBeenCalled()
+  })
+
+  it('시장 탭은 지도·수급을 다시 읽는다', async () => {
+    const ctx = ctxFor('market')
+    await M._refreshAll.call(ctx)
+    expect(ctx.loadMarketMap).toHaveBeenCalledOnce()
+    expect(ctx.loadSupplyPanel).toHaveBeenCalledOnce()
+  })
+
+  it('다른 탭에 있다 돌아오면 그 탭 데이터를 바로 한 번 읽는다 — 다른 탭에선 갱신하지 않으니까', () => {
+    const scrollTo = window.scrollTo
+    window.scrollTo = vi.fn()
+    try {
+      const market = { ...ctxFor('market'), dataLoaded: { market: true }, loadTabData: vi.fn() }
+      Comp.watch.activeGnbTab.call(market, 'market')
+      expect(market.loadMarketMap).toHaveBeenCalledOnce()
+      expect(market.loadSupplyPanel).toHaveBeenCalledOnce()
+
+      const today = { ...ctxFor('today'), dataLoaded: { market: true }, loadTabData: vi.fn() }
+      Comp.watch.activeGnbTab.call(today, 'today')
+      expect(today.loadMarketLine).toHaveBeenCalledOnce()
+
+      const first = { ...ctxFor('market'), dataLoaded: { market: false }, loadTabData: vi.fn() }
+      Comp.watch.activeGnbTab.call(first, 'market')
+      expect(first.loadMarketMap).not.toHaveBeenCalled()   // 첫 진입은 loadTabData 가 이미 읽는다
+    } finally {
+      window.scrollTo = scrollTo
+    }
+  })
+})
+
+describe('시장 지도는 화면에 쓰는 것만 부른다(2026-10-07)', () => {
+  it('재현: 선행 섹터·USD/KRW 는 받아서 버리고 있었다 — 시장 지도 컴포넌트는 globalData 에서 나스닥 선물만 쓴다', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(join(process.cwd(), 'src', 'views', 'StockTradingDashboardV2.vue'), 'utf8')
+    const body = src.slice(src.indexOf('    async loadMarketMap()'), src.indexOf('    // Section A: AI 전략'))
+    expect(body).toMatch(/getNasdaqFutures\(\)/)
+    expect(body).not.toMatch(/getLeadingSectors\(\)/)
+    expect(body).not.toMatch(/getQuote\('KRW'\)/)
   })
 })
 

@@ -631,7 +631,7 @@ import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
   // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
-  globalFuturesAPI, watchlistAPI, paperTradingAPI,
+  watchlistAPI, paperTradingAPI,
   recommendationAPI, stockDetailAPI, quantTaAPI, stockAPI
 } from '../utils/api'
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
@@ -813,6 +813,11 @@ export default {
     activeGnbTab(tab) {
       // P-IA: 글로벌은 시장 탭의 서브섹션으로 임베드됨 — 더 이상 별도 라우팅하지 않음.
       this.loadTabData(tab)
+      // 60초 갱신은 보이는 탭의 데이터만 읽으므로(2026-10-07) 돌아온 탭은 바로 한 번 읽는다 — 첫 진입은 loadTabData 가 읽는다.
+      if (this.dataLoaded.market) {
+        if (tab === 'market') { this.loadMarketMap(); this.loadSupplyPanel() }
+        else if (tab === 'today') this.loadMarketLine()
+      }
       // 탭 전환 시 스크롤 초기화
       window.scrollTo({ top: 0, behavior: 'smooth' })
     },
@@ -1105,8 +1110,12 @@ export default {
       if (this.isRefreshing) return
       this.isRefreshing = true
       try {
+        // 보이는 탭의 데이터만(2026-10-07): 시장 지도(5콜)·수급 패널(3콜)은 시장 탭에만 있는데 발굴 탭에서도 60초마다 다시 읽었고,
+        // 오늘 탭의 시장 한 줄(KOSPI·KOSDAQ·진단)은 반대로 한 번도 다시 읽지 않아 페이지를 연 시점 값이 그대로 보였다.
+        const tab = this.activeGnbTab
         await Promise.allSettled([
-          ...(this.activeGnbTab === 'today' ? [] : [this.loadMarketMap(), this.loadSupplyPanel()]),
+          ...(tab === 'market' ? [this.loadMarketMap(), this.loadSupplyPanel()] : []),
+          ...(tab === 'today' ? [this.loadMarketLine()] : []),
           this.$refs.todayBriefing?.refresh(),
           this.$refs.judgmentBoard?.refresh()
         ])
@@ -1620,16 +1629,26 @@ export default {
     },
 
     // Section B: 시장 지도 (V2 → Java, changeRate 검증 포함)
+    /** 오늘 탭 시장 한 줄만 — 시장 상태 1콜(시장 지도의 5콜 중 하나와 같은 변환). 실패면 줄을 숨긴다(옛 값을 지금 값처럼 두지 않는다). */
+    async loadMarketLine() {
+      try {
+        const res = await withTimeout(marketAPI.getStatus(), 10000)
+        this.marketData = transformMarketData(this.extractData(res)) || {}
+      } catch {
+        this.marketData = {}
+      }
+    },
+
     async loadMarketMap() {
       try {
         this.sections.marketMap.loading = true
         this.sections.marketMap.error = false
-        const [sectorRes, marketRes, leadingRes, nasdaqRes, usdKrwRes] = await Promise.allSettled([
+        // 선행 섹터·USD/KRW 는 부르지 않는다(2026-10-07) — 시장 지도 컴포넌트는 globalData 에서 나스닥 선물만 쓰고(상태 바),
+        // 두 값은 시장지표 탭이 없어진 뒤 받아서 버리기만 했다(60초마다 2콜).
+        const [sectorRes, marketRes, nasdaqRes] = await Promise.allSettled([
           withTimeout(sectorAPI.getSectorTrading('TODAY'), 15000).catch(() => null),
           withTimeout(marketAPI.getStatus(), 10000),
-          withTimeout(tradingIndicatorAPI.getLeadingSectors(), 10000),
-          withTimeout(tradingIndicatorAPI.getNasdaqFutures(), 10000),
-          withTimeout(globalFuturesAPI.getQuote('KRW'), 5000).catch(() => null)
+          withTimeout(tradingIndicatorAPI.getNasdaqFutures(), 10000)
         ])
         let sectorArr = []
         if (sectorRes.status === 'fulfilled' && sectorRes.value) {
@@ -1648,28 +1667,10 @@ export default {
           this.marketData = {}
         }
         // globalData를 한번에 새 객체로 할당 (Vue 반응성 보장)
-        const newGlobalData = {
-          nasdaqFutures: null,
-          leadingSectors: [],
-          usdKrw: null
-        }
+        const newGlobalData = { nasdaqFutures: null }
         if (nasdaqRes.status === 'fulfilled') {
           const d = this.extractData(nasdaqRes.value)
           newGlobalData.nasdaqFutures = (d && d.price) ? d : null
-        }
-        if (leadingRes.status === 'fulfilled') {
-          const d = this.extractData(leadingRes.value)
-          newGlobalData.leadingSectors = (Array.isArray(d) && d.length > 0) ? d : []
-        }
-        // USD/KRW 환율
-        if (usdKrwRes.status === 'fulfilled' && usdKrwRes.value) {
-          const d = this.extractData(usdKrwRes.value)
-          if (d && d.currentPrice) {
-            newGlobalData.usdKrw = {
-              price: Number(d.currentPrice).toLocaleString('ko-KR', { minimumFractionDigits: 2 }),
-              changeRate: Number(d.changeRate) || 0
-            }
-          }
         }
         this.globalData = newGlobalData
       } catch {
