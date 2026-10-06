@@ -1,5 +1,6 @@
 package com.myplatform.backend.dartfinancial;
 
+import com.myplatform.backend.util.SecretRedaction;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dartfinancial.ControllingEarnings.Figures;
@@ -316,7 +317,8 @@ public class DartControllingFinancialService {
         run.calls++;
         try {
             if (callIntervalMillis > 0) Thread.sleep(callIntervalMillis);
-            String body = restTemplate.getForObject(uri, String.class);
+            String body = SecretRedaction.redactingIoErrors(
+                    () -> restTemplate.getForObject(uri, String.class));   // crtfc_key 가 URL 에 있다
             return body == null ? null : objectMapper.readTree(body);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

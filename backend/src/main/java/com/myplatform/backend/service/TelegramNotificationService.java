@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.util.SecretRedaction;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -487,8 +488,9 @@ public class TelegramNotificationService {
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                url, HttpMethod.POST, request, String.class);
+        // I/O 오류 메시지는 요청 URL(= 봇 토큰)을 담아 ERROR 로그로 새었다(10/6 부팅 알림 Read timed out) — 가린 사본으로 던진다
+        ResponseEntity<String> response = SecretRedaction.redactingIoErrors(
+                () -> restTemplate.exchange(url, HttpMethod.POST, request, String.class));
 
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new RuntimeException("텔레그램 API 응답 오류: " + response.getStatusCode());

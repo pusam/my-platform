@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.util.SecretRedaction;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -1154,7 +1155,9 @@ public class GeminiService {
                 log.info("[Gemini JSON] API 호출 시작 (시도 {}/{}, 프롬프트 {}자)", attempt + 1, MAX_RETRIES, prompt.length());
                 // 슬롯 예약은 enforceRateLimit()/RateLimiter 가 담당(전역 직렬화).
 
-                ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+                // URL 에 key 가 있다 — I/O 오류 메시지에 실리지 않게(SecretRedaction, 2026-10-06)
+                ResponseEntity<Map> response = SecretRedaction.redactingIoErrors(
+                        () -> restTemplate.postForEntity(url, entity, Map.class));
 
                 log.info("[Gemini JSON] 응답 상태: {}", response.getStatusCode());
 
@@ -1389,7 +1392,9 @@ public class GeminiService {
         log.info("Gemini API 호출 시작");
         // 슬롯 예약은 enforceRateLimit()/RateLimiter 가 담당(전역 직렬화).
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+        // URL 에 key 가 있다 — I/O 오류 메시지에 실리지 않게(SecretRedaction, 2026-10-06)
+        ResponseEntity<Map> response = SecretRedaction.redactingIoErrors(
+                () -> restTemplate.postForEntity(url, entity, Map.class));
 
         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
             Map body = response.getBody();
