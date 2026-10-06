@@ -8,7 +8,7 @@
           <button :class="['tr-filter-btn', { active: filter === '4PLUS' }]" @click="filter = '4PLUS'">4점+</button>
           <button :class="['tr-filter-btn', { active: filter === '3PLUS' }]" @click="filter = '3PLUS'">3점+</button>
         </div>
-        <button class="tr-refresh" @click="reload" :disabled="loading">
+        <button class="tr-refresh" @click="retry" :disabled="loading">
           {{ loading ? '...' : '↻' }}
         </button>
       </div>
@@ -19,11 +19,21 @@
       4-5점이면 신호 강함 — 단, <em>단독 매수 신호 X</em>. 본인 분석 + 손절 규칙 필수.
     </div>
 
-    <div v-if="loading && !items.length" class="tr-loading">로딩 중...</div>
+    <!-- 실패·대기를 '종목 없음'으로 보이지 않는다(2026-10-07) — 예전엔 조회 실패도 '조건에 맞는 종목이 없습니다'였다 -->
+    <div v-if="loading && !items.length && !warming" class="tr-loading">로딩 중...</div>
+    <div v-else-if="failed && !items.length" class="tr-empty tr-failed">
+      종합 추천을 불러오지 못했습니다 — 조건에 맞는 종목이 없다는 뜻이 아닙니다.
+      <button class="tr-retry" @click="retry">다시 시도</button>
+    </div>
     <div v-else-if="warming" class="tr-loading">
       🔄 데이터 준비 중... 첫 평가는 1~2분 걸려요. 잠시 후 자동으로 표시됩니다.
     </div>
+    <div v-else-if="warmingGaveUp" class="tr-empty tr-failed">
+      5분 넘게 평가 결과를 받지 못했습니다 — 서버 평가가 실패했을 수 있습니다(종목이 없다는 뜻이 아닙니다).
+      <button class="tr-retry" @click="retry">다시 시도</button>
+    </div>
     <div v-else-if="!filtered.length" class="tr-empty">조건에 맞는 종목이 없습니다.</div>
+    <div v-if="failed && items.length" class="tr-stale">갱신 실패 — 마지막으로 받은 목록입니다.</div>
 
     <div class="tr-list">
       <div v-for="(item, idx) in filtered" :key="item.stockCode"
@@ -50,6 +60,10 @@
 <script>
 import { quantTaAPI } from '../../utils/api'
 
+// 빈 결과(백그라운드 평가 중)일 때 다시 묻는 간격·횟수 — 평가가 실패해도 응답은 같은 빈 목록이라 끝없이 기다리지 않는다(2026-10-07)
+const WARMING_RETRY_MS = 30000
+const MAX_WARMING_TRIES = 10   // 30초 × 10 = 5분 (평가는 보통 1~3분)
+
 export default {
   name: 'SectionTotalRecommendation',
   data() {
@@ -58,6 +72,9 @@ export default {
       loading: false,
       filter: 'ALL',
       warming: false,
+      warmingTries: 0,
+      warmingGaveUp: false,
+      failed: false,
       retryTimer: null
     }
   },
@@ -77,25 +94,37 @@ export default {
   methods: {
     async reload() {
       this.loading = true
+      if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null }
       try {
         const res = await quantTaAPI.compositeRanking(30)
-        if (res.data?.success) {
-          const data = res.data.data || []
-          this.items = data
-          // 빈 결과 = 백엔드가 백그라운드 평가 시작. 30초 후 재시도.
-          if (data.length === 0) {
-            this.warming = true
-            if (this.retryTimer) clearTimeout(this.retryTimer)
-            this.retryTimer = setTimeout(() => this.reload(), 30000)
-          } else {
-            this.warming = false
-          }
+        if (res.data?.success !== true) throw new Error(res.data?.message || '종합 추천 미가용')
+        const data = Array.isArray(res.data.data) ? res.data.data : []
+        this.items = data
+        this.failed = false
+        if (data.length === 0) {
+          // 빈 결과 = 백엔드가 백그라운드 평가 시작. 30초 후 재시도 — 5분이 지나면 멈추고 그렇게 말한다.
+          this.warmingTries += 1
+          this.warming = this.warmingTries <= MAX_WARMING_TRIES
+          this.warmingGaveUp = !this.warming
+          if (this.warming) this.retryTimer = setTimeout(() => this.reload(), WARMING_RETRY_MS)
+        } else {
+          this.warming = false
+          this.warmingTries = 0
+          this.warmingGaveUp = false
         }
       } catch (e) {
         console.warn('종합 추천 로드 실패:', e?.message)
+        this.failed = true          // 받아 둔 목록이 있으면 그대로 두고 '갱신 실패'로 알린다
+        this.warming = false
       } finally {
         this.loading = false
       }
+    },
+    /** 사람이 누른 다시 시도·새로고침 — 준비 중 대기 횟수를 처음부터 센다 */
+    retry() {
+      this.warmingTries = 0
+      this.warmingGaveUp = false
+      this.reload()
     },
     goStock(code) {
       this.$router.push(`/stock/${code}`)
@@ -148,6 +177,13 @@ export default {
 .tr-loading, .tr-empty {
   padding: 40px; text-align: center; color: rgba(255,255,255,0.6);
 }
+.tr-failed { color: var(--warning-color, #eab308); line-height: 1.6; }
+.tr-retry {
+  margin-left: 8px; padding: 4px 10px; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px;
+  background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.85); font-size: 12px; cursor: pointer;
+}
+.tr-retry:hover { background: rgba(255,255,255,0.12); }
+.tr-stale { margin-bottom: 8px; font-size: 12px; color: var(--warning-color, #eab308); }
 
 .tr-list { display: flex; flex-direction: column; gap: 4px; }
 .tr-row {

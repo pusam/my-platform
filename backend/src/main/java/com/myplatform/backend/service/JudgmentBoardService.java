@@ -120,11 +120,13 @@ public class JudgmentBoardService {
         List<Row> rows = new ArrayList<>(assembleRows(momentum, timingMap, stockSector, sectorRel));
         int scoredCount = rows.size();
         int unscoredCount = 0;
+        boolean scoreSnapshotReady = true;
 
         if (union) {
             Map<String, Row> byCode = new LinkedHashMap<>();
             for (Row r : rows) byCode.put(r.getStockCode(), r);
             Map<String, StockScore> snap = recommendationService.categoryScoreSnapshot();
+            scoreSnapshotReady = recommendationService.hasCategoryScoreSnapshot();
 
             for (Map.Entry<String, List<String>> e : trackSources.entrySet()) {
                 String code = e.getKey();
@@ -181,12 +183,22 @@ public class JudgmentBoardService {
                 .scope(union ? "union" : "momentum")
                 .unionStats(union
                         ? JudgmentBoardDto.UnionStats.builder()
-                            .totalRows(rows.size()).scoredRows(scoredCount).unscoredRows(unscoredCount).build()
+                            .totalRows(rows.size()).scoredRows(scoredCount).unscoredRows(unscoredCount)
+                            .scoreSnapshotReady(scoreSnapshotReady).build()
                         : null)
-                .note(union
-                        ? "union: 발굴 5트랙 합침. \"—\"=순수 발굴주(momentum 신호 없어 4-cat 미계산 — 출처 태그로 맥락). " + NOTE_BASE
-                        : NOTE_BASE)
+                .note(union ? unionNote(scoreSnapshotReady) : NOTE_BASE)
                 .build();
+    }
+
+    /**
+     * union 의 "—" 설명(2026-10-07). 점수표가 없으면(서버 재시작 뒤 종합추천 첫 계산 전) 발굴 트랙 종목이 전부 "—" 가 되는데,
+     * 그걸 '순수 발굴주(momentum 신호 없음)'라고 하면 틀린 설명이다 — 그때는 모른다고 말한다.
+     */
+    static String unionNote(boolean scoreSnapshotReady) {
+        return scoreSnapshotReady
+                ? "union: 발굴 5트랙 합침. \"—\"=순수 발굴주(momentum 신호 없어 4-cat 미계산 — 출처 태그로 맥락). " + NOTE_BASE
+                : "union: 발굴 5트랙 합침. \"—\"=점수 계산 전(서버 재시작 뒤 종합추천을 아직 계산하지 않아 발굴 트랙 종목의 "
+                        + "4-cat 을 모른다 — 다음 계산에서 채워진다). " + NOTE_BASE;
     }
 
     private interface ItemsSupplier { RecommendationService.Top5Response get(); }

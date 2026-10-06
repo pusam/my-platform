@@ -45,7 +45,9 @@ public class JudgmentBoardDto {
     public static class UnionStats {
         private int totalRows;
         private int scoredRows;      // 4-cat 있음(momentum scoreMap 포함)
-        private int unscoredRows;    // "—"(순수 발굴주, momentum 신호 없음)
+        private int unscoredRows;    // "—"(점수표에 없음 — 순수 발굴주, 또는 점수표 계산 전)
+        /** 점수표가 있는가 — false 면 서버 재시작 뒤 종합추천 첫 계산 전이라 "—" 는 '순수 발굴주'가 아니라 '모름'(2026-10-07) */
+        private boolean scoreSnapshotReady;
     }
 
     /** 시장 컨텍스트 — regime(KOSPI MA60) + 간밤 미국장 tilt. 둘 다 점수 미편입(맥락 표시). */

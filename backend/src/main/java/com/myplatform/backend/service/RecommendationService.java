@@ -202,6 +202,14 @@ public class RecommendationService {
     }
 
     /**
+     * 점수표가 있는가 — 서버 재시작 뒤 calculate() 가 한 번도 안 돌았으면 false(2026-10-07).
+     * 그때 union 보드의 "—" 는 '순수 발굴주'가 아니라 '아직 모른다'다. 계산했지만 후보가 0 인 빈 표와 구분한다.
+     */
+    public boolean hasCategoryScoreSnapshot() {
+        return this.cachedScoreMap != null;
+    }
+
+    /**
      * 백그라운드에서 fresh 계산 후 cachedTop5 갱신.
      * - AtomicBoolean 으로 중복 호출 차단(N개 동시 요청 들어와도 한 번만 계산)
      * - 결과는 다음 getTop5() 호출에서 캐시 hit

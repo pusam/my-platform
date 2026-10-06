@@ -26,8 +26,14 @@
     </div>
     <div class="jb-union-note" v-if="board && board.scope === 'union' && board.unionStats">
       발굴 union {{ board.unionStats.totalRows }}종목 중
-      <strong>{{ board.unionStats.unscoredRows }}개 "—"</strong> = 순수 발굴주(momentum 신호 없어 4-cat 미계산 — 출처 태그로 구분).
-      "기술 강(≥13)만" 필터로 momentum 밖 강종목만 좁힐 수 있음.
+      <!-- 점수표가 아직 없으면(서버 재시작 뒤 종합추천 첫 계산 전) "—" 는 '순수 발굴주'가 아니라 '모름'(2026-10-07) -->
+      <template v-if="board.unionStats.scoreSnapshotReady === false">
+        <strong>{{ board.unionStats.unscoredRows }}개 "—"</strong> = 점수 계산 전(서버 재시작 뒤 종합추천을 아직 계산하지 않았다 — 다음 계산에서 채워진다).
+      </template>
+      <template v-else>
+        <strong>{{ board.unionStats.unscoredRows }}개 "—"</strong> = 순수 발굴주(momentum 신호 없어 4-cat 미계산 — 출처 태그로 구분).
+        "기술 강(≥13)만" 필터로 momentum 밖 강종목만 좁힐 수 있음.
+      </template>
     </div>
 
     <div v-if="loading" class="jb-state">불러오는 중...</div>

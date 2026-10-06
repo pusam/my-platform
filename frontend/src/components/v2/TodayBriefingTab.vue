@@ -40,11 +40,16 @@
 
       <!-- 신뢰도(실측) — 후보 바로 위에서 "이 점수를 얼마나 믿어도 되나"를 먼저 보여준다.
            소스: accuracy-by-band = 현재 산식 표본(표본 시작일 이후·교정 D+3·종목·날짜당 최초 기록, 2026-10-01).
-           시작일이 미정이거나 평가된 표본이 없으면 옛 수치로 채우지 않고 '검증 중'을 말한다(§4c). -->
-      <div v-if="bandAccuracy" class="today-trust">
+           시작일이 미정이거나 평가된 표본이 없으면 옛 수치로 채우지 않고 '검증 중'을 말한다(§4c).
+           조회 실패도 숨기지 않는다(2026-10-07) — 스트립이 사라지면 '강력 매수' 배지만 설명 없이 남았다. -->
+      <div v-if="bandAccuracy || trustFailed" class="today-trust">
         <div class="tt-row">
           <span class="tt-icon">📊</span>
-          <template v-if="trustBands.length">
+          <template v-if="!bandAccuracy">
+            <span class="tt-title tt-pending tt-failed">적중률을 불러오지 못했습니다 — 이 점수를 얼마나 믿어도 되는지 지금은 확인할 수 없습니다. 점수는 참고용으로만 보세요.</span>
+            <button type="button" class="retry-btn" @click="loadTrust">다시 시도</button>
+          </template>
+          <template v-else-if="trustBands.length">
             <span class="tt-title">현재 산식 실측 <template v-if="trustSince">({{ trustSince }}~{{ trustProvisional ? ' · 잠정' : '' }} · D+3 종가)</template></span>
             <span v-for="b in trustBands" :key="b.band" class="tt-chip" :class="{ 'tt-weak': b.totalSignals < 30 }">
               {{ b.band }}점 {{ b.hitRate }}%
@@ -228,6 +233,7 @@ const timingAvailable = ref(true);   // dataAvailable=false → 분석서버 미
 const timingExpanded = ref(false);   // 백테스트 부진이라 기본 접힘(우선순위 낮춤). 펼쳐야 종목 표시
 const catalysts = ref({});           // stockCode → catalyst dto
 const bandAccuracy = ref(null);      // accuracy-by-band(보드 격리 + phase-38 컷오프 forward 실측)
+const trustFailed = ref(false);      // 적중률 조회 실패 — '아직 성적 없음(검증 중)'과 다르다(§4c)
 const recDataTime = ref(null);       // 후보 계산 기준 시각(백엔드 dataTime) — as-of 정직 표시
 const recRealtime = ref(true);       // false = 마지막 계산 스냅샷(전일 마감 등)
 const portfolio = ref([]);
@@ -444,11 +450,17 @@ const loadTimingCandidates = async () => {
   }
 };
 
+// 실패는 숨기지 않는다(2026-10-07) — 예전엔 스트립째 숨겨 후보 카드의 '강력 매수' 배지만 설명 없이 남았다.
+// 성적을 지어내지는 않는다: 실패면 '확인할 수 없다'고만 말하고, 직전에 받은 값이 있으면 그대로 둔다.
 const loadTrust = async () => {
   try {
     const { data } = await apiClient.get('/signal-outcomes/accuracy-by-band', { params: { days: 90 } });
-    if (data?.success !== false && data?.data) bandAccuracy.value = data.data;
-  } catch (e) { /* 생략 — 스트립 자체를 숨김(§4c: 미측정을 좋게 위장하지 않음) */ }
+    if (data?.success === false || !data?.data) throw new Error('적중률 미가용');
+    bandAccuracy.value = data.data;
+    trustFailed.value = false;
+  } catch (e) {
+    trustFailed.value = true;
+  }
 };
 
 const loadPortfolio = async () => {
@@ -503,7 +515,12 @@ const signed = (v, grouping = false) => {
 };
 
 // 부모의 60초 폴링·탭 복귀 갱신을 공유한다. 진행 중이면 loadCandidates 가 스스로 무시한다.
-defineExpose({ refresh: loadCandidates });
+// 60초 갱신 — 후보를 다시 읽고, 적중률을 못 받았으면 그것도 다시 시도한다(받은 뒤엔 마운트 1회 그대로)
+const refresh = () => {
+  if (trustFailed.value) loadTrust();
+  return loadCandidates();
+};
+defineExpose({ refresh });
 
 onMounted(() => {
   loadCandidates();
@@ -718,6 +735,7 @@ onMounted(() => {
 .tt-weak { opacity: 0.6; }
 /* '검증 중' 문구는 아이콘과 같은 줄에서 접힌다 — 휴대폰에서 📊 만 홀로 한 줄을 차지했다(2026-10-01) */
 .tt-pending { flex: 1 1 0; min-width: 0; }
+.tt-failed { color: var(--warning-color, #eab308); opacity: 1; }
 .tt-caution {
   margin-top: 6px; font-size: 11.5px; line-height: 1.45;
   color: #fbbf24;

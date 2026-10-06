@@ -369,3 +369,28 @@ describe('SectionJudgmentBoard — 갱신 결과(2026-10-07)', () => {
     expect(w.emitted('loaded')).toEqual([[true], [true]])
   })
 })
+
+describe('SectionJudgmentBoard — union "—" 설명(2026-10-07)', () => {
+  // 점수표(종합추천 계산이 남기는 메모리 값)는 서버를 다시 띄우면 다음 계산까지 비어 발굴 트랙 종목이 전부 "—" 가 된다
+  const unionResp = (ready) => ({ data: { success: true, data: {
+    market: { regime: 'BULL' }, timingAvailable: true, sectorStrengthAvailable: true, scope: 'union', note: '테스트',
+    rows: [row({ stockCode: '000001', stockName: '가치주', scored: false, sources: ['value'] })],
+    unionStats: { totalRows: 1, scoredRows: 0, unscoredRows: 1, scoreSnapshotReady: ready }
+  } } })
+
+  it('재현: 점수표 계산 전이면 "—" 를 순수 발굴주라고 하지 않는다', async () => {
+    apiClient.get.mockResolvedValue(unionResp(false))
+    const w = mount(SectionJudgmentBoard)
+    await flushPromises()
+    const note = w.find('.jb-union-note')
+    expect(note.text()).toContain('점수 계산 전')
+    expect(note.text()).not.toContain('순수 발굴주')
+  })
+
+  it('점수표가 있으면 종전 설명', async () => {
+    apiClient.get.mockResolvedValue(unionResp(true))
+    const w = mount(SectionJudgmentBoard)
+    await flushPromises()
+    expect(w.find('.jb-union-note').text()).toContain('순수 발굴주')
+  })
+})

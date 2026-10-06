@@ -208,6 +208,59 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(trust.text()).not.toContain('%')
   })
 
+  // ── 2026-10-07: 적중률 조회 실패를 숨기지 않는다 — 스트립이 사라지면 '강력 매수' 배지만 설명 없이 남았다 ──
+  function stubTrust(trust) {
+    stubAll()
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('accuracy-by-band')) return trust()
+      return Promise.resolve({ data: { success: false } })
+    })
+  }
+
+  it('재현: 적중률 조회가 실패하면 스트립이 사라지지 않고 "확인할 수 없다"고 말한다 — 강력 매수 배지만 남지 않게', async () => {
+    stubTrust(() => Promise.reject(new Error('500')))
+    const w = await mountTab()
+    expect(w.find('.grade-strong').exists()).toBe(true)            // 82점 '강력 매수' 후보
+    const trust = w.find('.today-trust')
+    expect(trust.exists()).toBe(true)
+    expect(trust.text()).toContain('불러오지 못했습니다')
+    expect(trust.text()).toContain('확인할 수 없습니다')
+    expect(trust.text()).not.toContain('%')                         // 성적을 지어내지 않는다
+    expect(trust.text()).not.toContain('검증 중')                    // '아직 성적 없음'과 다르다
+  })
+
+  it('서버가 실패로 답해도(success=false) 같은 실패 문구', async () => {
+    stubTrust(() => Promise.resolve({ data: { success: false } }))
+    const w = await mountTab()
+    expect(w.find('.today-trust').text()).toContain('불러오지 못했습니다')
+  })
+
+  it('다시 시도로 받으면 실측 밴드로 바뀐다', async () => {
+    let fail = true
+    stubTrust(() => (fail ? Promise.reject(new Error('500')) : Promise.resolve(bandAccuracyResponse)))
+    const w = await mountTab()
+    fail = false
+    await w.find('.today-trust .retry-btn').trigger('click')
+    await flushPromises()
+    expect(w.find('.today-trust').text()).toContain('55~64점 35.65%')
+    expect(w.find('.today-trust').text()).not.toContain('불러오지 못했습니다')
+  })
+
+  it('60초 갱신이 실패한 적중률을 다시 읽는다 — 받은 뒤엔 다시 부르지 않는다', async () => {
+    let fail = true
+    stubTrust(() => (fail ? Promise.reject(new Error('500')) : Promise.resolve(bandAccuracyResponse)))
+    const w = await mountTab()
+    fail = false
+    await w.vm.refresh()
+    await flushPromises()
+    expect(w.find('.today-trust').text()).toContain('55~64점 35.65%')
+    const calls = () => apiClient.get.mock.calls.filter(([u]) => u.includes('accuracy-by-band')).length
+    expect(calls()).toBe(2)
+    await w.vm.refresh()
+    await flushPromises()
+    expect(calls()).toBe(2)
+  })
+
   it('신뢰도 — 적중률 50% 미만이면 경고 문구 표시(성적 미화 금지)', async () => {
     stubAll()
     const w = await mountTab()
