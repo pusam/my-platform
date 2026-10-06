@@ -164,16 +164,31 @@ class ShortSellingTradeServiceTest {
         }
 
         @Test
-        @DisplayName("기준일 없는 행은 건너뛰되 몇 건인지 남긴다 — 10/2 첫 수집이 1행뿐이었는데 이유가 안 보였다")
-        void skippedRowsAreReported() {
-            String noDate = "{'mksc_shrn_iscd':'000660','hts_kor_isnm':'SK하이닉스','ssts_vol_rlim':'3.1'}";
-            when(kis.getShortSaleRankingPage(anyBoolean())).thenReturn(page("D", row("018880", "5.09"), noDate, noDate));
+        @DisplayName("재현: 기준일이 첫 행에만 있어도 응답 전체를 저장한다 — 10/2·10/6 수집이 30건 중 1건만 남았다")
+        void dateOnFirstRowStoresWholeResponse() {
+            String noDate1 = "{'mksc_shrn_iscd':'000660','hts_kor_isnm':'SK하이닉스','ssts_vol_rlim':'3.1'}";
+            String noDate2 = "{'mksc_shrn_iscd':'005930','hts_kor_isnm':'삼성전자','ssts_vol_rlim':'2.2'}";
+            when(kis.getShortSaleRankingPage(anyBoolean())).thenReturn(page("D", row("018880", "5.09"), noDate1, noDate2));
+
+            ShortSellingTradeService.CollectionStatus status = service.collect();
+
+            assertThat(status.ok()).isTrue();
+            assertThat(status.stored()).isEqualTo(3);
+            assertThat(savedRows()).extracting(ShortSellingTrade::getTradeDate).containsOnly(LocalDate.of(2026, 10, 1));
+            assertThat(status.message()).contains("2건은 응답 기준일");
+        }
+
+        @Test
+        @DisplayName("건너뛴 행은 이유별로 센다 — 종목코드 없음·기준일 없음을 한데 묶지 않는다")
+        void skippedRowsAreReportedByReason() {
+            String noCode = "{'mksc_shrn_iscd':'','hts_kor_isnm':'?','ssts_vol_rlim':'3.1','stnd_date2':'20261001'}";
+            when(kis.getShortSaleRankingPage(anyBoolean())).thenReturn(page("D", row("018880", "5.09"), noCode));
 
             ShortSellingTradeService.CollectionStatus status = service.collect();
 
             assertThat(status.ok()).isTrue();
             assertThat(status.stored()).isEqualTo(1);
-            assertThat(status.message()).contains("응답 3건 중 2건");
+            assertThat(status.message()).contains("응답 2건 중 1건 건너뜀").contains("종목코드 없음 1");
         }
 
         @Test

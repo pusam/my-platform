@@ -36,30 +36,70 @@ public final class ShortSaleRows {
                              BigDecimal price, BigDecimal changeRate, BigDecimal avgPrice) {
     }
 
+    /**
+     * 상위종목 한 페이지의 파싱 결과 — 저장할 행과 버린 이유별 개수(2026-10-07). 수집 로그·상태가 이것으로 "왜 몇 건만 남았나"를 말한다.
+     *
+     * @param missingCode        종목코드가 없어 버린 행 수
+     * @param missingDate        자기 기준일도 없고 응답 기준일도 정할 수 없어 버린 행 수
+     * @param dateFromResponse   자기 기준일이 없어 응답 기준일을 쓴 행 수
+     * @param firstDroppedFields 처음 버린 행의 필드 이름(값은 담지 않는다) — 응답 모양이 바뀌었는지 보는 단서
+     */
+    public record RankingParse(List<RankingRow> rows, int missingCode, int missingDate, int dateFromResponse,
+                               List<String> firstDroppedFields) {
+        public int dropped() {
+            return missingCode + missingDate;
+        }
+    }
+
     /** 공매도 일별추이 한 행. */
     public record DailyRow(LocalDate date, Long shortVolume, BigDecimal shortVolumeShare,
                            BigDecimal shortAmount, BigDecimal shortAmountShare, BigDecimal closePrice) {
     }
 
-    /**
-     * 상위종목 {@code output} 배열 → 행. 순위는 {@code rankOffset + 1} 부터(연속조회 페이지를 이어 센다).
-     * 종목코드나 기준일이 없는 행은 버린다 — 어디에 놓을지 모르는 값은 저장하지 않는다.
-     */
+    /** {@link #parseRankingDetailed} 의 행만. 순위는 {@code rankOffset + 1} 부터(연속조회 페이지를 이어 센다). */
     public static List<RankingRow> parseRanking(JsonNode output, int rankOffset) {
+        return parseRankingDetailed(output, rankOffset).rows();
+    }
+
+    /**
+     * 상위종목 {@code output} 배열 → 행 + 버린 이유. 순위는 응답 위치({@code rankOffset + 1} 부터 — 버린 행도 자리를 차지한다).
+     *
+     * <p><b>기준일은 응답 단위다(2026-10-07)</b>: 1일 순위라 모든 행이 같은 날인데, KIS 는 기준일({@code stnd_date1/2})을
+     * <b>첫 행에만</b> 채워 준다 — 10/2·10/6 18:30 수집이 30행 중 첫 행만 남기고 29행을 버린 이유다(공식 샘플 COLUMN_MAPPING 은
+     * 행 필드로 적혀 있지만 실측은 첫 행뿐). 그래서 자기 기준일이 없는 행은 <b>같은 응답에 기준일이 딱 하나만 있을 때</b> 그 날짜에
+     * 놓는다. 응답에 기준일이 없거나 서로 다른 기준일이 섞이면 짐작하지 않고 버린다. 종목코드가 없는 행은 어디에 놓을지 몰라
+     * 버린다(§4c).
+     */
+    public static RankingParse parseRankingDetailed(JsonNode output, int rankOffset) {
         List<RankingRow> rows = new ArrayList<>();
         if (output == null || !output.isArray()) {
-            return rows;
+            return new RankingParse(rows, 0, 0, 0, List.of());
         }
+        java.util.Set<LocalDate> dates = new java.util.LinkedHashSet<>();
+        for (JsonNode n : output) {
+            LocalDate own = rowDate(n);
+            if (own != null) dates.add(own);
+        }
+        LocalDate responseDate = dates.size() == 1 ? dates.iterator().next() : null;
+
+        int missingCode = 0;
+        int missingDate = 0;
+        int fromResponse = 0;
+        List<String> firstDropped = List.of();
         int index = 0;
         for (JsonNode n : output) {
             index++;
             String code = text(n, "mksc_shrn_iscd");
-            LocalDate date = date(n, "stnd_date2");
-            if (date == null) {
-                date = date(n, "stnd_date1");
-            }
-            if (code == null || date == null) {
+            LocalDate date = rowDate(n);
+            if (code == null || (date == null && responseDate == null)) {
+                if (code == null) missingCode++;
+                else missingDate++;
+                if (firstDropped.isEmpty()) firstDropped = fieldNames(n);
                 continue;
+            }
+            if (date == null) {
+                date = responseDate;
+                fromResponse++;
             }
             rows.add(new RankingRow(code, text(n, "hts_kor_isnm"), date, rankOffset + index,
                     integer(n, "ssts_cntg_qty"), decimal(n, "ssts_vol_rlim"),
@@ -67,7 +107,19 @@ public final class ShortSaleRows {
                     integer(n, "acml_vol"), decimal(n, "acml_tr_pbmn"),
                     decimal(n, "stck_prpr"), decimal(n, "prdy_ctrt"), decimal(n, "avrg_prc")));
         }
-        return rows;
+        return new RankingParse(rows, missingCode, missingDate, fromResponse, firstDropped);
+    }
+
+    /** 행 자신의 기준일 — stnd_date2, 없으면 stnd_date1. */
+    private static LocalDate rowDate(JsonNode n) {
+        LocalDate date = date(n, "stnd_date2");
+        return date != null ? date : date(n, "stnd_date1");
+    }
+
+    private static List<String> fieldNames(JsonNode n) {
+        List<String> names = new ArrayList<>();
+        n.fieldNames().forEachRemaining(names::add);
+        return names;
     }
 
     /** 일별추이 {@code output2} 배열 → 행. 영업일자가 없는 행은 버린다. */

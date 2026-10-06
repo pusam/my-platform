@@ -91,7 +91,10 @@ public class ShortSellingTradeService {
         Set<String> seen = new HashSet<>();
         String failure = null;
         int responseRows = 0;   // KIS 가 준 행 수 — 저장 행 수와 다르면 그 이유가 보이게(10/2 첫 수집이 1행이었다)
-        int skippedRows = 0;    // 종목코드·기준일이 없어 건너뛴 행
+        int missingCode = 0;    // 종목코드가 없어 버린 행
+        int missingDate = 0;    // 기준일을 정할 수 없어 버린 행
+        int dateFromResponse = 0;   // 자기 기준일이 없어 응답 기준일을 쓴 행(KIS 는 첫 행에만 기준일을 준다 — 10/6 실측)
+        List<String> firstDroppedFields = List.of();
         boolean continuation = false;
         for (int page = 0; page < MAX_RANKING_PAGES; page++) {
             KoreaInvestmentService.KisPage resp = kis.getShortSaleRankingPage(continuation);
@@ -108,11 +111,15 @@ public class ShortSellingTradeService {
             }
             int added = 0;
             JsonNode output = body.get("output");
-            List<ShortSaleRows.RankingRow> parsed = ShortSaleRows.parseRanking(output, rows.size());
             int pageRows = output != null && output.isArray() ? output.size() : 0;
+            // 순위는 응답 위치를 이어 센다 — 버린 행도 자리를 차지하므로 앞 페이지 '행 수'가 아니라 '응답 수'를 넘긴다
+            ShortSaleRows.RankingParse parsed = ShortSaleRows.parseRankingDetailed(output, responseRows);
             responseRows += pageRows;
-            skippedRows += pageRows - parsed.size();
-            for (ShortSaleRows.RankingRow r : parsed) {
+            missingCode += parsed.missingCode();
+            missingDate += parsed.missingDate();
+            dateFromResponse += parsed.dateFromResponse();
+            if (firstDroppedFields.isEmpty()) firstDroppedFields = parsed.firstDroppedFields();
+            for (ShortSaleRows.RankingRow r : parsed.rows()) {
                 if (seen.add(r.stockCode() + "|" + r.tradeDate())) {
                     rows.add(r);
                     added++;
@@ -141,16 +148,37 @@ public class ShortSellingTradeService {
             return remember(new CollectionStatus(now, false, stored, msg));
         }
         LocalDate asOf = rows.get(0).tradeDate();
-        String skippedNote = skippedRows > 0
-                ? " — 응답 " + responseRows + "건 중 " + skippedRows + "건은 종목코드·기준일(stnd_date1/2)이 없어 건너뜀"
-                : "";
-        if (skippedRows > 0) {
-            log.warn("[공매도 거래 비중] 수집 완료 — {}행 (기준일 {}){}", stored, asOf, skippedNote);
+        String note = collectionNote(responseRows, missingCode, missingDate, dateFromResponse);
+        if (missingCode + missingDate > 0) {
+            // 버린 행이 있으면 그 행의 필드 이름(값 없음)까지 남긴다 — 응답 모양이 바뀌었는지 볼 단서
+            log.warn("[공매도 거래 비중] 수집 완료 — {}행 (기준일 {}){} · 처음 버린 행의 필드 {}",
+                    stored, asOf, note, firstDroppedFields);
         } else {
-            log.info("[공매도 거래 비중] 수집 완료 — {}행 (응답 {}건, 기준일 {})", stored, responseRows, asOf);
+            log.info("[공매도 거래 비중] 수집 완료 — {}행 (응답 {}건, 기준일 {}){}", stored, responseRows, asOf, note);
         }
         return remember(new CollectionStatus(now, true, stored,
-                "수집 완료 " + stored + "행 (기준일 " + asOf + ")" + skippedNote));
+                "수집 완료 " + stored + "행 (기준일 " + asOf + ")" + note));
+    }
+
+    /**
+     * 수집 상태 뒷말 — 버린 행은 이유별로(종목코드 없음·기준일 없음), 응답 기준일을 쓴 행은 따로 센다. 없으면 빈 문자열. 순수 함수.
+     * (10/2·10/6 은 "응답 30건 중 29건은 종목코드·기준일이 없어 건너뜀" 한 줄이라 둘 중 무엇이 빠졌는지 몰랐다.)
+     */
+    static String collectionNote(int responseRows, int missingCode, int missingDate, int dateFromResponse) {
+        StringBuilder sb = new StringBuilder();
+        int dropped = missingCode + missingDate;
+        if (dropped > 0) {
+            sb.append(" — 응답 ").append(responseRows).append("건 중 ").append(dropped).append("건 건너뜀(");
+            List<String> why = new ArrayList<>();
+            if (missingCode > 0) why.add("종목코드 없음 " + missingCode);
+            if (missingDate > 0) why.add("기준일 없음 " + missingDate);
+            sb.append(String.join(" · ", why)).append(')');
+        }
+        if (dateFromResponse > 0) {
+            sb.append(dropped > 0 ? ", " : " — ").append(dateFromResponse)
+                    .append("건은 응답 기준일로 놓음(KIS 는 첫 행에만 기준일을 준다)");
+        }
+        return sb.toString();
     }
 
     /** 기준일마다 그날 행을 지우고 새로 넣는다 — 한 트랜잭션. */

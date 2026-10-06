@@ -88,12 +88,54 @@ class ShortSaleRowsTest {
         }
 
         @Test
-        @DisplayName("종목코드나 기준일이 없는 행은 버린다 — 어디에 놓을지 모르는 값은 저장하지 않는다")
-        void rowsWithoutCodeOrDateAreDropped() {
-            JsonNode broken = json("[{'mksc_shrn_iscd':'','ssts_vol_rlim':'3.0','stnd_date2':'20261001'},"
-                    + "{'mksc_shrn_iscd':'035720','ssts_vol_rlim':'3.0','stnd_date1':'','stnd_date2':'-'}]");
+        @DisplayName("재현: 기준일이 첫 행에만 있는 응답 — 나머지 행은 같은 응답의 기준일로 놓는다(10/6 실측 30건 중 1건만 저장)")
+        void dateOnlyOnFirstRowAppliesToTheResponse() {
+            // 10/2·10/6 18:30 수집 모두 KIS 가 30행을 줬는데 첫 행만 stnd_date1/2 를 갖고 있어 29행을 버렸다.
+            JsonNode response = json("["
+                    + "{'mksc_shrn_iscd':'018880','hts_kor_isnm':'한온시스템','ssts_vol_rlim':'3.59','stnd_date1':'20261002','stnd_date2':'20261002'},"
+                    + "{'mksc_shrn_iscd':'005930','hts_kor_isnm':'삼성전자','ssts_vol_rlim':'2.10','stnd_date1':'','stnd_date2':''},"
+                    + "{'mksc_shrn_iscd':'000660','hts_kor_isnm':'SK하이닉스','ssts_vol_rlim':'1.80'}"
+                    + "]");
 
-            assertThat(ShortSaleRows.parseRanking(broken, 0)).isEmpty();
+            ShortSaleRows.RankingParse parsed = ShortSaleRows.parseRankingDetailed(response, 0);
+
+            assertThat(parsed.rows()).extracting(ShortSaleRows.RankingRow::stockCode).containsExactly("018880", "005930", "000660");
+            assertThat(parsed.rows()).extracting(ShortSaleRows.RankingRow::tradeDate).containsOnly(LocalDate.of(2026, 10, 2));
+            assertThat(parsed.rows()).extracting(ShortSaleRows.RankingRow::rank).containsExactly(1, 2, 3);
+            assertThat(parsed.dateFromResponse()).isEqualTo(2);
+            assertThat(parsed.missingCode()).isZero();
+            assertThat(parsed.missingDate()).isZero();
+        }
+
+        @Test
+        @DisplayName("종목코드가 없는 행은 버리고 센다 — 어디에 놓을지 모르는 값은 저장하지 않는다")
+        void rowsWithoutCodeAreDroppedAndCounted() {
+            JsonNode broken = json("[{'mksc_shrn_iscd':'','ssts_vol_rlim':'3.0','stnd_date2':'20261001'},"
+                    + "{'mksc_shrn_iscd':'035720','ssts_vol_rlim':'3.0','stnd_date2':'20261001'}]");
+
+            ShortSaleRows.RankingParse parsed = ShortSaleRows.parseRankingDetailed(broken, 0);
+
+            assertThat(parsed.rows()).extracting(ShortSaleRows.RankingRow::stockCode).containsExactly("035720");
+            assertThat(parsed.rows().get(0).rank()).isEqualTo(2);   // 순위는 응답 위치 그대로
+            assertThat(parsed.missingCode()).isEqualTo(1);
+            assertThat(parsed.firstDroppedFields()).contains("mksc_shrn_iscd", "ssts_vol_rlim", "stnd_date2");
+        }
+
+        @Test
+        @DisplayName("응답 어디에도 기준일이 없거나 서로 다른 기준일이 섞이면 기준일 없는 행은 버린다 — 날짜를 짐작하지 않는다")
+        void noSingleResponseDateMeansDrop() {
+            JsonNode noDate = json("[{'mksc_shrn_iscd':'035720','ssts_vol_rlim':'3.0','stnd_date1':'','stnd_date2':'-'}]");
+            ShortSaleRows.RankingParse none = ShortSaleRows.parseRankingDetailed(noDate, 0);
+            assertThat(none.rows()).isEmpty();
+            assertThat(none.missingDate()).isEqualTo(1);
+
+            JsonNode mixed = json("[{'mksc_shrn_iscd':'005930','stnd_date2':'20261001'},"
+                    + "{'mksc_shrn_iscd':'000660','stnd_date2':'20261002'},"
+                    + "{'mksc_shrn_iscd':'035720'}]");
+            ShortSaleRows.RankingParse conflict = ShortSaleRows.parseRankingDetailed(mixed, 0);
+            assertThat(conflict.rows()).extracting(ShortSaleRows.RankingRow::stockCode).containsExactly("005930", "000660");
+            assertThat(conflict.missingDate()).isEqualTo(1);
+            assertThat(conflict.dateFromResponse()).isZero();
         }
 
         @Test
