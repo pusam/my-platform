@@ -395,6 +395,7 @@
                 </span>
               </div>
             </div>
+            <p class="supply-note" v-if="investorNote">{{ investorNote }}</p>
           </div>
         </div>
 
@@ -600,6 +601,7 @@ import { useChartCalculations } from '../composables/useChartCalculations';
 import { channelComment, breakoutLabel } from '../utils/trendChannel';
 import { toMarkerData } from '../utils/htsChartData';
 import { detectTailSignal } from '../utils/candleAnatomy';
+import { investorFlowNote } from '../utils/investorFlowNote';
 
 const route = useRoute();
 const router = useRouter();
@@ -1080,6 +1082,9 @@ const safetyDescriptionText = computed(() => {
   if (safety >= 40) return '일부 감점 요인이 있습니다 — 공시/뉴스를 확인하세요.';
   return '감점이 커서 신중한 판단이 필요합니다.';
 });
+
+// 장중에 외국인·기관이 비는 이유(장 마감 뒤 제공) — 배지 '실시간' 아래 '-'만 있으면 고장처럼 보였다(2026-10-07)
+const investorNote = computed(() => investorFlowNote(supplyDemand.value));
 
 const supplySourceClass = computed(() => {
   const source = supplyDemand.value?.dataSource;
@@ -2028,6 +2033,13 @@ onUnmounted(() => {
   margin: 0;
   font-size: 1rem;
   color: var(--text-secondary, #b0b0c8);
+}
+
+.supply-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.65));
 }
 
 .data-source-badge {
