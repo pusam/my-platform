@@ -161,8 +161,6 @@ public class InvestorSurgeDto {
 
     // ========== 금액 포맷팅 관련 (프론트엔드 UI용) ==========
 
-    private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat("#,###");
-
     /**
      * 변화량(amountChange)을 포맷팅된 문자열로 반환
      * - 값이 억원 단위로 저장됨 (예: 0.3 = 0.3억 = 3,000만원)
@@ -213,17 +211,18 @@ public class InvestorSurgeDto {
         if (absValue.compareTo(BigDecimal.ONE) < 0) {
             // 억원 → 만원 변환 (0.3억 → 3,000만)
             long manwon = absValue.multiply(BigDecimal.valueOf(10000)).setScale(0, RoundingMode.HALF_UP).longValue();
-            return sign + DECIMAL_FORMAT.format(manwon) + "만";
+            return sign + String.format(java.util.Locale.ROOT, "%,d", manwon) + "만";
         }
 
         // 절대값이 1억 이상인 경우 → 억원 단위로 표시
         // 소수점 첫째자리까지만 표시 (1.5억, 2억 등)
         BigDecimal rounded = absValue.setScale(1, RoundingMode.HALF_UP);
 
-        // 소수점이 .0인 경우 정수로 표시
+        // 소수점이 .0인 경우 정수로 표시. 천 단위 쉼표(2026-10-07 — '+3745.4억'이 같은 카드의 '+1,200만'과 달랐다).
+        // String.format 은 호출마다 새로 만든다 — 공유 DecimalFormat 은 스레드 안전하지 않다(직렬화가 여러 스레드에서 부른다)
         if (rounded.stripTrailingZeros().scale() <= 0) {
-            return sign + rounded.setScale(0, RoundingMode.HALF_UP).toString() + "억";
+            return sign + String.format(java.util.Locale.ROOT, "%,d", rounded.setScale(0, RoundingMode.HALF_UP).longValue()) + "억";
         }
-        return sign + rounded.toString() + "억";
+        return sign + String.format(java.util.Locale.ROOT, "%,.1f", rounded) + "억";
     }
 }
