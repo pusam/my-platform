@@ -143,4 +143,18 @@ class EarningsQualityTest {
         assertThat(Verdict.OK.distorted()).isFalse();
         assertThat(Verdict.UNKNOWN.distorted()).isFalse();
     }
+
+    @Test
+    @DisplayName("PER 이 쓴 순이익 = 시총 ÷ PER — 디에이피 409 ÷ 0.4 = 1,022.5억(KIS 연결 −648억 대신), 모르면 행의 순이익")
+    void perImpliedNetIncome() {
+        assertThat(EarningsQuality.perImpliedNetIncome(new java.math.BigDecimal("409"), new java.math.BigDecimal("0.40"),
+                new java.math.BigDecimal("-648"))).isEqualByComparingTo("1022.50");
+        assertThat(EarningsQuality.perImpliedNetIncome(null, new java.math.BigDecimal("0.40"), new java.math.BigDecimal("-648")))
+                .isEqualByComparingTo("-648");
+        assertThat(EarningsQuality.perImpliedNetIncome(new java.math.BigDecimal("409"), java.math.BigDecimal.ZERO, null)).isNull();
+        // 디에이피: 영업손실인데 PER 이 쓴 순이익은 흑자 → 본업 밖 이익이 지배
+        assertThat(EarningsQuality.judge(new java.math.BigDecimal("5432"), new java.math.BigDecimal("-578"),
+                EarningsQuality.perImpliedNetIncome(new java.math.BigDecimal("409"), new java.math.BigDecimal("0.40"), null)))
+                .isEqualTo(Verdict.NON_OPERATING_DOMINANT);
+    }
 }

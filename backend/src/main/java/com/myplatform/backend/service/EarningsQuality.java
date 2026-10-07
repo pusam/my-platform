@@ -47,6 +47,21 @@ public final class EarningsQuality {
     }
 
     /**
+     * PER 이 실제로 쓴 순이익(억원) — 시가총액 ÷ PER(같은 행, 둘 다 양수일 때). 판정은 이 값으로 한다(2026-10-07).
+     *
+     * <p>PER 은 DART 지배주주 순이익(per_basis=CTRL)으로 만드는데 행의 net_income 은 KIS 연결 순이익이라, net_income 으로 판정하면
+     * PER 을 끌어내린 이익을 보지 못한다 — 디에이피(10/7)는 영업손실 −578억·KIS 연결 순이익 −648억이라 '적자 = 판정 대상 아님'으로
+     * 통과했지만 PER 0.4 는 지배주주 순이익 +1,022억으로 만든 값이었다(ROE 121.97%, 마법의 공식 1등감). 그날 PER&gt;0·ROE&gt;0
+     * 1,635종목 중 54종목이 이렇게 빠져나갔다. 시가총액·PER 을 모르면 행의 순이익(종전).
+     */
+    public static BigDecimal perImpliedNetIncome(BigDecimal marketCap, BigDecimal per, BigDecimal netIncome) {
+        if (marketCap != null && marketCap.signum() > 0 && per != null && per.signum() > 0) {
+            return marketCap.divide(per, 2, java.math.RoundingMode.HALF_UP);
+        }
+        return netIncome;
+    }
+
+    /**
      * @param revenue         매출(TTM, 억원) — null 가능
      * @param operatingProfit 영업이익(TTM, 억원) — null 가능
      * @param netIncome       순이익(TTM, 억원) — null 가능

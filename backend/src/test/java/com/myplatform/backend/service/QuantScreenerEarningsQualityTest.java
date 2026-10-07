@@ -88,6 +88,30 @@ class QuantScreenerEarningsQualityTest {
                 .containsExactlyInAnyOrder(1, 2, 3);
     }
 
+    /** 10/7 운영 KIS 일별 행 그대로 — 시가총액까지(PER 이 쓴 순이익 = 시총 ÷ PER). */
+    private static StockFinancialData magicWithCap(String code, String name, String per, String roe, String revenue,
+                                                   String operatingProfit, String netIncome, String marketCap) {
+        StockFinancialData f = magic(code, name, per, roe, null, revenue, operatingProfit, netIncome);
+        f.setMarketCap(dec(marketCap));
+        return f;
+    }
+
+    @Test
+    @DisplayName("재현: PER 이 쓴 순이익(시총 ÷ PER)으로 판정한다 — 디에이피(영업손실인데 PER 0.4)·세이브존I&C(KIS 99억 vs PER 순이익 359억)는 빠진다")
+    void judgesTheNetIncomeThePerUses() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        when(stockFinancialDataRepository.findForMagicFormula(any())).thenReturn(List.of(
+                // 영업손실 −578억·KIS 연결 순이익 −648억('적자 = 판정 대상 아님'으로 통과) — PER 0.4 는 DART 지배주주 순이익 +1,022억
+                magicWithCap("066900", "디에이피", "0.40", "121.97", "5432", "-578", "-648", "409"),
+                // KIS 연결 순이익 99억이면 영업이익 146억 안 — PER 2.7 은 지배주주 순이익 약 359억(영업이익의 2.5배)
+                magicWithCap("067830", "세이브존I&C", "2.70", "6.82", "1347", "146", "99", "969"),
+                magicWithCap("019180", "티에이치엔", "1.20", "27.59", "11302", "789", "750", "896")));
+
+        List<ScreenerResultDto> results = service.getMagicFormulaStocks(10, null);
+
+        assertThat(results).extracting(ScreenerResultDto::getStockCode).containsExactly("019180");
+    }
+
     @Test
     @DisplayName("PEG — 순이익이 영업이익의 2.8배(국보디자인)·52배(유성티엔에스)면 PEG 0.01 이어도 빠진다")
     void lowPegExcludesDistortedEarnings() {

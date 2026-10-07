@@ -1118,12 +1118,7 @@ public class RecommendationService {
      * net_income(KIS 연결)과 다를 수 있어, 이익의 질을 PER 과 같은 순이익으로 판정하려고 쓴다. 못 구하면 행의 net_income.
      */
     static BigDecimal perImpliedNetIncome(StockFinancialData fin) {
-        BigDecimal mcap = fin.getMarketCap();
-        BigDecimal per = fin.getPer();
-        if (mcap != null && mcap.signum() > 0 && per != null && per.signum() > 0) {
-            return mcap.divide(per, 2, java.math.RoundingMode.HALF_UP);
-        }
-        return fin.getNetIncome();
+        return EarningsQuality.perImpliedNetIncome(fin.getMarketCap(), fin.getPer(), fin.getNetIncome());   // 단일 출처
     }
 
     private static final Comparator<ValueScoredStock> VALUE_ORDER = Comparator
