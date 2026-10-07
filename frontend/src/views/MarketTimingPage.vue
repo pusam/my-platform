@@ -172,9 +172,9 @@
             </div>
           </div>
 
-          <!-- 당일 등락비 (Stacked Bar) -->
+          <!-- 등락비 — 16:30 확정치라 장중엔 직전 거래일 값. 이름표에 그 날짜(2026-10-07) -->
           <div class="stat-row highlight">
-            <span class="stat-label">당일 등락비</span>
+            <span class="stat-label">{{ dailyRatioLabel(marketData.analysisDate) }}</span>
             <span class="stat-value">{{ formatNumber(marketData.kospi.dailyRatio, 1) }}</span>
           </div>
           <div class="ratio-progress-bar">
@@ -255,9 +255,9 @@
             </div>
           </div>
 
-          <!-- 당일 등락비 -->
+          <!-- 등락비(그 값의 거래일) -->
           <div class="stat-row highlight">
-            <span class="stat-label">당일 등락비</span>
+            <span class="stat-label">{{ dailyRatioLabel(marketData.analysisDate) }}</span>
             <span class="stat-value">{{ formatNumber(marketData.kosdaq.dailyRatio, 1) }}</span>
           </div>
           <div class="ratio-progress-bar">
@@ -407,7 +407,7 @@ const props = defineProps({
 });
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI } from '../utils/api';
-import { commodityFromResponse, krwFromFuturesQuote, impactLabel, impactTone, marketConditionText, signedPercentOrDash } from '../utils/marketDataLabels';
+import { commodityFromResponse, krwFromFuturesQuote, impactLabel, impactTone, marketConditionText, signedPercentOrDash, dailyRatioLabel } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import GlobalNav from '../components/GlobalNav.vue';
 import DataFreshness from '../components/DataFreshness.vue';

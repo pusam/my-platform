@@ -208,3 +208,13 @@ export function asOfTimeText(dateTime) {
   const h12 = h % 12 === 0 ? 12 : h % 12
   return `${h < 12 ? '오전' : '오후'} ${h12}:${String(d.getMinutes()).padStart(2, '0')} 기준`
 }
+
+/**
+ * 시장 폭 등락비 이름표 — 그 값의 거래일로(2026-10-07). 등락 수는 장 마감 뒤(16:30) 확정치라 장 시작 전·장중엔 직전 거래일
+ * 값이다 — '당일 등락비'라 부르면 어제 값이 오늘 값처럼 읽힌다(서버 진단 문장 dailyRatioNote 와 같은 'MM/DD' 표기).
+ * @param {string|null} analysisDate 시장 상태 응답의 analysisDate(ISO)
+ */
+export function dailyRatioLabel(analysisDate) {
+  if (typeof analysisDate !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(analysisDate)) return '등락비'
+  return `등락비(${analysisDate.slice(5, 7)}/${analysisDate.slice(8, 10)})`
+}

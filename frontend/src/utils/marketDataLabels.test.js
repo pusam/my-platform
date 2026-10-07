@@ -159,3 +159,30 @@ describe('quoteNumberText — 해외 시세 숫자 자릿수(2026-10-06)', () =>
     expect(quoteNumberText('abc')).toBe('-')
   })
 })
+
+/**
+ * 시장 타이밍 KOSPI·KOSDAQ 카드의 등락비 — 2026-10-07 화면 점검.
+ * 재현: 장중 10:16 에 카드가 '당일 등락비 92.0'이라 했는데 16:30 확정치라 10/06 값이었다(같은 화면의 진단 문장은 이미 '코스피
+ * 등락비(10/06)'로 고쳐져 있었다 — 10/6 ④). 이름표는 데이터의 날짜로.
+ */
+describe('dailyRatioLabel — 등락비 이름표는 그 값의 거래일로', () => {
+  it('재현: 분석일이 있으면 "등락비(MM/DD)" — "당일"이라고 하지 않는다', async () => {
+    const { dailyRatioLabel } = await import('./marketDataLabels')
+    expect(dailyRatioLabel('2026-10-06')).toBe('등락비(10/06)')
+    expect(dailyRatioLabel('2026-10-06T16:30:00')).toBe('등락비(10/06)')
+  })
+
+  it('분석일을 모르면 날짜 없이', async () => {
+    const { dailyRatioLabel } = await import('./marketDataLabels')
+    expect(dailyRatioLabel(null)).toBe('등락비')
+    expect(dailyRatioLabel('')).toBe('등락비')
+  })
+
+  it('시장 타이밍 카드가 이 이름표를 쓴다', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(join(process.cwd(), 'src/views/MarketTimingPage.vue'), 'utf8')
+    expect(src).not.toMatch(/<span class="stat-label">당일 등락비<\/span>/)
+    expect(src).toMatch(/dailyRatioLabel\(marketData\.analysisDate\)/)
+  })
+})
