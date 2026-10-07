@@ -968,9 +968,16 @@ public class RecommendationService {
 
         // 점수 산정 + 0점 초과만 필터
         List<ValueScoredStock> scored = new ArrayList<>();
+        int distorted = 0;
         for (StockFinancialData fin : all) {
             if (fin.getStockCode() == null || fin.getStockName() == null) continue;
             if (!stockStatusService.isActive(fin.getStockCode())) continue;  // 거래정지/상폐 제외
+            // 이익의 질(2026-10-07) — 마법의 공식·PEG 와 같은 규칙으로 순위를 매기기 전에 뺀다. 순이익이 본업으로 설명되지 않으면
+            // PBR 대비 ROE(=이익수익률)와 PER 이 한 번의 이익을 잰다(SG&G 순이익 954억 vs 영업이익 52억 → PER 0.6). 판정 불가는 통과.
+            if (EarningsQuality.judge(fin.getRevenue(), fin.getOperatingProfit(), fin.getNetIncome()).distorted()) {
+                distorted++;
+                continue;
+            }
             int[] parts = computeValueScoreParts(fin);
             int score = Math.min(20, parts[0] + parts[1] + parts[2] + parts[3]);
             if (score <= 0) continue;
@@ -982,12 +989,14 @@ public class RecommendationService {
             vs.roeCombinedScore = parts[1];
             vs.debtScore = parts[2];
             vs.profitEquityScore = parts[3];
+            vs.per = fin.getPer() != null && fin.getPer().signum() > 0 ? fin.getPer() : null;
+            vs.pbr = fin.getPbr() != null && fin.getPbr().signum() > 0 ? fin.getPbr() : null;
             vs.tags = computeValueTags(fin);
             scored.add(vs);
         }
 
-        // 점수 desc 정렬 후 상위 30 만 리스크 검사 (DART 호출 부담 차단)
-        scored.sort((a, b) -> Integer.compare(b.score, a.score));
+        // 순위 정렬 후 상위 30 만 리스크 검사 (DART 호출 부담 차단)
+        scored.sort(VALUE_ORDER);
         List<ValueScoredStock> shortlist = scored.stream().limit(30).collect(Collectors.toList());
         for (ValueScoredStock vs : shortlist) {
             try {
@@ -998,11 +1007,11 @@ public class RecommendationService {
             } catch (Exception ignore) { /* 페널티 안 줌 */ }
         }
         // 페널티 후 재정렬 + top 10
-        shortlist.sort((a, b) -> Integer.compare(b.score, a.score));
+        shortlist.sort(VALUE_ORDER);
         List<ValueScoredStock> top = shortlist.stream().limit(10).collect(Collectors.toList());
 
-        log.info("[저평가TOP10] 계산 완료 — {}건 후보 → 상위 30 리스크검사 → top10 ({}ms)",
-                scored.size(), System.currentTimeMillis() - t0);
+        log.info("[저평가TOP10] 계산 완료 — {}건 후보(이익의 질 {}건 제외) → 상위 30 리스크검사 → top10 ({}ms)",
+                scored.size(), distorted, System.currentTimeMillis() - t0);
 
         return top.stream().map(vs -> RecommendationDto.builder()
                 .stockCode(vs.stockCode)
@@ -1087,10 +1096,23 @@ public class RecommendationService {
         return tags;
     }
 
+    /**
+     * 저평가 순위(2026-10-07, 사용자 결정 '순위 정비') — 점수는 구간 합(만점 20)이라 동점이 많다(10/7 운영 재계산: 부채비율을
+     * 되살리면 만점 133종목). 예전엔 점수만 비교해 동점이 입력 순서(종목코드 해시 순서)로 남아 상위 10 이 사실상 무작위였다.
+     * 동점이면 PER 낮은 순(이익 대비 더 싼 쪽) → PBR 낮은 순 → 종목코드 순. PER·PBR 을 모르면 뒤로. 점수 산식은 그대로다.
+     */
+    private static final Comparator<ValueScoredStock> VALUE_ORDER = Comparator
+            .comparingInt((ValueScoredStock v) -> v.score).reversed()
+            .thenComparing(v -> v.per, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(v -> v.pbr, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(v -> v.stockCode);
+
     private static class ValueScoredStock {
         String stockCode;
         String stockName;
         int score;
+        BigDecimal per;   // 동점 순서용 — 양수만, 모르면 null
+        BigDecimal pbr;   // 동점 순서용 — 양수만, 모르면 null
         List<String> tags;
         // 항목별 점수 — UI 막대 그래프 분해 표시용
         int pbrScore;             // 0~8
