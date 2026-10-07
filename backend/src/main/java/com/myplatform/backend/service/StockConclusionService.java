@@ -102,7 +102,9 @@ public class StockConclusionService {
                 .stockName("")
                 .level(Level.WAIT)
                 .headline("종합 추천 스냅샷에 포함되지 않은 종목입니다 — 시그널 정보 부족.")
-                .guidance("관심종목으로 등록하면 다음 스냅샷부터 시그널이 누적됩니다.")
+                // 사실대로(2026-10-07) — 스냅샷은 컷(55점)을 넘은 상위 종목만 저장하고 7일 뒤 지운다. 예전 안내 '관심종목으로 등록하면
+                // 다음 스냅샷부터 시그널이 누적됩니다'는 틀렸다 — 종합추천은 관심종목을 후보에 넣지 않는다.
+                .guidance("종합추천 스냅샷은 55점 이상 상위 종목만 남기고 7일 뒤 지웁니다 — 이 종목은 최근 7일 안에 그 안에 든 적이 없습니다.")
                 .factors(List.of())
                 .dataAt(null)
                 .dataAvailable(false)

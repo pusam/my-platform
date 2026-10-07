@@ -327,3 +327,18 @@ describe('StockConclusionCard — F4 과거 스냅샷 표시(2026-09-17 감사)'
     expect(w.find('.stale-banner').exists()).toBe(false)
   })
 })
+
+// 2026-10-07 에코프로: 스냅샷이 아예 없는 종목인데 '⏳ 과거 스냅샷 — 현재 매수 권고가 아닙니다' 배너가 '스냅샷에 포함되지 않은
+// 종목' 안내와 함께 떴다 — 서버는 스냅샷이 없을 때도 currentlyValid=false(+dataAvailable=false)를 준다
+describe('StockConclusionCard — 스냅샷 없음', () => {
+  it('재현: 스냅샷이 없으면 과거 스냅샷 배너를 띄우지 않는다', async () => {
+    stubApi({ stockCode: '086520', stockName: '', level: 'WAIT',
+      headline: '종합 추천 스냅샷에 포함되지 않은 종목입니다 — 시그널 정보 부족.',
+      guidance: '종합추천 스냅샷은 55점 이상 상위 종목만 남기고 7일 뒤 지웁니다 — 이 종목은 최근 7일 안에 그 안에 든 적이 없습니다.',
+      factors: [], dataAt: null, dataAvailable: false, currentlyValid: false })
+    const w = await mountCard()
+    expect(w.text()).toContain('스냅샷에 포함되지 않은')
+    expect(w.find('.stale-banner').exists()).toBe(false)
+    expect(w.text()).not.toContain('과거 스냅샷')
+  })
+})

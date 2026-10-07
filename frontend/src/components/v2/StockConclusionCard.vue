@@ -305,7 +305,8 @@ const minutesAgo = computed(() => {
  * 현재 판단에 쓸 수 있는가 — 백엔드 단일 출처(F4, 2026-09-17 감사).
  * 필드가 없는 옛 응답은 "유효"로 본다(하위호환 — 카드가 갑자기 전부 과거로 보이지 않게).
  */
-const isStale = computed(() => conclusion.value?.currentlyValid === false);
+// 스냅샷이 아예 없으면(dataAvailable=false) '과거 스냅샷'이 아니다 — 서버는 그때도 currentlyValid=false 를 준다(2026-10-07)
+const isStale = computed(() => conclusion.value?.dataAvailable !== false && conclusion.value?.currentlyValid === false);
 
 /**
  * 신선도 신호등 — <b>경과 분으로 다시 판정하지 않는다</b>(F4).

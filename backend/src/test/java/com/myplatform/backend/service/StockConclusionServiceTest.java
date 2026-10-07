@@ -184,6 +184,19 @@ class StockConclusionServiceTest {
         assertThat(result.getFactors()).isEmpty();
     }
 
+    @Test
+    @DisplayName("재현(10/7 에코프로): 스냅샷이 없는 이유를 사실대로 — 관심종목 등록은 스냅샷과 무관하다")
+    void notAvailableGuidanceIsFactual() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.empty());
+
+        StockConclusionDto result = service.getConclusion("086520");
+
+        // 종합추천 스냅샷은 컷(55점)을 넘은 상위 종목만 저장하고 7일 뒤 지운다 — 관심종목은 후보에 들어가지 않는다
+        assertThat(result.getGuidance()).doesNotContain("관심종목");
+        assertThat(result.getGuidance()).contains("55점").contains("7일");
+    }
+
     // ================================================================
     // phase 22b — 시그널 충돌 해설 (conflictNote)
     // ================================================================
