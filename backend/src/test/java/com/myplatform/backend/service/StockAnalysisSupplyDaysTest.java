@@ -46,7 +46,7 @@ class StockAnalysisSupplyDaysTest {
                 t("2026-10-06", "FOREIGN", "SELL", "-3995.68"), t("2026-10-06", "INSTITUTION", "BUY", "378.08")));
         StockAnalysisService svc = new StockAnalysisService(mock(StockFinancialDataRepository.class), repo,
                 mock(StockPriceHistoryRepository.class), mock(StockPriceRepository.class),
-                mock(TechnicalIndicatorService.class), mock(KoreaInvestmentService.class));
+                mock(TechnicalIndicatorService.class), mock(KoreaInvestmentService.class), new MarketCalendarService());
 
         StockDiagnosisDto.SupplyDemandDto sd = svc.analyzeSupplyDemand("005930");
 

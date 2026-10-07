@@ -65,7 +65,7 @@ class DailyBarSaveLogVolumeTest {
         when(prices.findTopByStockCodeOrderByFetchedAtDesc(anyString())).thenReturn(Optional.empty());
         StockAnalysisService svc = new StockAnalysisService(mock(StockFinancialDataRepository.class),
                 mock(InvestorDailyTradeRepository.class), history, prices,
-                mock(TechnicalIndicatorService.class), kis);
+                mock(TechnicalIndicatorService.class), kis, new MarketCalendarService());
 
         svc.collectPriceHistory("005930");
 

@@ -39,8 +39,13 @@ import java.util.List;
 @Slf4j
 public class DailyBarRefreshService {
 
-    /** 배치 1회 상한 — KIS rate 예산. 초과분은 다음 실행이 아니라 <b>다음 날</b>로 밀리므로 로그로 경고한다. */
-    static final int MAX_STOCKS_PER_RUN = 400;
+    /**
+     * 배치 1회 상한 — KIS rate 예산. 초과분은 다음 실행이 아니라 <b>다음 날</b>로 밀리므로 로그로 경고한다.
+     * 400 → 1,200(2026-10-07): 마감 전 봉을 더는 저장하지 않으므로(StockAnalysisService.isSettledBar) 대상은 장 마감 뒤 수집분으로
+     * 줄어든다 — 상한은 남은 형성 봉(전환일 10/7 622종목)을 한 번에 다 확정하려고 올렸다. 예전 상한 400 은 하루 879~1,123종목
+     * 중 일부만 고쳐 나머지가 다음 날 '어제 종가'로 남았다. 최악 1,200 × 450ms ≈ 9분.
+     */
+    static final int MAX_STOCKS_PER_RUN = 1200;
 
     /** KIS 호출 간격(ms) — QuantTaService 일괄 수집과 동일 예산. */
     static final long RATE_LIMIT_MS = 450L;
@@ -80,7 +85,9 @@ public class DailyBarRefreshService {
     public int refreshBarsFor(LocalDate tradeDate) {
         List<String> codes = historyRepository.findStockCodesByTradeDate(tradeDate);
         if (codes.isEmpty()) {
-            log.info("[일봉갱신] {} 봉을 가진 종목 없음 — 장중 수집이 없었던 날", tradeDate);
+            // 2026-10-07 부터 마감 전 봉은 저장하지 않으므로(StockAnalysisService.isSettledBar) 장중 수집은 이 목록을 만들지 않는다 —
+            // 비어 있는 게 정상이다(그날 확정 봉은 다음 수집이 받는다)
+            log.info("[일봉갱신] {} 봉을 가진 종목 없음 — 장중엔 확정 전 봉을 저장하지 않는다(다음 수집이 확정 봉을 받는다)", tradeDate);
             return 0;
         }
 

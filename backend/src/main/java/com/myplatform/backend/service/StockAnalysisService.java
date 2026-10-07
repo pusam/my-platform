@@ -44,6 +44,8 @@ public class StockAnalysisService {
     private final StockPriceRepository stockPriceRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final KoreaInvestmentService koreaInvestmentService;
+    // 일봉 확정 판정(2026-10-07) — 마감 전 날짜의 봉은 저장하지 않는다(isSettledBar)
+    private final MarketCalendarService marketCalendar;
 
     // 기술적 분석에 필요한 최소 데이터 개수
     private static final int MIN_PRICE_DATA_COUNT = 60;
@@ -1084,6 +1086,14 @@ public class StockAnalysisService {
         }
     }
 
+    /**
+     * 그 날의 일봉이 마감으로 확정됐는가 — 순수 함수(2026-10-07). 기준은 D+3 평가와 같은
+     * {@link SignalD3EvaluationService#lastSettledTradingDay}(KRX 15:40 + 30분) 한 곳. 날짜를 모르면 확정으로 보지 않는다.
+     */
+    static boolean isSettledBar(LocalDate tradeDate, LocalDate lastSettledDay) {
+        return tradeDate != null && lastSettledDay != null && !tradeDate.isAfter(lastSettledDay);
+    }
+
     /** 기존 호출부용 — 실패를 삼킨다(동작 불변). 새 코드는 {@link #collectPriceHistoryRange} 를 쓸 것. */
     private void savePriceHistoryToDb(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
         try {
@@ -1097,9 +1107,15 @@ public class StockAnalysisService {
     private int persistBarsStrict(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
         {
             LocalDate today = LocalDate.now();
+            // 마감이 확정된 마지막 거래일 — 그보다 뒤 날짜(장 시작 전·장중의 '오늘' 형성 봉)는 저장하지 않는다(2026-10-07).
+            // 예전엔 09시 종합추천 계산이 받은 형성 봉(09:0x 값)이 그날 하루 '오늘 종가'로 기술 채점에 쓰였고, 18:30 보정(하루 상한)에서
+            // 빠진 종목은 다음 날 '어제 종가'로도 남았다. 확정된 날의 봉은 그날 장 마감 뒤나 다음 날 수집이 저장한다.
+            LocalDate settledDay = SignalD3EvaluationService.lastSettledTradingDay(
+                    java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")), marketCalendar);
             int savedCount = 0;
             int updatedCount = 0;
             int skippedCount = 0;
+            int unsettledCount = 0;
             int fallbackIndex = 0;
 
             // 종목명 1회 조회: stock_price → 하드코딩 맵 → null
@@ -1119,6 +1135,12 @@ public class StockAnalysisService {
                         tradeDate = tradeDate.minusDays(1);
                     }
                     fallbackIndex++;
+                }
+
+                // 마감 전 날짜의 봉은 저장하지 않는다 — 확정되면 그때 받는다
+                if (!isSettledBar(tradeDate, settledDay)) {
+                    unsettledCount++;
+                    continue;
                 }
 
                 // 유효한 데이터만 저장
@@ -1175,8 +1197,8 @@ public class StockAnalysisService {
 
             // 종목별 줄은 DEBUG — 09시 종합추천(600여 종목)·18:30 일봉 보정(400) 같은 회차 안에서 불린다(§5, 2026-10-07).
             // 회차 요약은 호출부가 한 줄로 남긴다.
-            log.debug("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 갱신: {}, 스킵(동일): {}",
-                    stockCode, savedCount, updatedCount, skippedCount);
+            log.debug("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 갱신: {}, 스킵(동일): {}, 마감 전 제외: {}",
+                    stockCode, savedCount, updatedCount, skippedCount, unsettledCount);
             return savedCount + updatedCount;
         }
     }
