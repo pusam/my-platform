@@ -335,6 +335,13 @@ public class StockFinancialDataCollector {
             if (totalAssets != null) financialData.setTotalAssets(totalAssets);
             if (totalDebt != null) financialData.setTotalDebt(totalDebt);
 
+            // ★ 부채비율(2026-10-07) — getFinancialRatios 가 재무상태표(부채총계÷자본총계, 없으면 재무비율 lblt_rate)로 만들어 두는데
+            //   이 경로는 저장하지 않았다. 9/28 까지는 23:00 재수집(은퇴)이 51종목만 채웠고 그 뒤로는 전 종목 NULL — 저평가 트랙·종합추천
+            //   가치 점수의 부채 4점과 마법의 공식 '부채비율 200% 이하' 필터가 아무것도 하지 않았다. 0·음수는 파싱 실패(빈 문자열 → 0)라
+            //   쓰지 않는다(PBR 0 과 같은 결측, §4c). 못 받은 회차는 같은 날 받아 둔 값을 지우지 않는다(위 재무상태표 칸과 같은 규칙).
+            BigDecimal debtRatio = financialRatios.get("debtRatio");
+            if (debtRatio != null && debtRatio.signum() > 0) financialData.setDebtRatio(debtRatio);
+
             // ★ totalEquity 기반 BPS/PBR/ROE 재계산 (연결 기준)
             if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
                     && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
