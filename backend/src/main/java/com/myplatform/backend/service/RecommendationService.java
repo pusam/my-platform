@@ -2329,11 +2329,16 @@ public class RecommendationService {
         if (!needsCollection.isEmpty()) {
             log.info("[종합추천] 가격히스토리 부족 {}종목 → 비동기 수집 예약", needsCollection.size());
             new Thread(() -> {
+                long started = System.currentTimeMillis();
+                int failed = 0;
                 for (String code : needsCollection) {
                     try {
                         stockAnalysisService.collectPriceHistory(code);
-                    } catch (Exception e) { /* 무시 */ }
+                    } catch (Exception e) { failed++; }
                 }
+                // 끝났다는 요약 한 줄 — 종목별 저장 로그는 DEBUG 로 내렸다(§5, 2026-10-07)
+                log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 (예외 {}) · {}초",
+                        needsCollection.size(), failed, (System.currentTimeMillis() - started) / 1000);
             }, "price-history-collector").start();
         }
     }

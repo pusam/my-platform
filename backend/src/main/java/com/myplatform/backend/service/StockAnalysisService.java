@@ -689,8 +689,8 @@ public class StockAnalysisService {
             }
 
             if (ohlcvData != null && !ohlcvData.isEmpty()) {
-                log.info("종목 {} KIS API에서 {} 건의 일봉 데이터 조회 성공 - DB 저장 중...",
-                        stockCode, ohlcvData.size());
+                log.debug("종목 {} KIS API에서 {} 건의 일봉 데이터 조회 성공 - DB 저장 중...",
+                        stockCode, ohlcvData.size());   // 요청(종목 진단)마다 — DEBUG(§5)
 
                 // DB에 저장 (중복 방지를 위해 날짜별로 체크)
                 savePriceHistoryToDb(stockCode, ohlcvData);
@@ -1173,7 +1173,9 @@ public class StockAnalysisService {
                 stockPriceHistoryRepository.save(history);
             }
 
-            log.info("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 갱신: {}, 스킵(동일): {}",
+            // 종목별 줄은 DEBUG — 09시 종합추천(600여 종목)·18:30 일봉 보정(400) 같은 회차 안에서 불린다(§5, 2026-10-07).
+            // 회차 요약은 호출부가 한 줄로 남긴다.
+            log.debug("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 갱신: {}, 스킵(동일): {}",
                     stockCode, savedCount, updatedCount, skippedCount);
             return savedCount + updatedCount;
         }

@@ -67,6 +67,28 @@ public class AiStockAnalysisService {
     private static final int ALERT_SCORE_THRESHOLD = 90;
 
     /**
+     * 오늘 이미 알린 TOP PICK('유형:종목' → 날짜) — 같은 날 한 번만(2026-10-07). 분석은 9·12·15시 크론 말고도 2분 워머가 결과가
+     * 1시간 지나면 다시 돌려 같은 종목이 장중 매시간 다시 나갈 수 있었다. 프로세스 메모리라 재시작하면 그날 한 번 더 나갈 수 있다.
+     */
+    private final Map<String, LocalDate> alertedToday = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 오늘 처음이면 기록하고 true — 순수(맵만 바꾼다). 지난 날 기록은 지운다(맵이 날마다 자라지 않게). */
+    static boolean shouldAlert(Map<String, LocalDate> alerted, String key, LocalDate today) {
+        if (today.equals(alerted.get(key))) return false;
+        alerted.entrySet().removeIf(e -> !today.equals(e.getValue()));
+        alerted.put(key, today);
+        return true;
+    }
+
+    /** 알림의 현재가 줄 — 등락률을 모르면 '(0.00%)'(보합)로 쓰지 않고 뺀다(2026-10-07, §4c). 순수. */
+    static String priceLine(java.math.BigDecimal price, java.math.BigDecimal changeRate) {
+        String priceStr = price != null ? String.format("%,.0f원", price) : "N/A";
+        if (changeRate == null) return "💰 현재가: <b>" + priceStr + "</b>";
+        String sign = changeRate.signum() >= 0 ? "+" : "";
+        return "💰 현재가: <b>" + priceStr + "</b> (" + sign + String.format("%.2f", changeRate) + "%)";
+    }
+
+    /**
      * AI 분석 결과 조회 (캐시된 데이터 반환).
      *
      * Redis L2 → 내부 메모리 캐시 → 즉시 재계산 순으로 fallback.
@@ -861,7 +883,12 @@ public class AiStockAnalysisService {
                 .filter(s -> s.getTotalScore() >= ALERT_SCORE_THRESHOLD)
                 .toList());
 
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
         for (AiStockRecommendationDto stock : highScoreStocks) {
+            if (!shouldAlert(alertedToday, stock.getType() + ":" + stock.getStockCode(), today)) {
+                log.debug("[AI TOP PICK] 오늘 이미 알림 — {} {}", stock.getType(), stock.getStockCode());
+                continue;
+            }
             sendAiRecommendationAlert(stock);
         }
     }
@@ -873,18 +900,12 @@ public class AiStockAnalysisService {
         String type = "short".equals(stock.getType()) ? "단기" : "중장기";
         String reasons = String.join("\n• ", stock.getBuyReasons());
 
-        String priceStr = stock.getCurrentPrice() != null ?
-                String.format("%,.0f", stock.getCurrentPrice()) : "N/A";
-        String changeRateStr = stock.getChangeRate() != null ?
-                String.format("%.2f", stock.getChangeRate()) : "0.00";
-        String changeSign = stock.getChangeRate() != null && stock.getChangeRate().doubleValue() >= 0 ? "+" : "";
-
         String message = String.format(
             """
             <b>🤖 AI %s TOP PICK!</b>
 
             📊 <b>%s</b> (%s)
-            💰 현재가: <b>%s원</b> (%s%s%%)
+            %s
             🎯 AI 점수: <b>%d점</b> / 의견: <b>%s</b>
 
             📈 <b>매수 근거</b>
@@ -899,9 +920,7 @@ public class AiStockAnalysisService {
             """,
             type,
             stock.getStockName(), stock.getStockCode(),
-            priceStr,
-            changeSign,
-            changeRateStr,
+            priceLine(stock.getCurrentPrice(), stock.getChangeRate()),
             stock.getTotalScore(), stock.getOpinion(),
             reasons.isEmpty() ? "분석 중" : reasons,
             stock.getAiSummary(),

@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
  * 관심종목 실시간 리스크 알리미
  * - 장중 10분 주기로 관심종목 감시
  * - 4대 리스크 조건 감지 → 텔레그램 즉시 알림
- * - 종목당 1시간 쿨다운으로 중복 방지
+ * - 새 위험만 알린다 — 공시는 직전 거래일 이후 접수분을 접수번호당 한 번, 가격·수급은 종류별 하루 한 번(2026-10-07)
  */
 @Service
 @Slf4j
@@ -42,7 +42,6 @@ public class WatchlistRiskMonitorService {
     private final SchedulerLockService schedulerLockService;
     private final MarketCalendarService marketCalendar;   // 휴장일 게이트(2026-10-07)
 
-    private static final int COOLDOWN_MINUTES = 60;
     private static final String ALERT_TYPE_RISK = "WATCHLIST_RISK";
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -183,13 +182,20 @@ public class WatchlistRiskMonitorService {
             List<RiskAnalysisDto.DartDisclosure> disclosures = dartService.searchDisclosuresByStockCode(stockCode, stockName);
             List<RiskAnalysisDto.DartDisclosure> dangerous = dartService.filterDangerousDisclosures(disclosures);
 
-            if (!dangerous.isEmpty()) {
-                RiskAnalysisDto.DartDisclosure first = dangerous.get(0);
+            // 새 공시만(직전 거래일 이후 접수) — 3개월 창을 매번 다시 보면 한 번 나온 위험 공시가 석 달 동안 매 감시마다 알림이었다
+            // (SK하이닉스 유상증자 공시 — 10/6 8번, 10/7 매시간, 2026-10-07)
+            LocalDate today = DateTimeUtil.kstNow().toLocalDate();
+            LocalDate previousTradingDay = marketCalendar.minusTradingDays(today, 1);
+            RiskAnalysisDto.DartDisclosure first = dangerous.stream()
+                    .filter(d -> isNewDisclosure(d.getRceptDt(), previousTradingDay, today))
+                    .findFirst().orElse(null);
+            if (first != null) {
                 risks.add(RiskDetail.builder()
                         .type("DART_DANGER")
                         .level(RiskLevel.DANGER)
                         .message("부정적 공시: " + first.getReportNm())
                         .detail(first.getMatchedKeyword() != null ? "키워드: " + first.getMatchedKeyword() : null)
+                        .sourceId(first.getRceptNo())
                         .build());
             }
         } catch (Exception e) {
@@ -287,16 +293,18 @@ public class WatchlistRiskMonitorService {
     // ==================== 알림 발송 ====================
 
     private void sendRiskAlert(WatchlistRiskDto dto) {
-        String alertKey = dto.getStockCode() + "_" + ALERT_TYPE_RISK;
+        // 새 위험 항목만 — 공시는 접수번호, 가격·수급은 종류별 하루 한 번(2026-10-07). 예전엔 종목 단위 1시간 쿨다운이라 같은 위험이
+        // 매시간 다시 나갔다. 알림 이력은 24시간 뒤 지워지므로(InvestorSurgeService.cleanupExpiredAlerts) 키는 하루 안의 반복만 막는다.
+        LocalDateTime now = DateTimeUtil.kstNow();
+        LocalDate today = now.toLocalDate();
+        List<RiskDetail> fresh = dto.getRisks().stream()
+                .filter(r -> !alertHistoryRepository.existsRecentAlert(alertKey(dto.getStockCode(), r, today), now.minusHours(24)))
+                .collect(Collectors.toList());
+        if (fresh.isEmpty()) return;
+        RiskLevel level = fresh.stream().anyMatch(r -> r.getLevel() == RiskLevel.DANGER) ? RiskLevel.DANGER : RiskLevel.WARNING;
 
-        // 쿨다운 체크 (1시간)
-        if (alertHistoryRepository.existsRecentAlert(alertKey,
-                DateTimeUtil.kstNow().minusMinutes(COOLDOWN_MINUTES))) {
-            return;
-        }
-
-        String emoji = dto.getRiskLevel() == RiskLevel.DANGER ? "🔴" : "🟡";
-        String levelText = dto.getRiskLevel() == RiskLevel.DANGER ? "위험" : "주의";
+        String emoji = level == RiskLevel.DANGER ? "🔴" : "🟡";
+        String levelText = level == RiskLevel.DANGER ? "위험" : "주의";
 
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("<b>%s [%s] 리스크 감지 — %s</b>\n\n", emoji, levelText, dto.getStockName()));
@@ -313,7 +321,7 @@ public class WatchlistRiskMonitorService {
         }
 
         sb.append("\n🔍 <b>감지 항목</b>\n");
-        for (RiskDetail risk : dto.getRisks()) {
+        for (RiskDetail risk : fresh) {
             String riskEmoji = risk.getLevel() == RiskLevel.DANGER ? "🔴" : "🟡";
             sb.append(String.format("  %s %s\n", riskEmoji, risk.getMessage()));
             if (risk.getDetail() != null) {
@@ -326,19 +334,21 @@ public class WatchlistRiskMonitorService {
 
         telegramService.sendRisk(sb.toString());
 
-        // 알림 이력 저장
-        AlertHistory history = new AlertHistory();
-        history.setAlertKey(alertKey);
-        history.setStockCode(dto.getStockCode());
-        history.setStockName(dto.getStockName());
-        history.setInvestorType("SYSTEM");
-        history.setAlertType(ALERT_TYPE_RISK);
-        history.setSentAt(DateTimeUtil.kstNow());
-        alertHistoryRepository.save(history);
+        // 알림 이력 저장 — 항목마다 그 키로(다음 감시가 같은 항목을 다시 보내지 않게)
+        for (RiskDetail risk : fresh) {
+            AlertHistory history = new AlertHistory();
+            history.setAlertKey(alertKey(dto.getStockCode(), risk, today));
+            history.setStockCode(dto.getStockCode());
+            history.setStockName(dto.getStockName());
+            history.setInvestorType("SYSTEM");
+            history.setAlertType(ALERT_TYPE_RISK);
+            history.setSentAt(now);
+            alertHistoryRepository.save(history);
+        }
 
         log.info("[리스크모니터] 알림 발송: {} [{}] - {}",
-                dto.getStockName(), dto.getRiskLevel(),
-                dto.getRisks().stream().map(RiskDetail::getType).collect(Collectors.joining(",")));
+                dto.getStockName(), level,
+                fresh.stream().map(RiskDetail::getType).collect(Collectors.joining(",")));
     }
 
     private String formatPrice(BigDecimal price) {
@@ -364,5 +374,31 @@ public class WatchlistRiskMonitorService {
         private RiskLevel level;
         private String message;
         private String detail;
+        private String sourceId;  // DART 접수번호 — 같은 공시를 다시 알리지 않는 키(2026-10-07). 그 밖은 null
+    }
+
+    /**
+     * 새 공시인가 — 직전 거래일 다음 날부터 오늘까지 접수(2026-10-07). 순수.
+     * 감시는 거래일 08~19시 10분마다라 그 사이 접수분은 그날 잡힌다. 석 달 전 공시를 매 감시마다 '위험'으로 다시 알리던 것을 막는다.
+     * 접수일을 못 읽으면 새 공시로 보지 않는다(알림만 — 종목 상세 공시 목록·추천 위험 감점은 3개월 창 그대로).
+     */
+    static boolean isNewDisclosure(String rceptDt, LocalDate previousTradingDay, LocalDate today) {
+        if (rceptDt == null || !rceptDt.matches("\\d{8}")) return false;
+        try {
+            LocalDate d = LocalDate.parse(rceptDt, java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+            return d.isAfter(previousTradingDay) && !d.isAfter(today);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 알림 이력 키(칸 50자) — 공시는 접수번호 하나당, 그 밖은 종류별 하루 한 번(2026-10-07). 순수. */
+    static String alertKey(String stockCode, RiskDetail r, LocalDate today) {
+        if ("DART_DANGER".equals(r.getType())) {
+            String id = r.getSourceId() != null ? r.getSourceId() : String.valueOf(r.getMessage());
+            String key = stockCode + "_WLD_" + id;
+            return key.length() > 50 ? key.substring(0, 50) : key;
+        }
+        return stockCode + "_WL_" + r.getType() + "_" + today.format(java.time.format.DateTimeFormatter.ofPattern("MMdd"));
     }
 }
