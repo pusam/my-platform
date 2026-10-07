@@ -390,6 +390,9 @@ public class RecommendationService {
      */
     @Scheduled(scheduler = "batchScheduler", cron = "0 0/5 9-19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkRecommendationPriceTargets() {
+        // 휴장일엔 시세가 직전 거래일 값이다 — 그 등락률로 '도달' 알림이 다시 나가고(오늘 보낸 임계 기록은 날마다 초기화된다)
+        // getTop5 가 백그라운드 계산까지 돌렸다(2026-10-07). cron 요일 필드는 공휴일을 모른다.
+        if (marketCalendar.isMarketClosed()) { log.debug("[가격알림] 휴장일 — 스킵"); return; }
         java.time.LocalDate today = java.time.LocalDate.now();
         if (!today.equals(priceAlertedDate)) {
             priceAlertedToday.clear();
@@ -497,6 +500,8 @@ public class RecommendationService {
     @Scheduled(scheduler = "batchScheduler", cron = "0 0 9 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void detectAndAlertNewStrongBuys() {
+        // 휴장일엔 전 종목 계산(KIS 일봉 수집 포함)을 돌릴 이유가 없다 — 비교할 '오늘' 이 없다(2026-10-07).
+        if (marketCalendar.isMarketClosed()) { log.debug("[상승가속알림] 휴장일 — 스킵"); return; }
         java.time.LocalDate today = java.time.LocalDate.now();
         if (today.equals(lastAlertDate)) {
             log.debug("[상승가속알림] 오늘({}) 이미 발송됨", today);
@@ -2762,6 +2767,9 @@ public class RecommendationService {
     private boolean isTradingHours(LocalDateTime now) {
         DayOfWeek dow = now.getDayOfWeek();
         if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return false;
+        // 평일 공휴일도 장이 아니다(2026-10-07) — 요일만 봐서 대체공휴일 10/5 에 getTop5 가 백그라운드 계산을 돌려 일봉 595종목을
+        // KIS 로 받았고 화면엔 '실시간'으로 보였다. 달력은 휴장일 단일 출처(§4c). 달력 없이 조립된 경우(테스트)는 종전 판정.
+        if (marketCalendar != null && marketCalendar.isMarketClosed(now.toLocalDate())) return false;
         LocalTime time = now.toLocalTime();
         return time.isAfter(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(20, 5));
     }
