@@ -59,7 +59,8 @@ export default {
       const list = []
       if (this.rsi != null && this.rsi >= 70) list.push('RSI 과열')
       if (this.rsi != null && this.rsi <= 30) list.push('RSI 침체')
-      if (this.isSupplyNegative) list.push('외인·기관 동반 매도')
+      // 5일 합 기준 — '동반 매도'는 지금도 판다는 말로 읽혔다(2026-10-07, 삼성전자 기관은 최근 3일 순매수)
+      if (this.isSupplyNegative) list.push('외인·기관 5일 누적 순매도')
       const warnings = this.diagnosisData?.warnings
       if (Array.isArray(warnings) && warnings.length) {
         // 펀더멘털 경고가 3개 이상이면 첫 1개만 헤드라인에 노출

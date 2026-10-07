@@ -17,12 +17,14 @@ describe('StockBriefingHeadline — 수급 키 정합', () => {
     // 외인·기관 둘 다 순매도 → isSupplyNegative=true. 기관을 구 오타 키(instNet5Days)로 읽으면
     // instNet=null 이라 동반매도 판정이 절대 성립 안 함(경고 누락 버그).
     const w = mountHeadline({ foreignNet5Days: -50, institutionNet5Days: -30 })
-    expect(w.find('.rec-cautions').text()).toContain('외인·기관 동반 매도')
+    // 2026-10-07: 5일 합 기준이라고 말한다 — '동반 매도'는 지금도 판다는 말로 읽혔다(삼성전자 기관은 최근 3일 순매수였다)
+    expect(w.find('.rec-cautions').text()).toContain('외인·기관 5일 누적 순매도')
+    expect(w.find('.rec-cautions').text()).not.toContain('동반 매도')
   })
 
   it('기관만 순매수여도 supplyPos 성립(institutionNet5Days) — 동반매도 경고 없음', () => {
     const w = mountHeadline({ foreignNet5Days: -10, institutionNet5Days: 40 })
-    expect(w.text()).not.toContain('외인·기관 동반 매도')
+    expect(w.text()).not.toContain('외인·기관 5일 누적 순매도')
   })
 })
 
