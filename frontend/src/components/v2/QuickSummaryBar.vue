@@ -66,7 +66,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { closeBasisLabel } from '../../utils/stockFormat';
+import { closeBasisLabel, closeBasisTitle, todayKstIso } from '../../utils/stockFormat';
 /**
  * 수급 값의 표본 제약 — 툴팁으로만 노출한다(라벨에 다 쓰면 칸이 넘친다).
  *
@@ -85,9 +85,8 @@ const props = defineProps({
 
 // RSI·20일선은 마감이 확정된 봉까지로 계산한다(장중엔 직전 거래일 종가) — 기준을 칸에 적는다(2026-10-07)
 const basisLabel = computed(() => closeBasisLabel(props.diagnosisData?.technicalAnalysis?.basisDate));
-const basisTitle = computed(() => basisLabel.value
-  ? `${basisLabel.value} 기준 — 오늘 움직임은 들어 있지 않습니다(차트 해설은 오늘 시세 기준)`
-  : null);
+const basisTitle = computed(() =>
+  closeBasisTitle(props.diagnosisData?.technicalAnalysis?.basisDate, todayKstIso()));
 
 // getRecommendationLabel: 부모에도 다른 용도로 존재 — 순수 매핑이라 소형 복제(로직 동일).
 const getRecommendationLabel = (rec) => ({
