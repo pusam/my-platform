@@ -136,7 +136,8 @@ class AutoTradingBotServiceTest {
                 new BotLeaderElectionService(null, false, 30L, "test"),
                 dailyLossBreakerProvider,
                 auditProvider,
-                volRegimeProvider);
+                volRegimeProvider,
+                new MarketCalendarService());   // 휴장일 단일 출처(2026-10-07) — 실제 달력(날짜표라 결정적)
     }
 
     @BeforeEach

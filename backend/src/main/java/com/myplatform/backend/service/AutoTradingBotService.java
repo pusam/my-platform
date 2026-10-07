@@ -36,11 +36,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.MonthDay;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
@@ -140,6 +138,8 @@ public class AutoTradingBotService {
     private final org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider;
     // VKOSPI 변동성 국면 게이트(V46) — 신규 진입 게이트 전용(매도 미관여). 미가용/mode OFF=통과(fail-open).
     private final org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider;
+    // 휴장일 단일 출처(2026-10-07) — 예전엔 봇이 자기 목록을 따로 들고 있어 5/1·5/25·6/3·7/17·12/31 이 빠져 있었다
+    private final MarketCalendarService marketCalendar;
 
     // ── ATR 세트 flag (V42, docs/ATR_TRADING_SET.md) ──────────────────────────────
     // 기본 false — OFF 면 수량/청산 모두 바이트 단위 현행 동일. ON 이어도 REAL 은 무조건 현행(하드 가드,
@@ -528,7 +528,8 @@ public class AutoTradingBotService {
             // ATR 세트(V42) 감사 스냅샷 — 미가용=로그만
             org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider,
             // 변동성 국면 게이트(V46) — 미가용 시 게이트 통과(fail-open, 기존 동작 보존)
-            org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider) {
+            org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider,
+            MarketCalendarService marketCalendar) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -553,6 +554,7 @@ public class AutoTradingBotService {
         this.dailyLossBreakerProvider = dailyLossBreakerProvider;
         this.auditProvider = auditProvider;
         this.volRegimeProvider = volRegimeProvider;
+        this.marketCalendar = marketCalendar;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -4382,31 +4384,8 @@ public class AutoTradingBotService {
 
     // ==================== 휴장일 체크 ====================
 
-    private static final Set<MonthDay> KOREA_FIXED_HOLIDAYS = Set.of(
-            MonthDay.of(1, 1),   // 신정
-            MonthDay.of(3, 1),   // 삼일절
-            MonthDay.of(5, 5),   // 어린이날
-            MonthDay.of(6, 6),   // 현충일
-            MonthDay.of(8, 15),  // 광복절
-            MonthDay.of(10, 3),  // 개천절
-            MonthDay.of(10, 9),  // 한글날
-            MonthDay.of(12, 25)  // 성탄절
-    );
 
-    private static final Set<LocalDate> KOREA_HOLIDAYS_2025 = Set.of(
-            LocalDate.of(2025, 1, 28), LocalDate.of(2025, 1, 29), LocalDate.of(2025, 1, 30),
-            LocalDate.of(2025, 5, 6),
-            LocalDate.of(2025, 10, 6), LocalDate.of(2025, 10, 7), LocalDate.of(2025, 10, 8)
-    );
 
-    private static final Set<LocalDate> KOREA_HOLIDAYS_2026 = Set.of(
-            LocalDate.of(2026, 2, 16), LocalDate.of(2026, 2, 17), LocalDate.of(2026, 2, 18),  // 설날
-            LocalDate.of(2026, 3, 2),   // 삼일절 대체휴일 (3/1 일요일)
-            LocalDate.of(2026, 5, 24),  // 부처님오신날
-            LocalDate.of(2026, 8, 17),  // 광복절 대체휴일 (8/15 토요일)
-            LocalDate.of(2026, 9, 24), LocalDate.of(2026, 9, 25), LocalDate.of(2026, 9, 26),  // 추석
-            LocalDate.of(2026, 10, 5)   // 개천절 대체휴일 (10/3 토요일)
-    );
 
     /** KRX 정규장 시간 (한국시간 기준). 09:00:00 이전 또는 15:30:00 이후는 장 외. */
     private static final LocalTime MARKET_OPEN  = LocalTime.of(9, 0);
@@ -4414,26 +4393,15 @@ public class AutoTradingBotService {
 
     private boolean isMarketClosed() {
         LocalDate today = LocalDate.now(clock);
-        DayOfWeek dayOfWeek = today.getDayOfWeek();
 
-        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+        // 주말·휴장일은 달력 한 곳(MarketCalendarService)이 정한다(2026-10-07). 예전엔 봇이 고정 양력 8개 + 2025·2026 표를 따로
+        // 들고 있어 근로자의날(5/1)·석탄일 대체(5/25)·지방선거(6/3)·제헌절(7/17, 2026~)·연말폐장(12/31)이 빠져 있었다 —
+        // 봇을 켜 두면 그날 정규장이 열린 줄 알고 진입·청산을 시도한다(AutoTradingBotHolidayCalendarTest).
+        if (marketCalendar.isMarketClosed(today)) {
             return true;
         }
 
-        MonthDay monthDay = MonthDay.from(today);
-        if (KOREA_FIXED_HOLIDAYS.contains(monthDay)) {
-            return true;
-        }
-
-        int year = today.getYear();
-        if (year == 2025 && KOREA_HOLIDAYS_2025.contains(today)) {
-            return true;
-        }
-        if (year == 2026 && KOREA_HOLIDAYS_2026.contains(today)) {
-            return true;
-        }
-
-        // 정규장 시간 체크 (09:00 ~ 15:30 KST)
+        // 정규장 시간 체크 (09:00 ~ 15:30 KST) — 봇 고유 경계(§2·§4d, 달력의 15:40 과 다르다)
         LocalTime now = LocalTime.now(clock);
         if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
             return true;
