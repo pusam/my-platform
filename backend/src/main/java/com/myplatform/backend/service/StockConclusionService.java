@@ -491,16 +491,23 @@ public class StockConclusionService {
     private List<Factor> buildFactors(RecommendationSnapshot s) {
         String tags = s.getTags();
         List<Factor> list = new ArrayList<>();
+        // 실제 산식과 일치시킴(2026-08-05 감사) — 예전 문구 "5카테고리 합산"은 틀렸다.
+        // 총점은 4카테고리 raw 를 80으로 정규화한 값이고 가치(밸류)는 합산에 안 들어간다.
+        // 사용자가 화면의 5개 숫자를 더해도 총점과 안 맞아 "밸류가 총점을 깎았다"고 오독했다.
+        String totalNote = "실적·수급·기술·섹터 4카테고리 정규화 (가치는 미포함 — 75점↑·가치 12↑일 때만 +2)";
+        // 총점의 수급 기여는 상한까지만이다(P1-6 역상관 방어 — 표시값은 원점수 그대로). 상한이 걸린 종목은 화면 숫자를 더해도
+        // 총점과 안 맞았다(2026-10-07 삼성SDI: 20+20+10+4 → 67.5 vs 55). 그때만 밝힌다 — 판정은 RecommendationService 단일 출처.
+        int cap = RecommendationService.SUPPLY_DEMAND_CAP;
+        if (RecommendationService.cappedSupply(s.getSupplyDemand(), cap) < s.getSupplyDemand()) {
+            totalNote += " · 수급은 총점에 최대 " + cap + "점만 반영(역상관 방어)";
+        }
         list.add(Factor.builder()
                 .key("total")
                 .label("종합 점수")
                 .dimension("MID")
                 .score(s.getTotalScore())
                 .verdict(verdictFor(s.getTotalScore(), BUY_THRESHOLD, STRONG_BUY_THRESHOLD))
-                // 실제 산식과 일치시킴(2026-08-05 감사) — 예전 문구 "5카테고리 합산"은 틀렸다.
-                // 총점은 4카테고리 raw 를 80으로 정규화한 값이고 가치(밸류)는 합산에 안 들어간다.
-                // 사용자가 화면의 5개 숫자를 더해도 총점과 안 맞아 "밸류가 총점을 깎았다"고 오독했다.
-                .note("실적·수급·기술·섹터 4카테고리 정규화 (가치는 미포함 — 75점↑·가치 12↑일 때만 +2)")
+                .note(totalNote)
                 .build());
         list.add(Factor.builder()
                 .key("earnings")

@@ -610,4 +610,31 @@ class StockConclusionServiceTest {
 
         assertThat(result.getEntryPosition()).isNull();
     }
+
+    /**
+     * 종합 점수 설명은 수급 상한이 걸렸을 때 그렇다고 말한다(2026-10-07 화면 점검).
+     * 재현: 삼성SDI 결론 카드 — 실적 20·수급 20·기술 10·섹터 4 를 더하면 54(÷80 = 67.5)인데 종합 55. 총점의 수급 기여는 10점까지라
+     * (P1-6 역상관 방어, 표시값은 원래 점수 그대로) 20+10+10+4 = 44 → 55 가 맞는데 설명엔 상한이 없었다.
+     */
+    @Test
+    @DisplayName("재현: 수급이 상한(10)을 넘으면 종합 점수 설명에 '총점에는 최대 10점'을 붙인다")
+    void totalNoteMentionsSupplyCapWhenItBites() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(55, 20, 20, 10, 4, 2)));
+
+        String note = factorNote(service.getConclusion("005930"), "total");
+
+        assertThat(note).contains("수급은 총점에 최대 10점");
+    }
+
+    @Test
+    @DisplayName("수급이 상한 안이면 종전 설명 그대로")
+    void totalNoteUnchangedWhenCapDoesNotBite() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 8, 15, 14, 10)));
+
+        String note = factorNote(service.getConclusion("005930"), "total");
+
+        assertThat(note).isEqualTo("실적·수급·기술·섹터 4카테고리 정규화 (가치는 미포함 — 75점↑·가치 12↑일 때만 +2)");
+    }
 }
