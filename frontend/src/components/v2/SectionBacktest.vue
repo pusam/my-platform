@@ -23,62 +23,10 @@
     </div>
 
     <template v-else-if="data">
-      <!-- AI 전략 vs 실전 봇 비교 -->
-      <div class="compare-section" v-if="botStats">
-        <div class="compare-header">
-          <span class="compare-title">AI 전략 vs 실전 봇</span>
-        </div>
-        <div class="compare-grid">
-          <div class="compare-col">
-            <span class="compare-col-label">📊 AI 전략</span>
-            <div class="compare-item">
-              <span class="compare-metric">적중률</span>
-              <span class="compare-val" :class="data.overall.hitRate != null ? hitRateClass(data.overall.hitRate) : ''">{{ data.overall.hitRate != null ? data.overall.hitRate + '%' : '-' }}</span>
-            </div>
-            <div class="compare-item">
-              <span class="compare-metric">평균 수익률</span>
-              <span class="compare-val" :class="returnClass(data.overall.avgReturn)">
-                {{ data.overall.avgReturn >= 0 ? '+' : '' }}{{ data.overall.avgReturn }}%
-              </span>
-            </div>
-            <div class="compare-item">
-              <span class="compare-metric">종목 수</span>
-              <span class="compare-val neutral">{{ data.overall.totalPicks }}개</span>
-            </div>
-            <div class="compare-item" v-if="data.overall.mdd != null">
-              <span class="compare-metric">MDD</span>
-              <span class="compare-val negative">{{ data.overall.mdd }}%</span>
-            </div>
-          </div>
-          <div class="compare-divider"></div>
-          <div class="compare-col">
-            <span class="compare-col-label">🤖 실전 봇</span>
-            <div class="compare-item">
-              <span class="compare-metric">승률</span>
-              <!-- 거래가 없으면 승률은 0% 가 아니라 '-' -->
-              <span class="compare-val" :class="botStats.winRate != null ? hitRateClass(botStats.winRate) : ''">{{ botStats.winRate != null ? botStats.winRate + '%' : '-' }}</span>
-            </div>
-            <div class="compare-item">
-              <span class="compare-metric">손익비</span>
-              <span class="compare-val" :class="returnClass(botStats.profitFactor > 1 ? 1 : -1)">
-                {{ botStats.profitFactor || '-' }}
-              </span>
-            </div>
-            <div class="compare-item">
-              <span class="compare-metric">거래 수</span>
-              <span class="compare-val neutral">{{ botStats.totalTrades || 0 }}건</span>
-            </div>
-          </div>
-        </div>
-        <div class="compare-detail-row">
-          <span class="detail-chip">{{ botStats.winCount || 0 }}승 {{ botStats.loseCount || 0 }}패</span>
-          <span class="detail-chip">평균수익 {{ formatWon(botStats.avgProfitPerWin) }}</span>
-          <span class="detail-chip">평균손실 {{ formatWon(botStats.avgLossPerLose) }}</span>
-        </div>
-      </div>
-
-      <!-- 전체 요약 (봇 데이터 없을 때 기존 UI) -->
-      <div class="overall-row" v-if="!botStats">
+      <!-- 전체 요약. 예전 'AI 전략 vs 실전 봇' 비교 칸은 지웠다(2026-10-07) — 응답({success,data})을 잘못 읽어 한 번도
+           보인 적이 없었고, 그 통계는 모의 계좌(수동 매매 포함)인데 '실전 봇'이라 불렀다. 봇은 추천 산식을 쓰지 않아
+           나란히 둘 비교도 아니다(CLAUDE.md §7 — 봇 성적은 관제실 ⑧ 게이트) -->
+      <div class="overall-row">
         <div class="stat-box">
           <span class="stat-label">전체 적중률</span>
           <span class="stat-value" :class="data.overall.hitRate != null ? hitRateClass(data.overall.hitRate) : ''">
@@ -88,7 +36,7 @@
         <div class="stat-box">
           <span class="stat-label">평균 수익률</span>
           <span class="stat-value" :class="returnClass(data.overall.avgReturn)">
-            {{ data.overall.avgReturn >= 0 ? '+' : '' }}{{ data.overall.avgReturn }}%
+            {{ signedPct(data.overall.avgReturn) }}
           </span>
         </div>
         <div class="stat-box">
@@ -97,7 +45,7 @@
         </div>
         <div class="stat-box" v-if="data.overall.mdd != null">
           <span class="stat-label">MDD</span>
-          <span class="stat-value negative">{{ data.overall.mdd }}%</span>
+          <span class="stat-value negative" :title="MDD_TITLE">{{ mddText(data.overall.mdd) }}</span>
         </div>
       </div>
 
@@ -122,11 +70,12 @@
             <span class="strategy-icon">{{ getIcon(st.strategyType) }}</span>
             <span class="strategy-name">{{ st.label }}</span>
             <div class="strategy-stats">
-              <span class="hit-badge" :class="hitRateClass(st.hitRate)">
-                적중 {{ st.hitRate }}%
+              <!-- 추천이 없는 전략은 모름 — '적중 0% · +0%'(전패·보합)가 아니다(2026-10-07) -->
+              <span class="hit-badge" :class="st.hitRate != null ? hitRateClass(st.hitRate) : ''">
+                적중 {{ st.hitRate != null ? st.hitRate + '%' : '—' }}
               </span>
               <span class="return-badge" :class="returnClass(st.avgReturn)">
-                {{ st.avgReturn >= 0 ? '+' : '' }}{{ st.avgReturn }}%
+                {{ signedPct(st.avgReturn) }}
               </span>
             </div>
             <span class="expand-arrow">{{ expandedStrategy === st.strategyType ? '▲' : '▼' }}</span>
@@ -135,7 +84,7 @@
           <div class="strategy-meta">
             <span>{{ st.totalPicks }}개 추천</span>
             <span>{{ st.winCount }}승 {{ st.loseCount }}패</span>
-            <span v-if="st.mdd != null">MDD {{ st.mdd }}%</span>
+            <span v-if="st.mdd != null" :title="MDD_TITLE">MDD {{ mddText(st.mdd) }}</span>
           </div>
 
           <!-- 종목 상세 -->
@@ -160,7 +109,7 @@
               </div>
               <div class="pick-return-wrap">
                 <span class="pick-return" :class="returnClass(pick.returnRate)">
-                  {{ pick.returnRate >= 0 ? '+' : '' }}{{ pick.returnRate }}%
+                  {{ signedPct(pick.returnRate) }}
                 </span>
                 <span v-if="pick.grossReturn != null && pick.tradingCost" class="pick-cost-label">
                   비용 -{{ pick.tradingCost }}%
@@ -171,17 +120,24 @@
 
           <!-- Best / Worst -->
           <div v-if="expandedStrategy === st.strategyType && st.bestStock" class="best-worst">
-            <span class="bw-item best">🏆 {{ st.bestStock }} +{{ st.bestReturn }}%</span>
-            <span class="bw-item worst" v-if="st.worstStock">📉 {{ st.worstStock }} {{ st.worstReturn }}%</span>
+            <span class="bw-item best">🏆 {{ st.bestStock }} {{ signedPct(st.bestReturn) }}</span>
+            <span class="bw-item worst" v-if="st.worstStock">📉 {{ st.worstStock }} {{ signedPct(st.worstReturn) }}</span>
           </div>
         </div>
       </div>
+      <!-- 무엇을 잰 값인지 — 같은 데이터를 그리는 BacktestPerformancePanel 과 같은 설명(2026-10-07) -->
+      <p class="bt-caption">
+        ⓘ <span v-if="sampleFromLabel">{{ sampleFromLabel }} 이후 </span>AI 전략 TOP3 첫 추천 종목의 현재가 대비 성과(정해진 보유 기간이 아니다).
+        수수료 0.015%×2 + 매도 세금 0.15% + 전략별 슬리피지 차감. MDD 는 추천별 수익률을 시간순으로 이은 곡선의 고점 대비 하락(실제 계좌 곡선 아님)이며 표본이 적으면 표시하지 않는다.
+      </p>
     </template>
   </div>
 </template>
 
 <script>
-import { aiStrategyAPI, paperTradingAPI } from '@/utils/api'
+import { aiStrategyAPI } from '@/utils/api'
+
+const MDD_TITLE = '추천별 수익률을 시간순으로 이은 곡선의 고점 대비 하락(%p) — 실제 계좌 낙폭이 아니다'
 
 export default {
   name: 'SectionBacktest',
@@ -189,7 +145,7 @@ export default {
   data() {
     return {
       data: null,
-      botStats: null,
+      MDD_TITLE,
       loading: false,
       error: false,
       // 추천 스냅샷은 7일만 보존된다 — 14·30일을 골라도 실제 표본은 최근 7일이었다(2026-10-03)
@@ -200,9 +156,15 @@ export default {
       ]
     }
   },
+  computed: {
+    // 실제 표본 시작 — 서버가 준 가장 이른 추천 시각(보존 기간 7일 안)
+    sampleFromLabel() {
+      const t = this.data && this.data.sampleFrom
+      return typeof t === 'string' && t.length >= 16 ? `${t.slice(5, 7)}/${t.slice(8, 10)} ${t.slice(11, 16)}` : ''
+    }
+  },
   mounted() {
     this.fetchData()
-    this.fetchBotStats()
   },
   methods: {
     async fetchData() {
@@ -216,16 +178,6 @@ export default {
         this.error = true
       } finally {
         this.loading = false
-      }
-    },
-    async fetchBotStats() {
-      try {
-        const res = await paperTradingAPI.getStatistics()
-        if (res.data && res.data.totalTrades > 0) {
-          this.botStats = res.data
-        }
-      } catch (e) {
-        // 봇 통계 없으면 비교 섹션 숨김
       }
     },
     changePeriod(days) {
@@ -253,9 +205,16 @@ export default {
       if (rate < 0) return 'negative'
       return 'neutral'
     },
-    formatWon(val) {
-      if (!val) return '-'
-      return Number(val).toLocaleString('ko-KR') + '원'
+    // ±0.00% — 모르면 '—'. 예전엔 'avgReturn >= 0 ? + : ' 를 붙여 1.00 이 '+1%', null 이 '+null%', 음수 최고 수익이 '+-0.5%'였다
+    signedPct(v) {
+      if (v === null || v === undefined || v === '' || !Number.isFinite(Number(v))) return '—'
+      const n = Number(v)
+      return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`
+    },
+    // MDD 는 수익률(%)을 이어 붙인 곡선의 하락이라 %p — 계좌 낙폭(%)으로 읽히지 않게
+    mddText(v) {
+      if (v === null || v === undefined || !Number.isFinite(Number(v))) return '—'
+      return `-${Number(v).toFixed(2)}%p`
     },
     goToStock(code) {
       if (this.openStock) this.openStock(code)
@@ -324,73 +283,6 @@ export default {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-}
-
-/* Compare Section */
-.compare-section {
-  background: rgba(102,126,234,0.06);
-  border: 1px solid rgba(102,126,234,0.15);
-  border-radius: 14px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
-.compare-header { margin-bottom: 12px; }
-.compare-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: rgba(255,255,255,0.7);
-}
-.compare-grid {
-  display: flex;
-  gap: 0;
-  align-items: stretch;
-}
-.compare-col { flex: 1; }
-.compare-col-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 700;
-  color: rgba(255,255,255,0.5);
-  margin-bottom: 10px;
-  text-align: center;
-}
-.compare-divider {
-  width: 1px;
-  background: rgba(255,255,255,0.1);
-  margin: 0 12px;
-  align-self: stretch;
-}
-.compare-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 8px;
-}
-.compare-metric {
-  font-size: 11px;
-  color: rgba(255,255,255,0.6);
-}
-.compare-val {
-  font-size: 15px;
-  font-weight: 800;
-}
-.compare-val.high, .compare-val.positive { color: var(--stock-up, #f87171); }
-.compare-val.mid { color: #f59e0b; }
-.compare-val.low, .compare-val.negative { color: var(--stock-down, #60a5fa); }
-.compare-val.neutral { color: rgba(255,255,255,0.7); }
-.compare-detail-row {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-.detail-chip {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--border-light);
-  color: rgba(255,255,255,0.6);
 }
 
 /* Overall */
@@ -493,6 +385,13 @@ export default {
 .pick-return.negative { color: var(--stock-down, #60a5fa); }
 .pick-cost-label { font-size: 11px; color: rgba(255,255,255,0.6); }
 
+.bt-caption {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.6);
+}
+
 /* Best / Worst */
 .best-worst {
   display: flex;
@@ -516,8 +415,5 @@ export default {
   .pick-row { flex-wrap: wrap; gap: 4px; }
   .pick-prices { font-size: 11px; }
   .best-worst { flex-direction: column; gap: 4px; }
-  .compare-section { padding: 12px; }
-  .compare-val { font-size: 13px; }
-  .compare-detail-row { gap: 4px; }
 }
 </style>

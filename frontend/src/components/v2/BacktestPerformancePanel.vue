@@ -44,7 +44,8 @@
             <td class="bt-strategy">{{ s.label }}</td>
             <td>{{ s.totalPicks }}건</td>
             <td :class="rateClass(s.hitRate)">{{ pct(s.hitRate) }}</td>
-            <td :class="signClass(s.avgReturn)">{{ signed(s.avgReturn) }}%</td>
+            <!-- 추천이 없는 전략은 서버가 null 을 준다 — '—%' 가 아니라 '—'(2026-10-07) -->
+            <td :class="signClass(s.avgReturn)">{{ s.avgReturn != null ? signed(s.avgReturn) + '%' : '—' }}</td>
             <td class="bt-hint" :class="signClass(s.bestReturn)" :title="s.bestStock || ''">{{ s.bestReturn != null ? signed(s.bestReturn) + '%' : '—' }}</td>
             <td class="bt-hint" :class="signClass(s.worstReturn)" :title="s.worstStock || ''">{{ s.worstReturn != null ? signed(s.worstReturn) + '%' : '—' }}</td>
             <td>{{ s.mdd != null ? '-' + s.mdd + '%p' : '—' }}</td>
@@ -107,7 +108,8 @@ const signed = (v) => (v == null ? '—' : `${Number(v) > 0 ? '+' : ''}${v}`);
 // ±수익률은 한국 관례색(+빨강/−파랑) — 적중률 신호등(rateClass, 초록=좋음)과 극성이 다르다.
 const signClass = (v) => (Number(v) > 0 ? 'bt-up' : Number(v) < 0 ? 'bt-down' : '');
 const rateClass = (v) => {
-  const r = Number(v || 0);
+  if (v == null) return '';   // 모르는 적중률에 '나쁨' 색을 칠하지 않는다
+  const r = Number(v);
   if (r >= 60) return 'bt-pos';
   if (r >= 40) return 'bt-mid';
   return 'bt-neg';

@@ -36,7 +36,7 @@ public class BacktestController {
     @Operation(
         summary = "전략별 회고 성과",
         description = "최근 N일(기본 30, 최대 90) AI 전략 스냅샷 TOP3 첫 추천 종목의 현재가 대비 성과. " +
-                     "수수료(0.015%×2)+세금(0.18%)+전략별 슬리피지 차감 순수익률 기준 " +
+                     "수수료(0.015%×2)+매도 세금(0.15%)+전략별 슬리피지 차감 순수익률 기준 " +
                      "적중률 / 평균수익 / MDD / Sharpe / 전략별 분해를 제공."
     )
     public ResponseEntity<Map<String, Object>> performance(

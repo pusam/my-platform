@@ -90,4 +90,20 @@ describe('BacktestPerformancePanel — 추천 트랙레코드', () => {
 
     expect(w.find('.bt-state').text()).toContain('불러오지 못했습니다')
   })
+
+  // 2026-10-07: 추천이 없는 전략은 서버가 적중률·평균 수익을 null 로 준다 — '0%'·'—%' 로 그리지 않는다
+  it('재현: 추천이 없는 전략 행은 — (0% 도, —% 도 아니다)', async () => {
+    apiClient.get.mockResolvedValue({ data: { success: true, data: {
+      ...performanceResponse.data.data,
+      strategies: [{ strategyType: 'VALUE', label: '가치투자', totalPicks: 0, winCount: 0, loseCount: 0,
+        hitRate: null, avgReturn: null, mdd: null }]
+    } } })
+    const w = mount(BacktestPerformancePanel)
+    await flushPromises()
+    const row = w.find('.bt-table tbody tr').text()
+    expect(row).toContain('가치투자')
+    expect(row).not.toContain('—%')
+    expect(row).not.toMatch(/(^|[^.\d])0%/)
+  })
 })
+

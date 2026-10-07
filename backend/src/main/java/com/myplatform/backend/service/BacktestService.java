@@ -216,8 +216,9 @@ public class BacktestService {
                 .filter(p -> p.getRecommendedAt() != null && p.getRecommendedAt().isAfter(recentCutoff))
                 .collect(Collectors.toList());
 
-        BigDecimal recentHitRate = BigDecimal.ZERO;
-        BigDecimal recentAvgReturn = BigDecimal.ZERO;
+        // 표본이 없으면 모름(null) — 0% 는 '전패·보합'으로 읽힌다(2026-10-07)
+        BigDecimal recentHitRate = null;
+        BigDecimal recentAvgReturn = null;
         if (!recentPicks.isEmpty()) {
             long recentWins = recentPicks.stream()
                     .filter(p -> p.getReturnRate().compareTo(BigDecimal.ZERO) > 0)
@@ -239,13 +240,14 @@ public class BacktestService {
         picks.sort((a, b) -> b.getReturnRate().compareTo(a.getReturnRate()));
 
         int totalPicks = picks.size();
+        // 추천이 없는 전략은 적중률·평균 수익을 모른다(null) — 전체 평균과 같은 규칙(2026-10-07)
         BigDecimal hitRate = totalPicks > 0
                 ? BigDecimal.valueOf(winCount).divide(BigDecimal.valueOf(totalPicks), 4, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP)
-                : BigDecimal.ZERO;
+                : null;
         BigDecimal avgReturn = totalPicks > 0
                 ? totalReturn.divide(BigDecimal.valueOf(totalPicks), 2, RoundingMode.HALF_UP)
-                : BigDecimal.ZERO;
+                : null;
 
         return BacktestDto.StrategyPerformance.builder()
                 .strategyType(type.name())
