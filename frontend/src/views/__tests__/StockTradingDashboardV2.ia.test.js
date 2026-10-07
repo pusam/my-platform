@@ -264,3 +264,14 @@ describe('StockTradingDashboardV2 IA 매핑 (P-IA 2단계)', () => {
     })
   })
 })
+
+describe('시장 상태 바의 나스닥은 선물이라고 말한다(2026-10-07)', () => {
+  it('재현: NQ=F(나스닥100 선물) 값에 "나스닥"만 붙어 오늘 탭의 간밤 나스닥(현물 지수)과 같은 이름이었다', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const src = readFileSync(join(process.cwd(), 'src', 'views', 'StockTradingDashboardV2.vue'), 'utf8')
+    const bar = src.slice(src.indexOf('class="market-status-bar"'), src.indexOf('market-status-bar skeleton'))
+    expect(bar).toMatch(/nasdaqFutures[\s\S]*<span class="msb-label"[^>]*>나스닥 선물<\/span>/)
+    expect(bar).not.toMatch(/<span class="msb-label">나스닥<\/span>/)
+  })
+})

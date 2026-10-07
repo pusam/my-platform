@@ -131,8 +131,9 @@
             <span class="msb-value">{{ marketData.adr != null ? marketData.adr : (marketData.combinedAdr || '-') }}</span>
           </div>
           <div class="msb-divider" v-if="globalData?.nasdaqFutures"></div>
+          <!-- NQ=F(나스닥100 선물) 실시간 — '오늘' 탭의 간밤 나스닥(현물 지수 ^NDX, 직전 미국 세션)과 다른 값이라 이름을 나눈다(2026-10-07) -->
           <div class="msb-item" v-if="globalData?.nasdaqFutures" :class="getChangeClass(globalData.nasdaqFutures.changeRate)">
-            <span class="msb-label">나스닥</span>
+            <span class="msb-label" title="나스닥100 선물(NQ=F) 실시간 — 간밤 미국장의 나스닥(현물 지수)과 다르다">나스닥 선물</span>
             <span class="msb-value">{{ formatChange(globalData.nasdaqFutures.changeRate) }}%</span>
           </div>
         </div>
