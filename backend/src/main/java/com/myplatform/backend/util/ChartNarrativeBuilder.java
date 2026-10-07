@@ -120,7 +120,8 @@ public final class ChartNarrativeBuilder {
         }
 
         if (disparityPct != null && Double.isFinite(disparityPct)) {
-            lines.add(String.format(Locale.KOREA, "20일선 대비 %+.1f%% 이격입니다.", disparityPct));
+            // 오늘 시세(KIS 일봉의 오늘 형성 캔들) 기준 — 종목 진단의 '20일선' 칸은 직전 확정 종가 기준이라 값이 다를 수 있다(2026-10-07)
+            lines.add(String.format(Locale.KOREA, "20일선 대비 %+.1f%% 이격입니다(오늘 시세 기준).", disparityPct));
         }
 
         sections.add(new Section("지금 위치", lines));

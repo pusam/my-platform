@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ma20PositionLabel, netBuyClass, netBuyText } from './stockFormat'
+import { ma20PositionLabel, netBuyClass, netBuyText, closeBasisLabel } from './stockFormat'
 
 /**
  * 종목상세 표시층 정직성 — 2026-08-27 감사 수정분 회귀.
@@ -48,5 +48,15 @@ describe('netBuyText / netBuyClass — 결측은 방향이 없다', () => {
     expect(netBuyClass(211)).toBe('positive')
     expect(netBuyText(-58.7)).toBe('-59억')
     expect(netBuyClass(-58.7)).toBe('negative')
+  })
+})
+
+
+describe('closeBasisLabel', () => {
+  it('YYYY-MM-DD → MM/DD 종가, 모르면 빈 문자열', () => {
+    expect(closeBasisLabel('2026-10-06')).toBe('10/06 종가')
+    expect(closeBasisLabel(null)).toBe('')
+    expect(closeBasisLabel(undefined)).toBe('')
+    expect(closeBasisLabel('10/06')).toBe('')
   })
 })

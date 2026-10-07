@@ -35,3 +35,13 @@ export function netBuyText(v) {
   if (v == null) return '-'
   return (v >= 0 ? '+' : '') + Number(v).toFixed(0) + '억'
 }
+
+/**
+ * 지표 기준 종가 라벨 — 'MM/DD 종가'(2026-10-07). 종목 진단의 RSI·20일선은 마감이 확정된 봉까지로 계산하므로(장중엔 직전 거래일)
+ * 같은 화면의 차트 해설(오늘 시세 기준)과 값이 다를 수 있다 — 그 기준을 칸에 적는다. 모르면 ''(줄을 숨긴다).
+ * @param {string|null|undefined} basisDate 백엔드 technicalAnalysis.basisDate('YYYY-MM-DD')
+ */
+export function closeBasisLabel(basisDate) {
+  if (typeof basisDate !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(basisDate)) return ''
+  return `${basisDate.slice(5, 7)}/${basisDate.slice(8, 10)} 종가`
+}

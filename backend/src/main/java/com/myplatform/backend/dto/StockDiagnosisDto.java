@@ -138,6 +138,12 @@ public class StockDiagnosisDto {
          */
         private BigDecimal disparity20;
 
+        /**
+         * 위 지표(이평·이격·RSI·볼린저)가 쓴 마지막 종가의 날짜(2026-10-07). 마감이 확정된 봉만 쓰므로 장중엔 직전 거래일이다 —
+         * 같은 화면의 차트 해설(오늘 시세 기준)과 값이 갈리는 이유를 화면이 이 날짜로 밝힌다. 모르면 null.
+         */
+        private java.time.LocalDate basisDate;
+
         // RSI
         private BigDecimal rsi14;               // RSI (14일)
         private String rsiStatus;               // "과열", "침체", "중립"

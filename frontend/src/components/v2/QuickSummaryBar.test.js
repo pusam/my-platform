@@ -111,3 +111,23 @@ describe('QuickSummaryBar (P2-10 분리)', () => {
     expect(w.find('.quick-summary-bar').exists()).toBe(false)
   })
 })
+
+/**
+ * RSI·20일선 칸의 기준 종가(2026-10-07, 결정 대기 ⓑ → '추천 방향').
+ * 재현(10/7 운영): 같은 종목 20일선 이격이 이 칸 +4.5% · 차트 해설 +5.3% · AI 근거 '5% 이상'으로 갈렸다 — 이 칸은 확정 종가(직전 거래일)
+ * 기준, 나머지는 오늘 시세 기준인데 어느 칸도 기준을 말하지 않았다.
+ */
+describe('QuickSummaryBar 기준 종가', () => {
+  it('재현: 지표가 쓴 마지막 종가 날짜를 20일선 칸에 적고, 두 칸 툴팁에 기준을 밝힌다', () => {
+    const w = mountBar({ diagnosisData: { ...diagnosis, technicalAnalysis: { rsi14: 55, disparity20: 4.5, basisDate: '2026-10-06' } } })
+    const items = w.findAll('.qs-item')
+    expect(items[1].find('.qs-basis').text()).toBe('10/06 종가')
+    expect(items[0].attributes('title')).toContain('10/06 종가 기준')
+    expect(items[1].attributes('title')).toContain('차트 해설은 오늘 시세 기준')
+  })
+  it('기준 날짜를 모르면 줄을 숨긴다', () => {
+    const items = mountBar().findAll('.qs-item')
+    expect(items[1].find('.qs-basis').exists()).toBe(false)
+    expect(items[1].attributes('title')).toBeUndefined()
+  })
+})

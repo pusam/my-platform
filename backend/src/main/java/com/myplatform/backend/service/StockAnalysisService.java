@@ -614,6 +614,7 @@ public class StockAnalysisService {
     private TechnicalAnalysisDto analyzeTechnical(String stockCode) {
         List<BigDecimal> closePrices = new ArrayList<>();
         List<KoreaInvestmentService.OhlcvData> ohlcvData = null;
+        LocalDate basisDate = null;   // 지표가 쓴 마지막 종가의 날짜(2026-10-07)
 
         // 1차: StockPriceHistory DB에서 조회
         List<StockPriceHistory> historyData = stockPriceHistoryRepository
@@ -645,6 +646,7 @@ public class StockAnalysisService {
                             h.getClosePrice(), h.getVolume()))
                     .collect(Collectors.toList());
 
+            basisDate = historyData.get(0).getTradeDate();
             log.debug("종목 {} StockPriceHistory에서 {} 건의 일봉 조회 (최신: {})",
                     stockCode, closePrices.size(), historyData.get(0).getTradeDate());
         }
@@ -696,6 +698,16 @@ public class StockAnalysisService {
 
                 // DB에 저장 (중복 방지를 위해 날짜별로 체크)
                 savePriceHistoryToDb(stockCode, ohlcvData);
+
+                // 계산도 마감이 확정된 봉만(2026-10-07) — 저장은 이미 거르는데(isSettledBar) 이 경로는 응답을 바로 써서, 저장 봉이 모자란
+                // 종목만 오늘 형성 봉(장중 시세)으로 지표가 나왔다. 같은 '20일선' 칸이 종목에 따라 기준이 달랐다.
+                LocalDate settledDay = SignalD3EvaluationService.lastSettledTradingDay(
+                        java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul")), marketCalendar);
+                ohlcvData = ohlcvData.stream()
+                        .filter(d -> d.getTradeDate() == null || isSettledBar(d.getTradeDate(), settledDay))
+                        .collect(Collectors.toList());
+                basisDate = ohlcvData.stream().map(KoreaInvestmentService.OhlcvData::getTradeDate)
+                        .filter(java.util.Objects::nonNull).max(LocalDate::compareTo).orElse(null);
 
                 // 종가 추출
                 closePrices = ohlcvData.stream()
@@ -763,6 +775,7 @@ public class StockAnalysisService {
                 .isDeadCross(indicators.getIsDeadCross())
                 // 지표 바의 "20일선" 칸이 읽는 값 — 이 줄이 없어 어느 종목에서나 '-' 였다(2026-08-28)
                 .disparity20(indicators.getDisparity20())
+                .basisDate(basisDate)
                 .rsi14(indicators.getRsi14())
                 .rsiStatus(rsiStatus)
                 .isRsiOversold(isRsiOversold)

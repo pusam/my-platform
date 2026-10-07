@@ -1,7 +1,7 @@
 <template>
   <!-- 핵심 요약 카드 (항상 고정) — StockDetailDashboard 에서 분리 (P2-10) -->
   <div v-if="hasData && !loading" class="quick-summary-bar">
-    <div class="qs-item">
+    <div class="qs-item" :title="basisTitle">
       <span class="qs-label">RSI</span>
       <span class="qs-value" :class="getQsRsiClass()">
         {{ diagnosisData?.technicalAnalysis?.rsi14 != null ? Number(diagnosisData.technicalAnalysis.rsi14).toFixed(0) : '-' }}
@@ -10,12 +10,14 @@
         {{ getQsRsiLabel() }}
       </span>
     </div>
-    <div class="qs-item">
+    <div class="qs-item" :title="basisTitle">
       <span class="qs-label">20일선</span>
       <span class="qs-value" :class="getQsMaClass()">
         {{ getQsMaPosition() }}
       </span>
       <span class="qs-sub">{{ getQsMaDisparity() }}</span>
+      <!-- 기준 종가(2026-10-07) — 확정 봉까지라 차트 해설(오늘 시세 기준)과 다를 수 있다 -->
+      <span v-if="basisLabel" class="qs-basis">{{ basisLabel }}</span>
     </div>
     <div class="qs-item">
       <!--
@@ -63,6 +65,8 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
+import { closeBasisLabel } from '../../utils/stockFormat';
 /**
  * 수급 값의 표본 제약 — 툴팁으로만 노출한다(라벨에 다 쓰면 칸이 넘친다).
  *
@@ -78,6 +82,12 @@ const props = defineProps({
   diagnosisData: { type: Object, default: null },
   aiAnalysis: { type: Object, default: null }
 });
+
+// RSI·20일선은 마감이 확정된 봉까지로 계산한다(장중엔 직전 거래일 종가) — 기준을 칸에 적는다(2026-10-07)
+const basisLabel = computed(() => closeBasisLabel(props.diagnosisData?.technicalAnalysis?.basisDate));
+const basisTitle = computed(() => basisLabel.value
+  ? `${basisLabel.value} 기준 — 오늘 움직임은 들어 있지 않습니다(차트 해설은 오늘 시세 기준)`
+  : null);
 
 // getRecommendationLabel: 부모에도 다른 용도로 존재 — 순수 매핑이라 소형 복제(로직 동일).
 const getRecommendationLabel = (rec) => ({
@@ -187,6 +197,7 @@ const getQsRiskLabel = () => {
 .qs-label { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; }
 .qs-value { font-size: 16px; font-weight: 800; color: rgba(255,255,255,0.9); }
 .qs-sub { font-size: 11px; color: rgba(255,255,255,0.6); }
+.qs-basis { font-size: 11px; color: rgba(255,255,255,0.45); }
 .qs-streak {
   font-size: 11px; font-weight: 700; margin-top: 1px;
   padding: 0 5px; border-radius: 4px;
