@@ -110,4 +110,30 @@ class ValueTrackRankingTest {
         assertThat(top10(rows())).containsExactlyElementsOf(expected);
         assertThat(top10(shuffled)).containsExactlyElementsOf(expected);
     }
+
+    /** 10/7 운영 KIS 일별 행 + 시가총액·순이익 증가율(억원·%). */
+    private static StockFinancialData rowG(String code, String name, String pbr, String roe, String debt, String op,
+                                           String ni, String equity, String revenue, String per, String mcap, String growth) {
+        StockFinancialData f = row(code, name, pbr, roe, debt, op, ni, equity, revenue, per);
+        f.setMarketCap(new BigDecimal(mcap));
+        f.setProfitGrowth(growth == null ? null : new BigDecimal(growth));
+        return f;
+    }
+
+    @Test
+    @DisplayName("재현: 한 해 이익이 2배 넘게 뛴 종목(액토즈 +540%·제이엠티 +329%·영화테크 +169%)과 PER 이 쓰는 순이익이 영업이익의 "
+            + "2배를 넘는 종목(세이브존 359억 vs 146억)은 빠진다 — 증가율을 모르면(패션플랫폼) 남긴다")
+    void spikedAndPerBasisDistortedExcluded() {
+        List<StockFinancialData> input = List.of(
+                rowG("052790", "액토즈소프트", "0.18", "17.90", "23.96", "379.00", "531.00", "2963.00", "742.00", "1.00", "524", "539.76"),
+                rowG("094970", "제이엠티", "0.30", "12.84", "41.20", "183.00", "240.00", "2000.00", "2441.00", "2.30", "474", "328.57"),
+                rowG("265560", "영화테크", "0.63", "27.22", "35.92", "167.00", "291.00", "1069.00", "1068.00", "2.30", "670", "169.44"),
+                // KIS 연결 순이익 99억이면 정상처럼 보이지만 PER 2.7 은 지배주주 순이익(시총 969 ÷ 2.7 ≈ 359억)으로 만든 값
+                rowG("067830", "세이브존I&C", "0.18", "6.82", "19.09", "146.00", "99.00", "4840.00", "1347.00", "2.70", "969", null),
+                rowG("069730", "DSR제강", "0.39", "16.52", "41.99", "285.00", "335.00", "2029.00", "2334.00", "2.30", "783", "73.58"),
+                rowG("079960", "동양이엔피", "0.27", "12.05", "15.01", "334.00", "565.00", "4730.00", "5204.00", "2.30", "1284", "11.00"),
+                rowG("225590", "패션플랫폼", "0.18", "13.34", "29.37", "132.00", "113.00", "841.00", "1138.00", "1.30", "150", null));
+
+        assertThat(top10(new ArrayList<>(input))).containsExactly("225590", "079960", "069730");
+    }
 }
