@@ -31,7 +31,7 @@ class BotPerformanceServiceTrustGateTest {
     private final VirtualTradeHistoryRepository trades = mock(VirtualTradeHistoryRepository.class);
     private final VirtualAccountRepository accounts = mock(VirtualAccountRepository.class);
     private final BotConfigRepository configs = mock(BotConfigRepository.class);
-    private final BotPerformanceService service = new BotPerformanceService(trades, accounts, configs);
+    private final BotPerformanceService service = new BotPerformanceService(trades, accounts, configs, new MarketCalendarService());
 
     private static VirtualTradeHistory row(String type, String reason, int qty, String pnl, LocalDateTime at) {
         BigDecimal amount = new BigDecimal(1000L * qty);

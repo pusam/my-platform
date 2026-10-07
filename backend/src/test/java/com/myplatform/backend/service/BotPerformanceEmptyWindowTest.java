@@ -39,7 +39,7 @@ class BotPerformanceEmptyWindowTest {
         VirtualTradeHistoryRepository repo = mock(VirtualTradeHistoryRepository.class);
         when(repo.findBotTradesBetween(anyLong(), any(), any(), any())).thenReturn(trades);
         when(repo.findBotTrades(anyLong(), any())).thenReturn(trades);
-        return new BotPerformanceService(repo, mock(VirtualAccountRepository.class), mock(BotConfigRepository.class));
+        return new BotPerformanceService(repo, mock(VirtualAccountRepository.class), mock(BotConfigRepository.class), new MarketCalendarService());
     }
 
     @Test

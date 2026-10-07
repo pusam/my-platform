@@ -32,6 +32,8 @@ public class BotPerformanceService {
     private final VirtualTradeHistoryRepository tradeHistoryRepository;
     private final VirtualAccountRepository accountRepository;
     private final BotConfigRepository botConfigRepository;
+    // 장이 닫힌 날 기록된 봇 거래를 게이트 표본에서 뺀다(2026-10-07 — 7/17 휴장일 두 쌍)
+    private final MarketCalendarService marketCalendar;
 
     // Bot trade reasons (매수 + 매도 사유) — AutoTradingBotService 가 기록하는 실값과 동기.
     // 스윙/종가매수·청산 사유가 빠지면 승률/PnL/MDD 집계에서 해당 거래가 통째로 누락된다.
@@ -142,13 +144,16 @@ public class BotPerformanceService {
                 capital = account.get().getInitialBalance();
             }
             BotTradeOutcomes.Result r = BotTradeOutcomes.build(
-                    tradeHistoryRepository.findBotTrades(accountId, BOT_REASONS));
+                    tradeHistoryRepository.findBotTrades(accountId, BOT_REASONS), marketCalendar::isMarketClosed);
             BigDecimal maxDrawdownPct = capital == null || capital.signum() <= 0 ? null
                     : r.maxDrawdownKrw().negate().multiply(BigDecimal.valueOf(100))
                             .divide(capital, 2, RoundingMode.HALF_UP);
+            // 휴장일 기록은 조용히 빼지 않는다(§4c) — 판정 문구 앞에 붙는다
+            String closedNote = r.closedDayExcluded() > 0
+                    ? "휴장일 기록 매도 " + r.closedDayExcluded() + "건 제외(체결될 수 없는 거래)" : null;
             return new BotGateLine(label, true, accountId, capital, r.realizedPnlKrw(),
                     r.firstDay(), r.lastDay(),
-                    BotGateRules.judge(r.outcomes(), maxDrawdownPct, r.excluded()), null);
+                    BotGateRules.judge(r.outcomes(), maxDrawdownPct, r.excluded()), closedNote);
         } catch (Exception e) {
             log.warn("[봇 게이트] {} 집계 실패: {}", label, e.getMessage());
             return new BotGateLine(label, false, null, null, null, null, null, null,
