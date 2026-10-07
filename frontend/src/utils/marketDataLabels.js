@@ -218,3 +218,18 @@ export function dailyRatioLabel(analysisDate) {
   if (typeof analysisDate !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(analysisDate)) return '등락비'
   return `등락비(${analysisDate.slice(5, 7)}/${analysisDate.slice(8, 10)})`
 }
+
+/**
+ * 지난 시세 표시 — '5시간 전 값'(2026-10-07). 해외 시세는 서버가 마지막 거래가 30분 넘게 지났으면 stale·dataAgeMinutes 를 준다
+ * (Yahoo regularMarketTime 기준). 한국 낮에는 미국 현물 지수(VIX·SOX)·국채 금리가 닫혀 있어 그 등락은 지난밤 것인데,
+ * 화면은 실시간 선물과 같은 모양으로 그려 오늘 움직임처럼 읽혔다. 실시간이거나 실패·나이를 모르면 빈 문자열.
+ */
+export function staleQuoteNote(quote) {
+  if (!quote || !quote.success || !quote.stale) return ''
+  const minutes = Number(quote.dataAgeMinutes)
+  if (!Number.isFinite(minutes) || minutes <= 0) return ''
+  if (minutes < 60) return `${Math.floor(minutes)}분 전 값`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}시간 전 값`
+  return `${Math.floor(hours / 24)}일 전 값`
+}

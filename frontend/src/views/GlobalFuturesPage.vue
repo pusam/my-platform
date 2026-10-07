@@ -97,6 +97,8 @@
           <div class="vix-change" :class="getChangeClass(vixQuote)">
             {{ formatChange(vixQuote.changePrice) }} ({{ formatRate(vixQuote.changeRate) }})
           </div>
+          <!-- 미국장이 닫힌 시간엔 지난밤 값이다 — 오늘 움직임처럼 읽히지 않게(2026-10-07) -->
+          <div v-if="staleQuoteNote(vixQuote)" class="quote-age-note">{{ staleQuoteNote(vixQuote) }}</div>
         </div>
         <div class="vix-meter">
           <div class="vix-meter-track">
@@ -127,6 +129,7 @@
           <div class="sentiment-change" :class="getChangeClass(us10yQuote)">
             {{ formatChange(us10yQuote.changePrice) }} ({{ formatRate(us10yQuote.changeRate) }})
           </div>
+          <div v-if="staleQuoteNote(us10yQuote)" class="quote-age-note">{{ staleQuoteNote(us10yQuote) }}</div>
         </div>
         <div class="bond-meter">
           <div class="bond-meter-track">
@@ -327,6 +330,7 @@
               <td>
                 <span class="table-name">{{ q.name }}</span>
                 <span class="table-symbol">{{ q.symbol }}</span>
+                <span v-if="staleQuoteNote(q)" class="table-age">{{ staleQuoteNote(q) }}</span>
               </td>
               <td>{{ q.exchange }}</td>
               <td class="right">{{ q.success ? formatPrice(q.currentPrice) : '-' }}</td>
@@ -363,7 +367,7 @@
 </template>
 
 <script setup>
-import { impactLabel, impactTone, quoteNumberText, signedPercentOrDash } from '../utils/marketDataLabels';
+import { impactLabel, impactTone, quoteNumberText, signedPercentOrDash, staleQuoteNote } from '../utils/marketDataLabels';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { globalFuturesAPI } from '../utils/api';
@@ -1330,6 +1334,8 @@ onUnmounted(() => {
 }
 
 .stale-time { color: #f59e0b !important; }
+.quote-age-note { margin-top: 4px; font-size: 0.75rem; color: #f59e0b; }
+.table-age { display: block; margin-top: 2px; font-size: 0.75rem; color: #f59e0b; }
 .age-info { font-size: 0.75rem; color: #f59e0b; }
 
 .stale-notice {

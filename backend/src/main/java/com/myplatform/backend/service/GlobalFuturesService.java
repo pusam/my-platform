@@ -352,6 +352,10 @@ public class GlobalFuturesService {
         return inSession ? direction + " — 해외 지표 기준" : direction + " 출발 예상";
     }
 
+    /** 'VIX ≥25 지난 값 — 위기 판정 건너뜀' 로그를 마지막으로 남긴 상태(날짜:구간) — 같은 상태면 되풀이하지 않는다(§5). */
+    private final java.util.concurrent.atomic.AtomicReference<String> staleCrisisSkipLogged =
+            new java.util.concurrent.atomic.AtomicReference<>("");
+
     Map<String, Object> analyzeImpact(List<FuturesQuote> quotes, LocalDateTime kstNow) {
         Map<String, Object> analysis = new LinkedHashMap<>();
 
@@ -371,7 +375,7 @@ public class GlobalFuturesService {
             double nqRate = nq.getChangeRate().doubleValue();
             double nqContrib = clampContrib(nqRate * 7.0); // ±1% → ±7점
             weightedScore += nqContrib * 0.35;
-            riskFactors.add(createFactor("나스닥100", nqRate, nqContrib > 0 ? "POSITIVE" : nqContrib < 0 ? "NEGATIVE" : "NEUTRAL", 35));
+            riskFactors.add(createFactor("나스닥100", nqRate, indexFactorSignal(nqRate), 35));
         }
 
         // 2) S&P500 선물 (가중치 15%)
@@ -380,7 +384,7 @@ public class GlobalFuturesService {
             double esRate = es.getChangeRate().doubleValue();
             double esContrib = clampContrib(esRate * 6.0);
             weightedScore += esContrib * 0.15;
-            riskFactors.add(createFactor("S&P500", esRate, esContrib > 0 ? "POSITIVE" : esContrib < 0 ? "NEGATIVE" : "NEUTRAL", 15));
+            riskFactors.add(createFactor("S&P500", esRate, indexFactorSignal(esRate), 15));
         }
 
         // 3) WTI 원유 (가중치 15%) - 유가 급등은 코스피에 악재
@@ -480,10 +484,20 @@ public class GlobalFuturesService {
             boolean vixStale = vix.isStale() || vix.getDataAgeMinutes() > 120;
 
             if (vixStale) {
-                // stale 데이터: CRISIS 오버라이드 발동하지 않음 (가중치 점수만 반영)
-                log.info("[코스피 전망] VIX {} (≥25) but stale ({}분 전) — CRISIS 오버라이드 스킵",
-                        String.format("%.1f", vixLevel), vix.getDataAgeMinutes());
+                // stale 데이터: CRISIS 오버라이드 발동하지 않음 (가중치 점수만 반영). 로그는 정말 건너뛴 때(VIX ≥25)만,
+                // 같은 상태면 하루 한 번 — 예전엔 VIX 15 에도 '(≥25)'라고 30초마다 남겼다(2026-10-07).
+                if (vixLevel >= 25) {
+                    String key = (kstNow != null ? kstNow.toLocalDate() : LocalDate.now(ZoneId.of("Asia/Seoul")))
+                            + (vixLevel >= 30 ? ":30" : ":25");
+                    if (!key.equals(staleCrisisSkipLogged.getAndSet(key))) {
+                        log.info("[코스피 전망] VIX {} (≥25) but stale ({}분 전) — CRISIS 오버라이드 스킵",
+                                String.format("%.1f", vixLevel), vix.getDataAgeMinutes());
+                    }
+                } else {
+                    staleCrisisSkipLogged.set("");
+                }
             } else {
+                staleCrisisSkipLogged.set("");
                 boolean isVixCalming = vixChangeRate <= -5.0;
 
                 boolean subIndicatorsPositive = false;
@@ -607,6 +621,20 @@ public class GlobalFuturesService {
         analysis.put("fetchedAt", LocalDateTime.now());
 
         return analysis;
+    }
+
+    /** 지수 선물 이름표의 보합권(±%) — 이 안의 움직임은 중립(2026-10-07). 점수 계산과 무관한 표시 규칙. */
+    static final double INDEX_FLAT_BAND_PCT = 0.1;
+
+    /**
+     * 나스닥100·S&P500 선물의 '긍정/부정/중립' 이름표 — 순수 함수(2026-10-07 화면 점검). 예전엔 기여도 부호(0 초과면 긍정)라
+     * 화면에 '+0.00%'·'+0.02%'로 보이는 움직임도 긍정·부정이 됐다. 같은 표의 WTI(±3%)·달러/원(±0.3%)처럼 보합권을 둔다.
+     * 점수(impactScore)는 종전대로 등락률 전체를 쓴다.
+     */
+    static String indexFactorSignal(double rate) {
+        if (rate >= INDEX_FLAT_BAND_PCT) return "POSITIVE";
+        if (rate <= -INDEX_FLAT_BAND_PCT) return "NEGATIVE";
+        return "NEUTRAL";
     }
 
     private double clampContrib(double value) {
