@@ -264,3 +264,15 @@ export function consecutiveThroughLabel(items) {
     .sort()
   return ends.length ? `${toMonthDay(ends[ends.length - 1])}까지` : null
 }
+
+/**
+ * 5일 수급의 날짜 수 — '(순매수 3일 · 순매도 2일)'(2026-10-07). 예전 화면은 5일 합이 음수면 무조건 '(연속 순매도 주의!)'라
+ * 했다 — 삼성전자 기관은 최근 3일 연속 순매수인데도 그랬다. 모르는 쪽(옛 응답엔 매도일이 없다)은 빼고, 둘 다 없으면 빈 문자열.
+ */
+export function supplyDaysNote(buyDays, sellDays) {
+  const count = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? 0 : Number(v))
+  const parts = []
+  if (count(buyDays) > 0) parts.push(`순매수 ${count(buyDays)}일`)
+  if (count(sellDays) > 0) parts.push(`순매도 ${count(sellDays)}일`)
+  return parts.length ? `(${parts.join(' · ')})` : ''
+}

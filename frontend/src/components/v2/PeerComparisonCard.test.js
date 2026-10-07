@@ -61,3 +61,28 @@ describe('PeerComparisonCard (P2-10 분리)', () => {
     expect(w.find('.peer-bar-fill').attributes('style')).toContain('width: 0%')
   })
 })
+
+// 2026-10-07 화면 점검(삼성전자): '업종 평균 PBR 17.27배'는 화면의 세 종목(4.25·10.13·37.44) 단순 평균이었고,
+// 막대 폭이 'PBR 2배 = 100%' 고정이라 셋 다 꽉 찬 막대였다(비교가 안 된다).
+describe('PeerComparisonCard — 높은 PBR 업종(2026-10-07)', () => {
+  const semis = [
+    { stockName: '삼성전자', pbr: 4.25, isCurrent: true },
+    { stockName: 'SK하이닉스', pbr: 10.13, isCurrent: false },
+    { stockName: '한미반도체', pbr: 37.44, isCurrent: false }
+  ]
+
+  it('재현: 평균은 업종이 아니라 위 종목들의 평균이라고 말한다', () => {
+    const w = mountCard({ peerComparisons: semis, sectorAvgPbr: 17.27 })
+    const label = w.find('.sector-avg-label').text()
+    expect(label).toContain('위 3종목 평균 PBR 17.27배')
+    expect(label).not.toContain('업종 평균')
+  })
+
+  it('재현: 막대는 가장 큰 값 기준 비율 — 셋 다 100% 가 아니다', () => {
+    const rows = mountCard({ peerComparisons: semis, sectorAvgPbr: 17.27 }).findAll('.peer-bar-row')
+    const widths = rows.map(r => r.find('.peer-bar-fill').attributes('style'))
+    expect(widths[2]).toContain('width: 100%')
+    expect(widths[0]).not.toContain('width: 100%')
+    expect(widths[1]).not.toContain('width: 100%')
+  })
+})

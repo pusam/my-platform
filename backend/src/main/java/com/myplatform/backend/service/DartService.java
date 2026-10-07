@@ -231,8 +231,66 @@ public class DartService {
      */
     @CircuitBreaker(name = "dartApi", fallbackMethod = "disclosuresFallback")
     public List<DartDisclosure> getRecentDisclosures(String corpCode) {
-        List<DartDisclosure> raw = fetchRecentDisclosuresRaw(corpCode);
-        return raw == null ? Collections.emptyList() : raw;
+        DisclosurePage page = fetchRecentDisclosurePage(corpCode);
+        return page == null ? Collections.emptyList() : new ArrayList<>(page.items());
+    }
+
+    /** 공시 목록 한 페이지 — 받은 행과 DART 가 알려준 기간 전체 건수(total_count, 2026-10-07). */
+    public record DisclosurePage(List<DartDisclosure> items, int totalCount) {}
+
+    /** 공시 목록 응답 오류 상태 — 같은 오류가 이어지면 WARN 을 되풀이하지 않는다(§5, 배치 위험 체크가 종목마다 부른다). */
+    private static final java.util.concurrent.atomic.AtomicReference<String> LAST_LIST_ERROR =
+            new java.util.concurrent.atomic.AtomicReference<>("");
+
+    /**
+     * list.json 응답 해석 — 순수 함수(2026-10-07). status 000 = 행 + total_count(없으면 받은 행 수), 013(조회된 데이타가 없습니다)
+     * = 진짜 '공시 없음'(빈 페이지), 그 밖(020 요청 제한 초과·010/011 키 오류·800 점검 …)·파싱 실패 = 모름(null).
+     * 예전엔 오류 상태도 빈 목록이라 '조회 성공, 공시 없음'으로 읽혀 위험 체크가 '안전'으로 1시간 캐시될 수 있었고(§4c 실패≠안전),
+     * 화면 건수는 첫 페이지(최대 100행) 개수였다('3개월 100건').
+     */
+    static DisclosurePage parseDisclosurePage(ObjectMapper om, String json) {
+        try {
+            JsonNode root = om.readTree(json);
+            String status = root.path("status").asText("");
+            if ("013".equals(status)) {
+                LAST_LIST_ERROR.set("");
+                return new DisclosurePage(List.of(), 0);
+            }
+            if (!"000".equals(status)) {
+                String message = root.path("message").asText("");
+                if (!status.equals(LAST_LIST_ERROR.getAndSet(status))) {
+                    log.warn("[DART] 공시 목록 응답 오류 — 확인 불가로 처리(공시 없음 아님): {} - {}", status, message);
+                } else {
+                    log.debug("[DART] 공시 목록 응답 오류 반복: {} - {}", status, message);
+                }
+                return null;
+            }
+            LAST_LIST_ERROR.set("");
+            List<DartDisclosure> items = new ArrayList<>();
+            JsonNode list = root.get("list");
+            if (list != null && list.isArray()) {
+                for (JsonNode item : list) {
+                    items.add(DartDisclosure.builder()
+                            .corpName(text(item, "corp_name"))
+                            .reportNm(text(item, "report_nm"))
+                            .rceptNo(text(item, "rcept_no"))
+                            .rceptDt(text(item, "rcept_dt"))
+                            .flrNm(text(item, "flr_nm"))
+                            .rmk(text(item, "rm"))
+                            .isDangerous(false)
+                            .build());
+                }
+            }
+            int total = root.path("total_count").asInt(items.size());
+            return new DisclosurePage(items, Math.max(total, items.size()));
+        } catch (Exception e) {
+            log.warn("[DART] 공시 목록 응답 파싱 실패 — 확인 불가로 처리: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static String text(JsonNode node, String field) {
+        return node.has(field) ? node.get(field).asText() : null;
     }
 
     /**
@@ -240,7 +298,7 @@ public class DartService {
      * 기존 공개 API 는 실패도 빈 리스트로 뭉개 "조회 실패"가 "공시 없음(안전)"으로 위장됐다.
      * quickDangerCheck 가 실패를 1시간 '안전' 캐시하지 않도록 구분이 필요(§4c).
      */
-    private List<DartDisclosure> fetchRecentDisclosuresRaw(String corpCode) {
+    private DisclosurePage fetchRecentDisclosurePage(String corpCode) {
         if (dartApiKey == null || dartApiKey.isEmpty()) {
             log.warn("[DART] API Key가 설정되지 않았습니다.");
             return null;
@@ -269,7 +327,7 @@ public class DartService {
                     () -> restTemplate.getForEntity(url, String.class));   // crtfc_key 가 URL 에 있다
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return parseDisclosures(response.getBody());
+                return parseDisclosurePage(objectMapper, response.getBody());
             }
 
         } catch (Exception e) {
@@ -287,16 +345,25 @@ public class DartService {
      * "못 찾음"이 "공시 없음(안전)"으로 위장되던 구멍 — 여기서는 정직하게 '미확인'으로 돌려준다.
      */
     public List<DartDisclosure> searchDisclosuresOrNull(String stockCode, String stockName) {
+        DisclosurePage page = searchRecentDisclosurePageOrNull(stockCode, stockName);
+        return page == null ? null : new ArrayList<>(page.items());
+    }
+
+    /**
+     * {@link #searchDisclosuresOrNull} 과 같은 조회(코드 우선·실패=null·위험 키워드 판정) — 받은 행과 함께 DART 의 전체 건수를 준다
+     * (최근 공시 화면, 2026-10-07). 한 페이지(최대 100행)만 받으므로 위험 키워드는 받은 행만큼만 확인된다.
+     */
+    public DisclosurePage searchRecentDisclosurePageOrNull(String stockCode, String stockName) {
         if (!isAvailable()) return null;
         String corpCode = getCorpCodeByStockCode(stockCode);
         if (corpCode == null && stockName != null) {
             corpCode = getCorpCodeByName(stockName);
         }
         if (corpCode == null) return null;
-        List<DartDisclosure> disclosures = fetchRecentDisclosuresRaw(corpCode);
-        if (disclosures == null) return null;
-        for (DartDisclosure d : disclosures) checkDangerKeywords(d);
-        return disclosures;
+        DisclosurePage page = fetchRecentDisclosurePage(corpCode);
+        if (page == null) return null;
+        for (DartDisclosure d : page.items()) checkDangerKeywords(d);
+        return page;
     }
 
     /**

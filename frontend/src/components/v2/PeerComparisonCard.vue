@@ -30,23 +30,35 @@
       </div>
       <div v-if="sectorAvgPbr" class="sector-avg-label">
         <span class="avg-line-indicator"></span>
-        업종 평균 PBR {{ sectorAvgPbr?.toFixed(2) }}배
+        <!-- 업종 전체가 아니라 위 종목들의 단순 평균이다(서버가 그렇게 계산한다, 2026-10-07) -->
+        위 {{ avgCount }}종목 평균 PBR {{ sectorAvgPbr?.toFixed(2) }}배
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue';
+
+const props = defineProps({
   peerComparisons: { type: Array, default: () => [] },
   sectorName: { type: String, default: '' },
   sectorAvgPbr: { type: Number, default: null }
 });
 
-// StockDetailDashboard 에서 이동, 로직 동일.
+// 평균에 들어간 종목 수 — 서버(StockDetailService.fetchPeerData)와 같은 기준(PBR > 0)
+const avgCount = computed(() => props.peerComparisons.filter(p => Number(p?.pbr) > 0).length);
+
+// 막대 눈금 — 'PBR 2배 = 100%' 를 기본으로 두되 그보다 큰 값이 있으면 가장 큰 값 기준(2026-10-07).
+// 예전엔 2배 고정이라 반도체(4~37배)처럼 높은 업종은 막대가 전부 꽉 차 비교가 안 됐다.
+const barScale = computed(() => Math.max(
+  2.0,
+  ...props.peerComparisons.map(p => Number(p?.pbr) || 0),
+  Number(props.sectorAvgPbr) || 0
+));
 const getPeerBarWidth = (pbr) => {
   if (!pbr) return 0;
-  return Math.min(100, (pbr / 2.0) * 100);
+  return Math.min(100, (pbr / barScale.value) * 100);
 };
 const getPeerBarClass = (pbr) => {
   if (!pbr) return '';

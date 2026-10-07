@@ -27,6 +27,9 @@ public class RecentDisclosuresDto {
     private boolean dataAvailable;
     /** 조회창 내 전체 공시 수 — items 는 상한 컷이라 "외 N건" 표기용(조용한 절단 금지). */
     private int totalCount;
+
+    /** 실제로 받아 위험 키워드를 확인한 건수 — DART 한 페이지(최대 100). totalCount 보다 작으면 나머지는 확인하지 않았다(2026-10-07). */
+    private int fetchedCount;
     /** 최신순, 상한 컷. dataAvailable=true && 비어 있으면 진짜 '최근 3개월 공시 없음'. */
     private List<Item> items;
 

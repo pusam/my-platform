@@ -29,14 +29,14 @@ public class RecentDisclosureService {
     private final DartService dartService;
 
     public RecentDisclosuresDto getRecentDisclosures(String stockCode, String stockName) {
-        List<DartDisclosure> raw;
+        DartService.DisclosurePage page;
         try {
-            raw = dartService.searchDisclosuresOrNull(stockCode, stockName);
+            page = dartService.searchRecentDisclosurePageOrNull(stockCode, stockName);
         } catch (Exception e) {
             log.warn("[RecentDisclosure] 공시 조회 예외 — 미확인 처리 ({}): {}", stockCode, e.getMessage());
-            raw = null;
+            page = null;
         }
-        return assemble(stockCode, raw);
+        return page == null ? assemble(stockCode, null) : assemble(stockCode, page.items(), page.totalCount());
     }
 
     /**
@@ -44,6 +44,14 @@ public class RecentDisclosureService {
      * raw=null(미확인) → dataAvailable=false + 빈 목록. 접수일(yyyyMMdd) 내림차순 정렬 후 상한 컷.
      */
     static RecentDisclosuresDto assemble(String stockCode, List<DartDisclosure> raw) {
+        return assemble(stockCode, raw, raw == null ? 0 : raw.size());
+    }
+
+    /**
+     * @param dartTotalCount DART 가 알려준 기간 전체 건수(total_count) — 받은 행(한 페이지, 최대 100)보다 많을 수 있다.
+     *                       예전엔 받은 행 수를 전체 건수로 보여 삼성전자가 '3개월 100건'이었다(2026-10-07).
+     */
+    static RecentDisclosuresDto assemble(String stockCode, List<DartDisclosure> raw, int dartTotalCount) {
         if (raw == null) {
             return RecentDisclosuresDto.builder()
                     .stockCode(stockCode).dataAvailable(false).totalCount(0).items(List.of())
@@ -70,7 +78,10 @@ public class RecentDisclosureService {
                     .build());
         }
         return RecentDisclosuresDto.builder()
-                .stockCode(stockCode).dataAvailable(true).totalCount(sorted.size()).items(items)
+                .stockCode(stockCode).dataAvailable(true)
+                .totalCount(Math.max(dartTotalCount, sorted.size()))
+                .fetchedCount(sorted.size())
+                .items(items)
                 .build();
     }
 

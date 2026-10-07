@@ -114,3 +114,21 @@ describe('FundamentalDiagnosisPanel (P-IA ③-2차 분리)', () => {
     expect(w.find('.assessment-basis').text()).toContain('MFI·볼린저')
   })
 })
+
+// 2026-10-07: 5일 합이 음수면 무조건 '(연속 순매도 주의!)'였다 — 삼성전자 기관은 최근 3일 연속 순매수였다
+describe('FundamentalDiagnosisPanel — 5일 수급 일수', () => {
+  it('재현: 합이 음수여도 연속 순매도라 하지 않고 순매수·순매도 일수를 말한다', async () => {
+    const diag = { ...baseDiag, supplyDemand: {
+      score: 0, foreignNet5Days: -13980.92, foreignBuyDays: 0, foreignSellDays: 5,
+      institutionNet5Days: -1248.9, institutionBuyDays: 3, institutionSellDays: 2,
+      isBothBuying: false, isBothSelling: true, assessment: '⚠️ 매도 우위 (5일 누적, 뇌동매매 주의!)'
+    } }
+    const w = mountPanel(diag)
+    await w.findAll('.fund-tab-btn')[1].trigger('click')
+    const rows = w.findAll('.supply-row')
+    expect(rows[0].text()).toContain('(순매도 5일)')
+    expect(rows[1].text()).toContain('(순매수 3일 · 순매도 2일)')
+    expect(w.text()).not.toContain('연속 순매도')
+    expect(w.find('.supply-summary').text()).toContain('5일 누적')
+  })
+})

@@ -118,11 +118,10 @@
               {{ formatBillionAbs(diagnosisData.supplyDemand.foreignNet5Days) }}
             </span>
             <span v-else class="net-amount no-data">집계 중</span>
-            <span class="buy-days" v-if="diagIsSupplyPositive(diagnosisData.supplyDemand.foreignNet5Days)">
-              ({{ diagnosisData.supplyDemand.foreignBuyDays }}일 순매수)
-            </span>
-            <span class="sell-days" v-else-if="diagIsSupplyNegative(diagnosisData.supplyDemand.foreignNet5Days)">
-              (연속 순매도 주의!)
+            <!-- 며칠 사고 며칠 팔았는지 — 5일 합이 음수라고 '연속 순매도'라 하지 않는다(2026-10-07) -->
+            <span v-if="diagIsSupplyDataAvailable(diagnosisData.supplyDemand.foreignNet5Days)"
+                  :class="diagIsSupplyNegative(diagnosisData.supplyDemand.foreignNet5Days) ? 'sell-days' : 'buy-days'">
+              {{ supplyDaysNote(diagnosisData.supplyDemand.foreignBuyDays, diagnosisData.supplyDemand.foreignSellDays) }}
             </span>
           </div>
           <div class="supply-row">
@@ -133,16 +132,15 @@
               {{ formatBillionAbs(diagnosisData.supplyDemand.institutionNet5Days) }}
             </span>
             <span v-else class="net-amount no-data">집계 중</span>
-            <span class="buy-days" v-if="diagIsSupplyPositive(diagnosisData.supplyDemand.institutionNet5Days)">
-              ({{ diagnosisData.supplyDemand.institutionBuyDays }}일 순매수)
-            </span>
-            <span class="sell-days" v-else-if="diagIsSupplyNegative(diagnosisData.supplyDemand.institutionNet5Days)">
-              (연속 순매도 주의!)
+            <!-- 며칠 사고 며칠 팔았는지 — 5일 합이 음수라고 '연속 순매도'라 하지 않는다(2026-10-07) -->
+            <span v-if="diagIsSupplyDataAvailable(diagnosisData.supplyDemand.institutionNet5Days)"
+                  :class="diagIsSupplyNegative(diagnosisData.supplyDemand.institutionNet5Days) ? 'sell-days' : 'buy-days'">
+              {{ supplyDaysNote(diagnosisData.supplyDemand.institutionBuyDays, diagnosisData.supplyDemand.institutionSellDays) }}
             </span>
           </div>
           <div class="supply-summary">
-            <span v-if="diagnosisData.supplyDemand.isBothBuying" class="both-buying">외국인+기관 동반 매수!</span>
-            <span v-else-if="diagnosisData.supplyDemand.isBothSelling" class="both-selling">외국인+기관 동반 매도 주의!</span>
+            <span v-if="diagnosisData.supplyDemand.isBothBuying" class="both-buying">외국인+기관 5일 누적 동반 순매수</span>
+            <span v-else-if="diagnosisData.supplyDemand.isBothSelling" class="both-selling">외국인+기관 5일 누적 동반 순매도 — 주의</span>
           </div>
           <div class="card-assessment">{{ diagnosisData.supplyDemand.assessment }}</div>
         </div>
@@ -274,6 +272,7 @@
 
 <script setup>
 import { ma20PositionLabel, netBuyClass, netBuyText } from '../../utils/stockFormat'
+import { supplyDaysNote } from '../../utils/marketDataLabels'
 import { ref } from 'vue';
 
 defineProps({

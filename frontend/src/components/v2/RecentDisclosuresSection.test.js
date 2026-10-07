@@ -63,6 +63,21 @@ describe('RecentDisclosuresSection — 📄 최근 공시 (DART 3개월, 표시 
     expect(w.find('.rd-unavailable').exists()).toBe(false)
   })
 
+  // 2026-10-07: 삼성전자가 '3개월 100건'이었다 — DART 한 페이지(100행)만 받아 그 개수를 셌다. 이제 서버가 DART 의 전체 건수
+  // (totalCount)와 실제로 받아 위험 키워드를 확인한 건수(fetchedCount)를 따로 준다.
+  it('재현: 받은 건수가 전체보다 적으면 위험 키워드는 그만큼만 확인했다고 밝힌다', async () => {
+    const w = await mountSection({ ...fullList, totalCount: 185, fetchedCount: 100 })
+    expect(w.find('.ds-title').text()).toContain('3개월 185건')
+    expect(w.find('.rd-partial').text()).toContain('위험 키워드는 최근 100건만 확인')
+  })
+
+  it('다 받았으면(또는 옛 응답에 fetchedCount 가 없으면) 그 안내는 없다', async () => {
+    const all = await mountSection({ ...fullList, totalCount: 2, fetchedCount: 2 })
+    expect(all.find('.rd-partial').exists()).toBe(false)
+    const legacy = await mountSection(fullList)
+    expect(legacy.find('.rd-partial').exists()).toBe(false)
+  })
+
   it('상한 컷 시 "외 N건" 표기 (조용한 절단 금지)', async () => {
     const w = await mountSection({ ...fullList, totalCount: 20 })
     expect(w.find('.rd-more').text()).toContain('외 18건')

@@ -220,3 +220,23 @@ describe('supplyBasisLabel / consecutiveThroughLabel', () => {
     expect(consecutiveThroughLabel([{ endDate: null }])).toBeNull()
   })
 })
+
+/**
+ * 종목 진단 5일 수급 — 며칠 사고 며칠 팔았는지(2026-10-07 화면 점검).
+ * 재현: 삼성전자 기관이 10/1·10/2·10/6 3일 연속 순매수인데 5일 합이 음수라 '(연속 순매도 주의!)'였다.
+ */
+describe('supplyDaysNote', () => {
+  it('재현: 순매수 3일·순매도 2일을 그대로 말한다', async () => {
+    const { supplyDaysNote } = await import('./marketDataLabels')
+    expect(supplyDaysNote(3, 2)).toBe('(순매수 3일 · 순매도 2일)')
+    expect(supplyDaysNote(0, 5)).toBe('(순매도 5일)')
+    expect(supplyDaysNote(4, 0)).toBe('(순매수 4일)')
+  })
+
+  it('모르면(옛 응답에 매도일이 없음) 아는 것만, 둘 다 없으면 빈 문자열', async () => {
+    const { supplyDaysNote } = await import('./marketDataLabels')
+    expect(supplyDaysNote(3, undefined)).toBe('(순매수 3일)')
+    expect(supplyDaysNote(undefined, undefined)).toBe('')
+    expect(supplyDaysNote(0, 0)).toBe('')
+  })
+})

@@ -84,13 +84,15 @@ public class StockDiagnosisDto {
     @AllArgsConstructor
     public static class SupplyDemandDto {
         // 최근 5일 외국인 수급
-        private BigDecimal foreignNet5Days;     // 외국인 5일 순매수 합계 (백만원)
+        private BigDecimal foreignNet5Days;     // 외국인 5일 순매수 합계 (억원 — 저장값이 이미 억)
         private int foreignBuyDays;             // 외국인 순매수 일수 (5일 중)
+        private int foreignSellDays;            // 외국인 순매도 일수 (5일 중) — 합만 보고 '연속 순매도'라 하지 않게(2026-10-07)
         private boolean isForeignBuying;        // 외국인 매수 우위 여부
 
         // 최근 5일 기관 수급
-        private BigDecimal institutionNet5Days; // 기관 5일 순매수 합계 (백만원)
+        private BigDecimal institutionNet5Days; // 기관 5일 순매수 합계 (억원 — 저장값이 이미 억)
         private int institutionBuyDays;         // 기관 순매수 일수 (5일 중)
+        private int institutionSellDays;        // 기관 순매도 일수 (5일 중)
         private boolean isInstitutionBuying;    // 기관 매수 우위 여부
 
         // 수급 일치 여부

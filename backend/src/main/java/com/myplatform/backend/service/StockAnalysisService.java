@@ -146,7 +146,7 @@ public class StockAnalysisService {
         // 수급 경고 - 매도는 반드시 경고!
         if (supplyDemand.isBothSelling()) {
             // 동반 매도는 가장 심각한 경고
-            warnings.add("🚨 외국인+기관 동반 매도 중 (최근 5일)! 뇌동매매 금지!");
+            warnings.add(BOTH_SELLING_WARNING);
         } else {
             // 개별 매도 경고
             if (supplyDemand.getForeignNet5Days() != null &&
@@ -385,7 +385,13 @@ public class StockAnalysisService {
      * - 최근 5일 외국인/기관 순매수 합계
      * - netBuyAmount가 양수면 순매수, 음수면 순매도
      */
-    private SupplyDemandDto analyzeSupplyDemand(String stockCode) {
+    /**
+     * 외국인·기관 5일 합이 둘 다 음수일 때의 경고 — 합 기준이라고 말한다(2026-10-07). 예전 '동반 매도 중'은 지금도 팔고 있다는
+     * 말이라, 기관이 최근 3일 연속 순매수인데 5일 합만 음수인 삼성전자(10/7)에도 그렇게 떴다.
+     */
+    static final String BOTH_SELLING_WARNING = "🚨 외국인+기관 5일 누적 동반 순매도! 뇌동매매 금지!";
+
+    SupplyDemandDto analyzeSupplyDemand(String stockCode) {
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(SUPPLY_DEMAND_DAYS + 5);  // 여유있게 조회
 
@@ -497,9 +503,11 @@ public class StockAnalysisService {
         return SupplyDemandDto.builder()
                 .foreignNet5Days(displayNet(foreignNet5Days, foreignDataDays))
                 .foreignBuyDays(foreignBuyDays)
+                .foreignSellDays(foreignSellDays)
                 .isForeignBuying(isForeignBuying)
                 .institutionNet5Days(displayNet(institutionNet5Days, institutionDataDays))
                 .institutionBuyDays(institutionBuyDays)
+                .institutionSellDays(institutionSellDays)
                 .isInstitutionBuying(isInstitutionBuying)
                 .isBothBuying(isBothBuying)
                 .isBothSelling(isBothSelling)

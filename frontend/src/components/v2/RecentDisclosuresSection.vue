@@ -10,6 +10,10 @@
         <div class="rd-note">
           DART 최근 3개월 공시 원문 목록 — 위험 키워드 매칭(붉은 표시)은 자동 판정, 나머지는 직접 확인용.
         </div>
+        <!-- DART 한 번 조회는 최대 100건 — 그보다 많으면 위험 키워드는 받은 만큼만 봤다(2026-10-07) -->
+        <div v-if="disclosures.fetchedCount && disclosures.fetchedCount < disclosures.totalCount" class="rd-partial">
+          위험 키워드는 최근 {{ disclosures.fetchedCount }}건만 확인했습니다(전체 {{ disclosures.totalCount }}건).
+        </div>
         <div v-if="!disclosures.items.length" class="rd-empty">최근 3개월 공시 없음</div>
         <div v-else class="rd-list">
           <div v-for="(d, i) in disclosures.items" :key="'rd-' + i" class="rd-row" :class="{ 'rd-danger': d.dangerous }">
@@ -86,6 +90,9 @@ const sectionTitle = computed(() => {
 .rd-note {
   font-size: 11px; line-height: 1.5; opacity: 0.6; margin-bottom: 8px;
   border-left: 2px solid rgba(148, 163, 184, 0.4); padding-left: 8px;
+}
+.rd-partial {
+  font-size: 11px; line-height: 1.5; color: #fbbf24; margin-bottom: 8px;
 }
 .rd-unavailable {
   font-size: 12.5px; padding: 8px 10px; border-radius: 6px;
