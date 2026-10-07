@@ -62,6 +62,8 @@ public class ManualTradeJournalService {
     private final BotTradingPositionRepository botPositionRepository;
     // "3거래일 후" 컷오프 계산 — signal_outcome 과 같은 잣대(달력일 아님). null-safe(단위테스트 미주입 보존).
     private final ObjectProvider<MarketCalendarService> calendarProvider;
+    // 종목명 보충 — 매수 기록 시 이름이 안 오면(KIS 가 이름을 안 주던 때) 코드만 남았다(2026-10-07). null-safe.
+    private final ObjectProvider<StockMasterService> masterProvider;
 
     /** ATR14 일봉 로드 행 수 — StockConclusionService 와 동일. */
     private static final int ATR_HISTORY_ROWS = 40;
@@ -73,12 +75,45 @@ public class ManualTradeJournalService {
     static final BigDecimal RSI_OVERBOUGHT = new BigDecimal("70");
     private static final String KOSPI_INDEX_CODE = "0001";
 
+    /** 같은 매수로 보는 시간 — 그 안에 같은 종목·가격·수량의 열린 기록이 있으면 새로 만들지 않는다(2026-10-07). */
+    static final long DUPLICATE_WINDOW_SECONDS = 60;
+
+    /**
+     * 방금 저장한 같은 매수 — 순수 함수(2026-10-07). 매수 기록은 종목 진단까지 돌아 느려 다시 누르기 쉽고, 그래서 저널에
+     * '07.08 10:28 · 003490 · 28,000×130' 이 두 줄 쌓여 통계 분모가 두 배가 됐다. 같은 종목(호출자가 거른 목록)·같은 가격·
+     * 같은 수량(둘 다 비었으면 같음)·아직 매도 전·{@link #DUPLICATE_WINDOW_SECONDS}초 안이면 그 기록.
+     */
+    static Optional<ManualTradeJournal> recentDuplicate(List<ManualTradeJournal> mine, BigDecimal buyPrice,
+                                                        BigDecimal quantity, LocalDateTime now) {
+        if (mine == null || buyPrice == null || now == null) return Optional.empty();
+        for (ManualTradeJournal j : mine) {
+            if (j == null || j.getSellAt() != null || j.getBuyAt() == null || j.getBuyPrice() == null) continue;
+            long ageSec = java.time.Duration.between(j.getBuyAt(), now).getSeconds();
+            if (ageSec < 0 || ageSec > DUPLICATE_WINDOW_SECONDS) continue;
+            boolean samePrice = j.getBuyPrice().compareTo(buyPrice) == 0;
+            boolean sameQty = (j.getQuantity() == null && quantity == null)
+                    || (j.getQuantity() != null && quantity != null && j.getQuantity().compareTo(quantity) == 0);
+            if (samePrice && sameQty) return Optional.of(j);
+        }
+        return Optional.empty();
+    }
+
     /** 매수 기록 — 스냅샷 자동 채움(각 소스 실패=해당 필드 null, 저장은 항상 성공). */
     @Transactional
     public ManualTradeJournal recordBuy(String username, String stockCode, String stockName,
                                         BigDecimal buyPrice, BigDecimal quantity, String memo) {
+        // 같은 매수를 두 번 저장하지 않는다 — 조회 실패면 종전대로 저장(기록이 우선)
+        List<ManualTradeJournal> mine = quiet(() ->
+                journalRepository.findByUsernameAndStockCodeOrderByBuyAtDesc(username, stockCode), "중복확인", stockCode);
+        Optional<ManualTradeJournal> dup = recentDuplicate(mine, buyPrice, quantity, LocalDateTime.now());
+        if (dup.isPresent()) {
+            log.info("[수동저널] 같은 매수가 {}초 안에 다시 와 기존 기록을 돌려줌 — {} id={}",
+                    DUPLICATE_WINDOW_SECONDS, stockCode, dup.get().getId());
+            return dup.get();
+        }
+        String name = stockName == null || stockName.isBlank() ? masterName(stockCode) : stockName;
         ManualTradeJournal j = ManualTradeJournal.builder()
-                .username(username).stockCode(stockCode).stockName(stockName)
+                .username(username).stockCode(stockCode).stockName(name)
                 .buyAt(LocalDateTime.now()).buyPrice(buyPrice).quantity(quantity).memo(memo)
                 .build();
 
@@ -132,7 +167,7 @@ public class ManualTradeJournalService {
 
     @Transactional(readOnly = true)
     public List<ManualTradeJournal> list(String username) {
-        return journalRepository.findByUsernameOrderByBuyAtDesc(username);
+        return withMasterNames(journalRepository.findByUsernameOrderByBuyAtDesc(username));
     }
 
     @Transactional(readOnly = true)
@@ -149,7 +184,29 @@ public class ManualTradeJournalService {
     /** 특정 종목의 내 기록(종목상세 신호 이력 마커용). */
     @Transactional(readOnly = true)
     public List<ManualTradeJournal> listByStock(String username, String stockCode) {
-        return journalRepository.findByUsernameAndStockCodeOrderByBuyAtDesc(username, stockCode);
+        return withMasterNames(journalRepository.findByUsernameAndStockCodeOrderByBuyAtDesc(username, stockCode));
+    }
+
+    private String masterName(String stockCode) {
+        StockMasterService master = masterProvider == null ? null : masterProvider.getIfAvailable();
+        if (master == null) return null;
+        String n = master.getName(stockCode);
+        return n == null || n.isBlank() ? null : n;
+    }
+
+    /**
+     * 이름 없이 저장된 기록(예전엔 KIS 가 이름을 안 줄 때 코드만 남았다)을 종목 마스터 이름으로 보인다(2026-10-07).
+     * 읽기 전용 트랜잭션 안에서 표시용으로만 채운다 — 저장 행은 바꾸지 않는다. 마스터에도 없으면 그대로(코드로 보인다).
+     */
+    private List<ManualTradeJournal> withMasterNames(List<ManualTradeJournal> rows) {
+        if (rows == null) return null;
+        for (ManualTradeJournal j : rows) {
+            if (j != null && (j.getStockName() == null || j.getStockName().isBlank())) {
+                String n = masterName(j.getStockCode());
+                if (n != null) j.setStockName(n);
+            }
+        }
+        return rows;
     }
 
     /**
