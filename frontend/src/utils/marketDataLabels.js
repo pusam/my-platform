@@ -276,3 +276,16 @@ export function supplyDaysNote(buyDays, sellDays) {
   if (count(sellDays) > 0) parts.push(`순매도 ${count(sellDays)}일`)
   return parts.length ? `(${parts.join(' · ')})` : ''
 }
+
+/**
+ * 턴어라운드 카드의 순이익 변화율(2026-10-07). 이전 분기 순이익이 적자면 %가 아니라 '적자→흑자' — 적자를 분모로 한 변화율은
+ * 성장률이 아니다(CLAUDE.md 실적 서프라이즈 규칙, 'FSN −1억 → 49억 · +5000%'). 이전이 0 이거나 값을 모르면 '-'.
+ */
+export function netIncomeChangeLabel(previous, rate) {
+  const p = previous === null || previous === undefined || previous === '' ? null : Number(previous)
+  if (p !== null && Number.isFinite(p) && p < 0) return '적자→흑자'
+  if (p === 0) return '-'
+  const r = rate === null || rate === undefined || rate === '' ? null : Number(rate)
+  if (r === null || !Number.isFinite(r)) return '-'
+  return `${r > 0 ? '+' : ''}${r.toFixed(2)}%`
+}

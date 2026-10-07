@@ -23,7 +23,8 @@
           <span class="timestamp-icon">⚠️</span>
           <span class="timestamp-label">데이터가 없습니다. 배치 수집을 기다려주세요.</span>
         </div>
-        <span class="batch-info">자동 수집: 매일 08:30, 15:40</span>
+        <!-- 실제 크론(FinancialDataScheduler) — 평일 08:30·15:38, 휴장일 건너뜀(예전 이름표는 매일·15시 40분이라 했다, 2026-10-07) -->
+        <span class="batch-info">자동 수집: 거래일 08:30·15:38</span>
       </div>
 
       <div class="screener-tabs">
@@ -250,21 +251,27 @@
             </div>
 
             <div class="stock-details">
+              <!-- 판정 근거 — 흑자전환·이익급증은 영업이익(없을 때만 순이익) 기준이다. 아래 숫자는 순이익이라 '흑자전환'이
+                   이미 흑자처럼 보였다(삼성SDI 순이익 561억→4,716억, 2026-10-07) -->
+              <div class="detail-row judge" v-if="stock.judgeSummary">
+                <span class="label">판정</span>
+                <span class="value">{{ stock.judgeSummary }}</span>
+              </div>
               <div class="detail-row highlight">
-                <span class="label">이전 ({{ stock.previousPeriod || '직전분기' }})</span>
+                <span class="label">순이익 이전 ({{ stock.previousPeriod || '직전분기' }})</span>
                 <span class="value" :class="getAmountClass(stock.previousNetIncome)">
                   {{ formatAmount(stock.previousNetIncome) }}
                 </span>
               </div>
               <div class="detail-row highlight">
-                <span class="label">현재 ({{ stock.currentPeriod || '최근분기' }})</span>
+                <span class="label">순이익 현재 ({{ stock.currentPeriod || '최근분기' }})</span>
                 <span class="value" :class="getAmountClass(stock.currentNetIncome)">
                   {{ formatAmount(stock.currentNetIncome) }}
                 </span>
               </div>
               <div class="detail-row" v-if="stock.turnaroundType !== 'LOSS_TO_PROFIT'">
-                <span class="label">변화율</span>
-                <span class="value positive">+{{ formatPercent(stock.netIncomeChangeRate) }}</span>
+                <span class="label">순이익 변화율</span>
+                <span class="value positive">{{ netIncomeChangeLabel(stock.previousNetIncome, stock.netIncomeChangeRate) }}</span>
               </div>
               <!-- PER이 유효하면 PER 표시, 아니면 PBR 표시 -->
               <div class="detail-row" v-if="isValidPer(stock.per)">
@@ -352,7 +359,7 @@
           <div v-if="collectStatus?.lastAutoCollect?.lastCollectTime" class="auto-collect-status">
             <div class="auto-collect-header">
               <span class="auto-collect-icon">🤖</span>
-              <span class="auto-collect-title">자동 수집 (매일 08:30, 15:40)</span>
+              <span class="auto-collect-title">자동 수집 (거래일 08:30·15:38)</span>
             </div>
             <div class="auto-collect-result" :class="collectStatus.lastAutoCollect.success ? 'success' : 'fail'">
               <span class="result-icon">{{ collectStatus.lastAutoCollect.success ? '✅' : '❌' }}</span>
@@ -366,7 +373,7 @@
           <div v-else-if="collectStatus" class="auto-collect-status pending">
             <div class="auto-collect-header">
               <span class="auto-collect-icon">🤖</span>
-              <span class="auto-collect-title">자동 수집 (매일 08:30, 15:40)</span>
+              <span class="auto-collect-title">자동 수집 (거래일 08:30·15:38)</span>
             </div>
             <div class="auto-collect-message">
               아직 자동 수집이 실행되지 않았습니다. 서버 재시작 후 첫 스케줄 시간에 자동으로 실행됩니다.
@@ -704,7 +711,7 @@
 
 <script setup>
 import { ma20PositionLabel } from '../utils/stockFormat'
-import { supplyDaysNote } from '../utils/marketDataLabels'
+import { supplyDaysNote, netIncomeChangeLabel } from '../utils/marketDataLabels'
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
@@ -2155,6 +2162,19 @@ onUnmounted(() => {
 .detail-row .value {
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* 판정 근거는 문장이라 오른쪽 정렬로 줄바꿈한다(2026-10-07) */
+.detail-row.judge {
+  align-items: flex-start;
+  gap: 8px;
+}
+.detail-row.judge .value {
+  font-weight: 500;
+  font-size: 0.85rem;
+  text-align: right;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 /* AI 분석 섹션 */

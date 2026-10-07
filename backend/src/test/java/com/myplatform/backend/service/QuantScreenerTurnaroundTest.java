@@ -80,4 +80,21 @@ class QuantScreenerTurnaroundTest {
 
         assertThat(out).extracting(ScreenerResultDto::getStockCode).containsExactly("000009");
     }
+
+    @Test
+    @DisplayName("재현(10/7 화면): 판정 근거를 싣는다 — 흑자전환은 영업이익 기준이라 순이익(561억→4,716억)만 보면 이미 흑자였다")
+    void carriesJudgeSummary() {
+        EarningSurpriseDto sdi = surprise("006400", EarningSurpriseDto.SurpriseType.TURNAROUND, "4716", "561", null);
+        sdi.setSummary("영업이익 적자→흑자 전환! (-4352억 → 591억)");
+
+        List<ScreenerResultDto> out = QuantScreenerService.turnaroundFromSurprises(
+                List.of(sdi), Map.of("006400", daily("006400", "460000")));
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).getJudgeSummary()).isEqualTo("영업이익 적자→흑자 전환! (-4352억 → 591억)");
+        // 목록 구성·값은 그대로(추천 입력 — AI 턴어라운드 후보)
+        assertThat(out.get(0).getCurrentNetIncome()).isEqualByComparingTo("4716");
+        assertThat(out.get(0).getPreviousNetIncome()).isEqualByComparingTo("561");
+    }
 }
+

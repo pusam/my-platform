@@ -533,6 +533,7 @@ public class QuantScreenerService {
                     .netIncomeChangeRate(rate)
                     .previousPeriod(formatQuarter(e.getPreviousReportDate()))
                     .currentPeriod(formatQuarter(e.getLatestReportDate()))
+                    .judgeSummary(e.getSummary())
                     .revenueGrowth(d != null ? d.getRevenueGrowth() : null)
                     .profitGrowth(d != null ? d.getProfitGrowth() : null)
                     .build());

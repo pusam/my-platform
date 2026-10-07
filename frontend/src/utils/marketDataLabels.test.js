@@ -240,3 +240,22 @@ describe('supplyDaysNote', () => {
     expect(supplyDaysNote(0, 0)).toBe('')
   })
 })
+
+/**
+ * 턴어라운드 순이익 변화율 — 적자를 분모로 한 %는 성장률이 아니다(CLAUDE.md, 2026-10-07 화면 점검).
+ * 재현: 'FSN 이전 -1억 → 현재 49억 · 변화율 +5000.00%'.
+ */
+describe('netIncomeChangeLabel', () => {
+  it('재현: 이전이 적자면 % 가 아니라 적자→흑자', async () => {
+    const { netIncomeChangeLabel } = await import('./marketDataLabels')
+    expect(netIncomeChangeLabel(-1, 5000)).toBe('적자→흑자')
+    expect(netIncomeChangeLabel('-4', '1850')).toBe('적자→흑자')
+  })
+  it('이전이 흑자면 종전대로 %, 모르면 -', async () => {
+    const { netIncomeChangeLabel } = await import('./marketDataLabels')
+    expect(netIncomeChangeLabel(2, 14950)).toBe('+14950.00%')
+    expect(netIncomeChangeLabel(15, 2826.7)).toBe('+2826.70%')
+    expect(netIncomeChangeLabel(0, null)).toBe('-')
+    expect(netIncomeChangeLabel(null, null)).toBe('-')
+  })
+})

@@ -56,6 +56,9 @@ public class ScreenerResultDto {
     private BigDecimal netIncomeChangeRate; // 순이익 변화율 (%)
     private String previousPeriod; // 이전 기간 라벨 (예: "2025.3Q")
     private String currentPeriod;  // 현재 기간 라벨 (예: "2025.4Q")
+    // 판정 근거(실적 서프라이즈 summary — 예: "영업이익 적자→흑자 전환! (-4352억 → 591억)"). 흑자전환·이익급증 판정은 영업이익
+    // (없을 때만 순이익) 기준인데 화면은 순이익만 보여 '흑자전환'이 이미 흑자처럼 보였다(2026-10-07). 표시 전용.
+    private String judgeSummary;
 
     // 성장성
     private BigDecimal revenueGrowth;
