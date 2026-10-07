@@ -56,6 +56,7 @@ public class CatalystWarmingService {
     // 실잔고는 KIS 미설정 환경(로컬 등)에서도 컨텍스트 로딩 가능하도록 ObjectProvider.
     private final ObjectProvider<RealTradeService> realTradeProvider;
     private final ObjectProvider<KoreaInvestmentService> kisProvider;
+    private final MarketCalendarService marketCalendar;   // 휴장일 게이트(2026-10-07)
 
     @Value("${catalyst.union-warm.enabled:true}")
     private boolean unionWarmEnabled;
@@ -77,6 +78,9 @@ public class CatalystWarmingService {
     @Scheduled(scheduler = "cacheScheduler", cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledWarmUnion() {
         if (!unionWarmEnabled) return;
+        // 휴장일엔 돌지 않는다(2026-10-07) — 10/5 대체공휴일에 Gemini 분류 27건 + 발굴 5트랙 계산을 했다. 그날 재료는 다음 거래일
+        // 아침 워밍(07:30 브리핑·08:00 이 크론)이 다시 본다. 관리 화면 수동 워밍(warmUnionCatalysts)은 그대로.
+        if (marketCalendar.isMarketClosed()) { log.debug("[재료워밍] 휴장일 — 스킵"); return; }
         // fail-open: 락 실패(Redis 장애)면 스킵, TTL(10분) < 크론(일)이라 중복 위험 없음. 단일 인스턴스 전제.
         if (!schedulerLockService.tryLock("catalyst.union-warm", Duration.ofMinutes(10))) {
             log.debug("[재료워밍] union 락 미획득 — 스킵");

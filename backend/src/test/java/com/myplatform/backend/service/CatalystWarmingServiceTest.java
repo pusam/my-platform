@@ -43,7 +43,7 @@ class CatalystWarmingServiceTest {
     void setUp() {
         service = new CatalystWarmingService(recommendationService, stockCatalystService,
                 schedulerLockService, watchlistRepository, botPositionRepository,
-                realTradeProvider, kisProvider);
+                realTradeProvider, kisProvider, org.mockito.Mockito.mock(MarketCalendarService.class));
     }
 
     @Captor private ArgumentCaptor<List<StockRef>> refsCaptor;

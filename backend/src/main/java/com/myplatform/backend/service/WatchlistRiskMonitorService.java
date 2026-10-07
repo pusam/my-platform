@@ -40,6 +40,7 @@ public class WatchlistRiskMonitorService {
     private final InvestorDailyTradeRepository investorTradeRepository;
     private final TelegramNotificationService telegramService;
     private final SchedulerLockService schedulerLockService;
+    private final MarketCalendarService marketCalendar;   // 휴장일 게이트(2026-10-07)
 
     private static final int COOLDOWN_MINUTES = 60;
     private static final String ALERT_TYPE_RISK = "WATCHLIST_RISK";
@@ -56,6 +57,9 @@ public class WatchlistRiskMonitorService {
      */
     @Scheduled(scheduler = "cacheScheduler", cron = "0 0/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledRiskMonitor() {
+        // 휴장일엔 돌지 않는다(2026-10-07) — 급락 판정은 시세 등락률을 보는데 휴장일 시세는 직전 거래일 값이라, 직전 거래일에 −3% 였던
+        // 관심종목이면 쿨다운(1시간)마다 '장중 급락' 알림이 다시 나갈 수 있었다. 공시 위험은 최근 3개월을 보므로 다음 거래일 첫 감시가 잡는다.
+        if (marketCalendar.isMarketClosed()) { log.debug("관심종목 리스크 감시 — 휴장일 스킵"); return; }
         // 10분 cron — TTL 8분 으로 다음 cron 까지 락 풀림. monitorWatchlistRisks 는 public 이라 직접 호출도 가능 — 락은 cron 만 보호.
         if (!schedulerLockService.tryLock("watchlist-risk.monitor", Duration.ofMinutes(8))) {
             log.debug("관심종목 리스크 감시 다른 인스턴스에서 진행 중 — 스킵");

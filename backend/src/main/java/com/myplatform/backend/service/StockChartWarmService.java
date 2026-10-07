@@ -34,6 +34,7 @@ public class StockChartWarmService {
     private final StockDetailCacheService cacheService;
     private final StockWatchlistRepository watchlistRepository;
     private final BotTradingPositionRepository botPositionRepository;
+    private final MarketCalendarService marketCalendar;   // 휴장일 게이트(2026-10-07)
 
     @Value("${chart.warm.enabled:true}")
     private boolean warmEnabled;
@@ -49,6 +50,8 @@ public class StockChartWarmService {
     @Scheduled(scheduler = "cacheScheduler", cron = "0 10 20 * * MON-FRI", zone = "Asia/Seoul")
     public void warmPopularCharts() {
         if (!warmEnabled) return;
+        // 휴장일엔 돌지 않는다(2026-10-07) — 차트가 직전 거래일 그대로라 KIS 호출만 남는다(관리 화면 수동 워밍 warmNow 는 그대로).
+        if (marketCalendar.isMarketClosed()) { log.debug("[Chart Warm] 휴장일 — 스킵"); return; }
         List<String> targets = collectTargets();
         if (targets.isEmpty()) {
             log.info("[Chart Warm] 워밍 대상 없음(관심종목·봇 보유 비어있음)");

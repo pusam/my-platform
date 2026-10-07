@@ -5,6 +5,7 @@ import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.repository.AiStrategySnapshotRepository;
+import com.myplatform.backend.service.MarketCalendarService;
 import com.myplatform.backend.service.SchedulerLockService;
 import com.myplatform.backend.service.TelegramNotificationService;
 import com.myplatform.backend.service.VirtualTradeService;
@@ -33,6 +34,7 @@ public class DailyReportScheduler {
     private final AiStrategySnapshotRepository aiStrategySnapshotRepository;
     private final TelegramNotificationService telegramNotificationService;
     private final SchedulerLockService schedulerLockService;
+    private final MarketCalendarService marketCalendar;   // 휴장일 게이트(2026-10-07)
 
     @Value("${alert.scheduler.enabled:false}")
     private boolean schedulerEnabled;
@@ -46,6 +48,8 @@ public class DailyReportScheduler {
             log.debug("스케줄러 비활성화 상태 - 일일 리포트 생략");
             return;
         }
+        // 휴장일엔 보내지 않는다(2026-10-07) — 매매가 없는 날의 '일일 리포트'는 직전 거래일 내용을 되풀이할 뿐이다.
+        if (marketCalendar.isMarketClosed()) { log.debug("휴장일 - 일일 리포트 생략"); return; }
 
         if (!schedulerLockService.tryLock("daily-report.send", Duration.ofMinutes(30))) {
             log.debug("일일 리포트 다른 인스턴스에서 발송 중 — 스킵 (텔레그램 중복 방지)");

@@ -47,6 +47,7 @@ public class AiStockAnalysisService {
     private final TechnicalIndicatorService technicalIndicatorService;
     // 시그널 적중률 — phase 24 통합. ObjectProvider 로 안전 주입.
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
+    private final MarketCalendarService marketCalendar;   // 휴장일 게이트(2026-10-07)
 
     // 분석 결과 캐시
     private volatile AiAnalysisResponseDto cachedAnalysis;
@@ -109,6 +110,8 @@ public class AiStockAnalysisService {
      */
     @Scheduled(scheduler = "batchScheduler", cron = "0 0 9,12,15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledAnalysis() {
+        // 휴장일엔 돌지 않는다(2026-10-07) — 직전 거래일 데이터 그대로라 90점+ 'AI TOP PICK' 텔레그램이 회차마다 같은 내용으로 나간다.
+        if (marketCalendar.isMarketClosed()) { log.debug("AI 주식 분석 — 휴장일 스킵"); return; }
         log.info("AI 주식 분석 스케줄 실행");
         runAnalysis();
     }
