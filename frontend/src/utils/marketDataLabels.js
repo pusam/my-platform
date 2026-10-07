@@ -233,3 +233,34 @@ export function staleQuoteNote(quote) {
   if (hours < 24) return `${hours}시간 전 값`
   return `${Math.floor(hours / 24)}일 전 값`
 }
+
+/**
+ * 시장 탭 수급 패널 한 줄의 시점(2026-10-07). KIS 순위로 받은 값(asOf = 조회 시각)이면 15:50 전에 받은 것은
+ * 'MM.DD HH:mm 장중 잠정', 그 뒤에 받은 것은 'MM.DD 장 마감 집계'. DB 행(asOf 없음)은 장 마감 뒤 확정치만 저장된다
+ * (InvestorDailyConfirmation — 같은 15:50 기준)이라 'MM.DD 장 마감 집계'. 예전엔 패널 전체를 '10.07 기준' 하나로 적어
+ * 장중 잠정 합계가 하루치처럼 읽혔고, 10시 전 기관 줄(DB 전일)과 외국인 줄(오늘 장중)의 날짜가 섞였다. 행이 없으면 null.
+ */
+export function supplyBasisLabel(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return null
+  const fetched = rows
+    .map((r) => r && r.asOf)
+    .filter((s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s))
+    .sort()
+  if (fetched.length) {
+    const last = fetched[fetched.length - 1]
+    const hm = last.slice(11, 16)
+    return hm < '15:50' ? `${toMonthDay(last)} ${hm} 장중 잠정` : `${toMonthDay(last)} 장 마감 집계`
+  }
+  const day = latestTradeDay(rows)
+  return day ? `${day} 장 마감 집계` : null
+}
+
+/** 연속 순매수 목록이 어느 날까지의 확정치인지 'MM.DD까지' — 마지막 endDate. 없으면 null(2026-10-07). */
+export function consecutiveThroughLabel(items) {
+  if (!Array.isArray(items)) return null
+  const ends = items
+    .map((i) => i && i.endDate)
+    .filter((d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d))
+    .sort()
+  return ends.length ? `${toMonthDay(ends[ends.length - 1])}까지` : null
+}

@@ -79,3 +79,16 @@ describe('수급 패널 — 받았는지', () => {
     expect(await M.loadSupplyPanel.call(hub())).toBe(true)
   })
 })
+
+describe('수급 패널 — 줄마다 시점(2026-10-07)', () => {
+  it('재현: 10시 전 외국인은 장중 순위·기관은 DB 전일 확정 — 한 이름표로 묶지 않고 줄마다 적는다', async () => {
+    investorAPI.getAllConsecutiveBuy.mockResolvedValue(ok({ FOREIGN: [{ stockCode: '086520', investorType: 'FOREIGN', consecutiveDays: 4, endDate: '2026-10-06' }] }))
+    investorAPI.getTopTradesRealtime.mockImplementation((type) => type === 'FOREIGN'
+      ? Promise.resolve(ok([{ tradeDate: '2026-10-07', asOf: '2026-10-07T09:40:12', netBuyAmount: 120 }]))
+      : Promise.resolve(ok([{ tradeDate: '2026-10-06', netBuyAmount: 80 }])))
+    const ctx = hub()
+    await M.loadSupplyPanel.call(ctx)
+    expect(ctx.supplyPanelData.daily.map(d => d.basis)).toEqual(['10.07 09:40 장중 잠정', '10.06 장 마감 집계'])
+    expect(ctx.supplyPanelData.consecutiveThrough).toBe('10.06까지')
+  })
+})

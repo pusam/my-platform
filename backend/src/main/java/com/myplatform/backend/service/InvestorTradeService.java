@@ -143,6 +143,8 @@ public class InvestorTradeService {
 
         String netBuyField = "FOREIGN".equals(investorType) ? "frgn_ntby_tr_pbmn" : "orgn_ntby_tr_pbmn";
         int rank = 1;
+        // 장중엔 그 시각까지의 잠정 집계다 — 언제 받은 값인지 행에 남긴다(2026-10-07)
+        java.time.LocalDateTime fetchedAt = java.time.LocalDateTime.now();
 
         for (JsonNode item : output) {
             if (rank > limit) break;
@@ -167,6 +169,7 @@ public class InvestorTradeService {
             dto.setInvestorType(investorType);
             dto.setRankNum(rank);
             dto.setTradeDate(LocalDate.now());
+            dto.setAsOf(fetchedAt);
 
             result.add(dto);
             rank++;

@@ -29,11 +29,12 @@
         <template v-else>
           <div class="sub-header">
             <div class="trade-type-selector">
+              <!-- 순위 출처(KIS 매매종목가집계)는 하루 30종목까지 — 예전 이름표의 50 은 없는 수였다(2026-10-07) -->
               <button :class="['type-btn', { active: tradeType === 'BUY' }]" @click="changeTradeType('BUY')">
-                📈 매수 TOP 50
+                📈 순매수 상위
               </button>
               <button :class="['type-btn', { active: tradeType === 'SELL' }]" @click="changeTradeType('SELL')">
-                📉 매도 TOP 50
+                📉 순매도 상위
               </button>
             </div>
             <span class="data-timestamp" :class="tradeDataStatus">
@@ -41,6 +42,7 @@
             </span>
           </div>
           <p v-if="tradesCollecting" class="collecting-status">🔄 데이터 수집 중...</p>
+          <p class="rank-source-note">KIS 투자자별 순위 기준 · 하루 최대 30종목(연기금은 그보다 적을 수 있음)</p>
 
           <div class="investor-tabs">
             <button v-for="type in tradeInvestorTypes" :key="type.value"
@@ -676,6 +678,12 @@ onMounted(() => {
   background: rgba(102,126,234,0.2);
   border-color: var(--primary-start);
   color: #a5b4fc;
+}
+
+.rank-source-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
 }
 
 .data-timestamp {

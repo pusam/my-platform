@@ -186,3 +186,37 @@ describe('dailyRatioLabel — 등락비 이름표는 그 값의 거래일로', (
     expect(src).toMatch(/dailyRatioLabel\(marketData\.analysisDate\)/)
   })
 })
+
+/**
+ * 시장 탭 수급 패널 — 줄마다 그 값의 시점(2026-10-07 화면 점검).
+ * 재현: 10:29 패널이 '외국인 상위 10 +3,930억 · 10.07 기준'이라 했다 — 그 합은 장중 잠정(KIS 순위, 30초 워머)이고, 같은 패널의
+ * 연속 순매수는 10.06 장 마감까지 확정치였다. 10시 전엔 기관 순위가 비어 기관 줄만 DB(전일)로 떨어져 한 이름표 아래 날짜가 섞였다.
+ */
+describe('supplyBasisLabel / consecutiveThroughLabel', () => {
+  it('재현: KIS 순위 행(asOf 있음)은 장중이면 "MM.DD HH:mm 장중 잠정"', async () => {
+    const { supplyBasisLabel } = await import('./marketDataLabels')
+    expect(supplyBasisLabel([
+      { tradeDate: '2026-10-07', asOf: '2026-10-07T10:29:44.123' },
+      { tradeDate: '2026-10-07', asOf: '2026-10-07T10:29:44.123' }
+    ])).toBe('10.07 10:29 장중 잠정')
+  })
+
+  it('15:50 이후에 받은 값과 DB 확정치(asOf 없음)는 장 마감 집계', async () => {
+    const { supplyBasisLabel } = await import('./marketDataLabels')
+    expect(supplyBasisLabel([{ tradeDate: '2026-10-07', asOf: '2026-10-07T16:05:00' }])).toBe('10.07 장 마감 집계')
+    expect(supplyBasisLabel([{ tradeDate: '2026-10-06' }])).toBe('10.06 장 마감 집계')
+  })
+
+  it('행이 없으면 null', async () => {
+    const { supplyBasisLabel } = await import('./marketDataLabels')
+    expect(supplyBasisLabel([])).toBeNull()
+    expect(supplyBasisLabel(null)).toBeNull()
+  })
+
+  it('연속 순매수는 마지막 날까지 — "MM.DD까지"', async () => {
+    const { consecutiveThroughLabel } = await import('./marketDataLabels')
+    expect(consecutiveThroughLabel([{ endDate: '2026-10-05' }, { endDate: '2026-10-06' }])).toBe('10.06까지')
+    expect(consecutiveThroughLabel([])).toBeNull()
+    expect(consecutiveThroughLabel([{ endDate: null }])).toBeNull()
+  })
+})
