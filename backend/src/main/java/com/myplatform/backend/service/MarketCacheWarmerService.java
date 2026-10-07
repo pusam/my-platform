@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Duration;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -48,14 +47,14 @@ public class MarketCacheWarmerService {
     // 섹터강도(발굴 배지·종합판단 보드) 프리페치용 — python 계산 무거워 콜드 요청이 Java 8s 타임아웃 근접(t134≈7.8s).
     private final ChartPatternClient chartPatternClient;
     private final SectorStockConfig sectorStockConfig;
+    // 워밍 시간 창 — 장이 열린 날의 NXT 08:00~20:00(휴장일 단일 출처, 2026-10-07)
+    private final MarketCalendarService marketCalendar;
     // 롤백 스위치 — 문제 시 chart.sector-strength.warm.enabled=false 로 워밍만 끔(온디맨드는 유지).
     @Value("${chart.sector-strength.warm.enabled:true}")
     private boolean sectorStrengthWarmEnabled;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    // NXT/시간외 거래 시간까지 커버 (2025-03 NXT 도입, 2026-09 KRX 본 장 연장 예정)
-    private static final LocalTime MARKET_OPEN = LocalTime.of(8, 0);
-    private static final LocalTime MARKET_CLOSE = LocalTime.of(20, 0);
+    // 워밍 시간 창은 달력 한 곳(MarketCalendarService.isNxtSession — 장이 열린 날의 NXT 08:00~20:00)이 정한다(2026-10-07).
 
     // ===== Redis 캐시명 상수 =====
     private static final String CACHE_SMART_MONEY = "smartMoneyRealtime";
@@ -291,9 +290,14 @@ public class MarketCacheWarmerService {
 
     // ===== 헬퍼 메서드 =====
 
+    /**
+     * 장이 열린 날의 NXT 시간(08:00~20:00)인가 — 예전엔 시각만 봐서 토·일·평일 공휴일에도 08~20시 내내 워머가 돌았다(2026-10-07):
+     * 스마트머니는 30초마다 KIS 2회(하루 약 2,880회), 섹터강도는 20분마다 python 재계산. 받은 값은 직전 거래일 그대로라 쓸모가 없고,
+     * 화면은 캐시가 비면 종전대로 조회 경로가 직접 읽는다. 시장 상태 워머({@link #warmMarketStatus})는 원래 24시간이라 그대로다.
+     */
     private boolean isMarketHours() {
-        LocalTime now = LocalTime.now(KST);
-        return !now.isBefore(MARKET_OPEN) && !now.isAfter(MARKET_CLOSE);
+        java.time.ZonedDateTime now = java.time.ZonedDateTime.now(KST);
+        return marketCalendar.isNxtSession(now.toLocalDate(), now.toLocalTime());
     }
 
     /**

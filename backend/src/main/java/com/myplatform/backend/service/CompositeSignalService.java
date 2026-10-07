@@ -46,6 +46,8 @@ public class CompositeSignalService {
     private final CacheManager cacheManager;
     // 시그널 적중률 — phase 16 통합. ObjectProvider 로 안전 주입.
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
+    /** 스케줄 워밍 시간 창 — 장이 열린 날의 NXT 08:00~20:00(2026-10-07). */
+    private final MarketCalendarService marketCalendar;
     /** scanTopRanked 백그라운드 평가 동시 실행 방지. */
     private final java.util.concurrent.atomic.AtomicBoolean rankingComputing =
             new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -191,6 +193,14 @@ public class CompositeSignalService {
     /** 부팅 5분 후 + 매 25분 자동 워밍 (캐시 30분 TTL 살짝 안쪽). */
     @Scheduled(scheduler = "cacheScheduler", initialDelay = 300_000L, fixedDelay = 1_500_000L)
     public void scheduledWarmup() {
+        // 장이 열린 날의 NXT 시간(08:00~20:00)에만(2026-10-07) — 예전엔 밤·주말·공휴일에도 25분마다 돌아 차트 패턴용 KIS 일봉을
+        // 50분마다 약 80회(패턴 캐시 30분) 불렀다(10/5 대체공휴일 58회). 장이 닫힌 동안엔 결과가 바뀌지 않는다 — 화면 요청은
+        // 종전대로 평가를 시작한다(scanTopRanked). 달력 없이 조립된 경우(테스트)는 종전 동작.
+        java.time.ZonedDateTime now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
+        if (marketCalendar != null && !marketCalendar.isNxtSession(now.toLocalDate(), now.toLocalTime())) {
+            log.debug("[종합추천] 장이 닫힌 시간 — 스케줄 워밍 스킵");
+            return;
+        }
         log.info("[종합추천] 스케줄 워밍 시작 (limit=30)");
         triggerRankingComputation(30);
     }

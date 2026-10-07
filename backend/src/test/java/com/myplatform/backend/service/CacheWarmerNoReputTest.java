@@ -32,7 +32,7 @@ class CacheWarmerNoReputTest {
             redis, mock(InvestorTradeService.class), mock(InvestorSurgeService.class), sector,
             mock(SectorAnalysisService.class), ai, mock(SectorOpportunityService.class),
             mock(MarketIndicatorService.class), mock(MarketTimingService.class),
-            mock(ChartPatternClient.class), mock(SectorStockConfig.class));
+            mock(ChartPatternClient.class), mock(SectorStockConfig.class), mock(MarketCalendarService.class));
 
     @Test
     @DisplayName("재현: 섹터 워밍이 Redis 우선 getter 를 읽어 같은 값을 다시 넣던 것 — 이제 메모리 계산값")

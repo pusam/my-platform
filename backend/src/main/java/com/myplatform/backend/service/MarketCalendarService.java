@@ -140,6 +140,22 @@ public class MarketCalendarService {
         return !time.isBefore(MARKET_OPEN) && !time.isAfter(MARKET_CLOSE);
     }
 
+    /** NXT 기준 표시·추천·캐시워밍 시간의 시작·끝(§2, 양 끝 포함). */
+    public static final LocalTime NXT_OPEN = LocalTime.of(8, 0);
+    public static final LocalTime NXT_CLOSE = LocalTime.of(20, 0);
+
+    /**
+     * 장이 열린 날의 NXT 시간(08:00~20:00)인가 — 캐시 워머가 도는 창(2026-10-07).
+     *
+     * <p>워머들이 시각만 봐서 토·일·평일 공휴일에도 08~20시 내내 KIS 를 불렀다(스마트머니 30초마다 2회 = 하루 약 2,880회,
+     * 🎯종합 순위는 시각조차 안 봐서 밤에도). 장이 닫힌 날 받은 값은 직전 거래일 그대로다. 정규장 판정({@link #isRegularSession})과
+     * 섞지 말 것 — 봇·섹터는 KRX 09:00~15:40, 표시·워밍은 NXT 08:00~20:00 으로 의도적으로 나뉘어 있다(§2).
+     */
+    public boolean isNxtSession(LocalDate date, LocalTime time) {
+        if (isMarketClosed(date)) return false;
+        return !time.isBefore(NXT_OPEN) && !time.isAfter(NXT_CLOSE);
+    }
+
     /**
      * {@code from} 기준 {@code tradingDays} 거래일 이전 날짜 — 주말·공휴일을 건너뛰며 역행.
      *
