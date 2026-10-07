@@ -1,17 +1,22 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.AiStrategySnapshotDto;
+import com.myplatform.backend.entity.StockPriceHistory;
+import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.service.RecommendationService.StockScore;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -50,6 +55,15 @@ class RecommendationGeminiThemeTest {
                 .strategies(Map.of("VALUE", valueSnapshots)).build());
         ReflectionTestUtils.setField(service, "sectorTradingService", sector);
         ReflectionTestUtils.setField(service, "aiStrategyService", ai);
+        // 섹터 점수의 등락률은 마지막 확정 봉(2026-10-07) — 두 종목 다 직전 거래일 +1.0%
+        MarketCalendarService calendar = new MarketCalendarService();
+        LocalDate settled = calendar.minusTradingDays(LocalDate.now(), 1);
+        StockPriceHistoryRepository history = mock(StockPriceHistoryRepository.class);
+        when(history.findByStockCodesSince(anyList(), any())).thenReturn(List.of(
+                StockPriceHistory.builder().stockCode("000001").tradeDate(settled).changeRate(new BigDecimal("1.0")).build(),
+                StockPriceHistory.builder().stockCode("000002").tradeDate(settled).changeRate(new BigDecimal("1.0")).build()));
+        ReflectionTestUtils.setField(service, "priceHistoryRepository", history);
+        ReflectionTestUtils.setField(service, "marketCalendar", calendar);
 
         Map<String, StockScore> scoreMap = new LinkedHashMap<>();
         scoreMap.put("000001", stock("000001", "1.0"));   // AI 스냅샷에 있고 테마 3개
@@ -78,11 +92,11 @@ class RecommendationGeminiThemeTest {
     }
 
     @Test
-    @DisplayName("스냅샷 등락률은 종전대로 쓴다 — 빠지는 것은 테마 가산뿐")
-    void snapshotChangeRateStillUsed() {
-        // 스냅샷 등락률 +3.5%(>3 → +4) 가 종목 자체 값(+1.0% → +2)보다 우선 — 종전 규칙(2026-07-28 이중가산 제거 뒤 1회만)
+    @DisplayName("스냅샷 시점 등락률도 쓰지 않는다(2026-10-07) — 섹터 점수는 마지막 확정 봉 등락률(RecommendationSectorSettledChangeTest)")
+    void snapshotChangeRateNoLongerUsed() {
+        // 예전엔 스냅샷 등락률 +3.5%(>3 → +4)가 우선했다 — 이제 직전 거래일 확정 봉 +1.0%(→ +2)
         Map<String, StockScore> scored = scoreWith(List.of(snap("000001", "반도체", "3.5")));
 
-        assertThat(scored.get("000001").sectorMomentum).isEqualTo(4);
+        assertThat(scored.get("000001").sectorMomentum).isEqualTo(2);
     }
 }

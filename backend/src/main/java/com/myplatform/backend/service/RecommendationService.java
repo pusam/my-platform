@@ -2165,34 +2165,22 @@ public class RecommendationService {
             log.warn("[종합추천] 섹터 로테이션 실패 — regime UNKNOWN(가중 미적용): {}", e.getMessage());
         }
 
-        // 2. AI 스냅샷의 등락률(스냅샷 시점 값) — 아래 3단계 등락률 보너스에 1회만 쓴다.
+        // 2. 등락률 — 전 종목 '마감 확정된 마지막 봉'의 등락률(2026-10-07, 사용자 결정 '추천으로'). 예전엔 후보 출처마다 시각이 달랐다:
+        //    수급 후보는 투자자 매매 행 값(직전 거래일), AI 후보는 AI 스냅샷이 만들어진 시점 값(오늘 10시 스윙·어제 18시 가치 등, 스냅샷
+        //    어디에든 있으면 그 값이 우선), 실적만으로 들어온 후보는 출처가 없어 가점 0. 기술 채점과 같은 봉을 쓰므로 장중엔 전 종목이
+        //    직전 거래일 등락률로 같다 — 마감 전 봉은 저장되지 않아 오늘 급등이 과열 감점에서 빠지니 가점에서도 빠져야 추격 편향이 없다.
         // ⚠ Gemini 테마 가산(테마 개수로 최대 +10)은 2026-10-06 점수에서 뺐다(사용자 결정) — Gemini 무료 한도가 하루 20회
         //   (한국 16시 초기화)라 장중 회차엔 테마가 거의 안 붙고, 같은 종목이 한도 상태에 따라 섹터 축 +10(100점 환산 +12.5)을
         //   받거나 못 받았다. 테마는 AI 전략 화면 표시용으로만 남는다. 10/1 "LLM 은 점수·순위를 바꾸지 않는다"와 같은 원칙 —
         //   되살리지 말 것(RecommendationGeminiThemeTest). 이 날이 종합추천 섹터 축의 표본 경계다.
-        Map<String, BigDecimal> snapChangeRates = new HashMap<>();
-        try {
-            var response = aiStrategyService.getAllLatestSnapshots();
-            if (response != null && response.getStrategies() != null) {
-                for (List<AiStrategySnapshotDto> stocks : response.getStrategies().values()) {
-                    if (stocks == null) continue;
-                    for (AiStrategySnapshotDto snap : stocks) {
-                        if (snap.getStockCode() == null || snap.getChangeRate() == null) continue;
-                        // (2026-07-28: 여기서도 같은 changeRate 로 최대 +4 를 더하던 이중가산 제거 — 3단계에서 1회만)
-                        snapChangeRates.putIfAbsent(snap.getStockCode(), snap.getChangeRate());
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[종합추천] AI 스냅샷 등락률 조회 실패: {}", e.getMessage());
-        }
+        Map<String, BigDecimal> settledChange = settledChangeRates(scoreMap.keySet());
 
         // 3. 종목별 섹터 점수 — 종목 등락률만 (시장분위기 일괄 가산 제거 P1, Gemini 테마 가산 제거 2026-10-06).
         int scored = 0;
         for (StockScore stock : scoreMap.values()) {
             int ss = 0;
-            // 종목 자체 등락률 보너스
-            BigDecimal cr = snapChangeRates.getOrDefault(stock.stockCode, stock.changeRate);
+            // 종목 자체 등락률 보너스 — 마지막 확정 봉 기준(모르면 가점 없음, 후보가 실어 온 값으로 메우지 않는다)
+            BigDecimal cr = settledChange.get(stock.stockCode);
             if (cr != null) {
                 double v = cr.doubleValue();
                 if (v > 3.0) ss += 4;
@@ -2220,6 +2208,40 @@ public class RecommendationService {
         }
         log.info("[종합추천] 섹터: {}종목 부여, 시장분위기 +{}", scored, marketMoodBonus);
         return regime;
+    }
+
+    /**
+     * 종목별 '마감 확정된 마지막 봉'의 등락률 — 섹터 점수(등락률 가점) 단일 출처(2026-10-07).
+     *
+     * <p>기술 채점과 같은 봉을 쓴다: 저장된 최신 봉이고, 직전 거래일보다 오래되면 노후라 모름(null). 마감 전 봉은 저장되지
+     * 않으므로({@code StockAnalysisService.isSettledBar}) 장중엔 전 종목이 직전 거래일 등락률이다. 조회 실패는 빈 맵 — 가점 없음(§4c).
+     */
+    private Map<String, BigDecimal> settledChangeRates(Collection<String> codes) {
+        if (codes == null || codes.isEmpty()) return Map.of();
+        java.time.LocalDate today = java.time.LocalDate.now();
+        java.time.LocalDate cutoff;
+        try {
+            cutoff = marketCalendar.minusTradingDays(today, 1);
+        } catch (Exception e) {
+            log.warn("[종합추천] 거래일 달력 조회 실패 — 섹터 등락률 노후 가드 미적용: {}", e.getMessage());
+            cutoff = null;
+        }
+        Map<String, StockPriceHistory> latest = new HashMap<>();
+        try {
+            for (StockPriceHistory b : priceHistoryRepository.findByStockCodesSince(new ArrayList<>(codes), today.minusDays(14))) {
+                if (b == null || b.getStockCode() == null || b.getTradeDate() == null) continue;
+                latest.merge(b.getStockCode(), b, (a, c) -> c.getTradeDate().isAfter(a.getTradeDate()) ? c : a);
+            }
+        } catch (Exception e) {
+            log.warn("[종합추천] 섹터 등락률(확정 봉) 조회 실패 — 가점 없음: {}", e.getMessage());
+            return Map.of();
+        }
+        Map<String, BigDecimal> out = new HashMap<>();
+        for (StockPriceHistory b : latest.values()) {
+            if (cutoff != null && b.getTradeDate().isBefore(cutoff)) continue;   // 노후 = 모름
+            if (b.getChangeRate() != null) out.put(b.getStockCode(), b.getChangeRate());
+        }
+        return out;
     }
 
     // ==================== ⑤ 기술적 (/20) ====================
