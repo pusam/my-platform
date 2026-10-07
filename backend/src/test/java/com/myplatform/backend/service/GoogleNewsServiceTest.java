@@ -43,4 +43,22 @@ class GoogleNewsServiceTest {
         assertThat(GoogleNewsService.buildSearchUrl("효성중공업").toString()).doesNotContain("%25");
         assertThat(GoogleNewsService.buildSearchUrl("대한광통신").toString()).doesNotContain("%25");
     }
+
+    // 2026-10-07 화면 점검(에코프로 상세 '관련 뉴스'): 요약에 '…약보합 마감&nbsp;&nbsp;비즈니스포스트'가 그대로 찍혔다 —
+    // &nbsp; 를 풀지 않았고, Google News 의 요약은 '제목 + 언론사'라 제목을 한 번 더 보일 뿐이었다
+    @Test
+    @DisplayName("재현: 제목을 되풀이하는 요약은 비우고(&nbsp; 포함), 진짜 요약은 엔터티를 푼다")
+    void cleansDescription() {
+        String title = "에코프로 사장단 인사 2개월 앞당겨…최상운·박종환 사장 승진 - 디지털투데이";
+        String raw = "<a href=\"https://news.google.com/x\">에코프로 사장단 인사 2개월 앞당겨…최상운·박종환 사장 승진</a>"
+                + "&nbsp;&nbsp;<font color=\"#6f6f6f\">디지털투데이</font>";
+        assertThat(GoogleNewsService.cleanDescription(raw, title)).isEmpty();
+
+        String real = "<p>2차전지&nbsp;소재 수요가&#160;늘며 &amp; 실적이 개선됐다</p>";
+        assertThat(GoogleNewsService.cleanDescription(real, "다른 제목 - 매체")).isEqualTo("2차전지 소재 수요가 늘며 & 실적이 개선됐다");
+        assertThat(GoogleNewsService.cleanDescription(null, title)).isEmpty();
+        // 줄바꿈·탭도 공백 하나로(정규식이 '공백 여러 개'만 잡으면 안 된다)
+        assertThat(GoogleNewsService.cleanDescription("수주\n\t확대", "다른 제목 - 매체")).isEqualTo("수주 확대");
+    }
 }
+

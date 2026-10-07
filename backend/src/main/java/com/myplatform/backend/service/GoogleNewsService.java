@@ -97,7 +97,8 @@ public class GoogleNewsService {
                 }
 
                 String title = entry.getTitle() != null ? entry.getTitle().trim() : "";
-                String description = extractDescription(entry);
+                String description = cleanDescription(
+                        entry.getDescription() != null ? entry.getDescription().getValue() : null, title);
                 String link = entry.getLink() != null ? entry.getLink() : "";
                 String pubDateStr = formatPubDate(entry.getPublishedDate());
 
@@ -143,21 +144,26 @@ public class GoogleNewsService {
     }
 
     /**
-     * RSS entry에서 description을 추출하고 HTML 태그를 제거한다.
+     * RSS 요약문 정리 — 순수 함수(2026-10-07). 태그 제거 → 엔터티 풀기(&nbsp;·&#160; 포함) → 공백 하나로.
+     * Google News 요약은 '제목 + 언론사'라 제목을 한 번 더 보일 뿐이다 — 제목의 머리(' - 언론사' 앞)로 시작하면 비운다(화면은 빈 요약을
+     * 그리지 않는다). 예전엔 &nbsp; 를 풀지 않아 종목 상세 '관련 뉴스'에 '…마감&nbsp;&nbsp;비즈니스포스트'가 그대로 찍혔다.
      */
-    private String extractDescription(SyndEntry entry) {
-        if (entry.getDescription() == null || entry.getDescription().getValue() == null) {
-            return "";
-        }
-        String raw = entry.getDescription().getValue();
-        // HTML 태그 제거
-        String text = raw.replaceAll("<[^>]+>", "").trim();
-        // HTML 엔티티 디코딩
-        text = text.replace("&amp;", "&")
+    static String cleanDescription(String raw, String title) {
+        if (raw == null) return "";
+        String text = raw.replaceAll("<[^>]+>", " ");
+        text = text.replace("&nbsp;", " ")
+                .replace("&#160;", " ")
                 .replace("&lt;", "<")
                 .replace("&gt;", ">")
                 .replace("&quot;", "\"")
-                .replace("&#39;", "'");
+                .replace("&#39;", "'")
+                .replace("&amp;", "&");   // &amp; 는 마지막 — 먼저 풀면 '&amp;lt;' 가 '<' 가 된다
+        text = text.replaceAll("\\s+", " ").trim();
+        if (title != null && !title.isBlank()) {
+            int dash = title.lastIndexOf(" - ");
+            String head = (dash > 0 ? title.substring(0, dash) : title).replaceAll("\\s+", " ").trim();
+            if (!head.isEmpty() && text.startsWith(head)) return "";
+        }
         return text;
     }
 
