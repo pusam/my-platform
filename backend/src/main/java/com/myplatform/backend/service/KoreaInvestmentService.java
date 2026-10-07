@@ -364,8 +364,22 @@ public class KoreaInvestmentService {
         });
     }
 
+    /** 종목별 프로그램매매추이(체결)[국내주식-044] tr_id — 공식 샘플 program_trade_by_stock.py(2026-10-07 정정). */
+    static final String TR_PROGRAM_TRADE_BY_STOCK = "FHPPG04650101";
+
     /**
-     * 프로그램 매매 추이 조회
+     * 종목별 프로그램매매추이(체결) 요청 URL — 순수 함수(2026-10-07). 공식 샘플 그대로: 경로 program-trade-by-stock,
+     * 파라미터 FID_COND_MRKT_DIV_CODE(J=KRX)·FID_INPUT_ISCD. 예전엔 샘플에 없는 경로·tr_id(inquire-daily-programtrade ·
+     * FHKST01010700)라 KIS 가 200 으로 빈 응답을 줬고 '프로그램' 순매수가 한 번도 값을 가진 적이 없다.
+     */
+    static String buildProgramTradeUrl(String baseUrl, String stockCode) {
+        return baseUrl + "/uapi/domestic-stock/v1/quotations/program-trade-by-stock"
+                + "?FID_COND_MRKT_DIV_CODE=J"
+                + "&FID_INPUT_ISCD=" + stockCode;
+    }
+
+    /**
+     * 종목별 프로그램매매추이(체결) 조회 — 응답 해석은 {@link ProgramTradeRows}.
      * @param stockCode 종목코드 (6자리)
      * @return API 응답 JsonNode
      */
@@ -377,12 +391,8 @@ public class KoreaInvestmentService {
             }
 
             try {
-                // 주식현재가 프로그램매매 API (FHKST01010700)
-                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-programtrade"
-                        + "?FID_COND_MRKT_DIV_CODE=J"
-                        + "&FID_INPUT_ISCD=" + stockCode;
-
-                HttpHeaders headers = createHeaders(token, "FHKST01010700");
+                String url = buildProgramTradeUrl(baseUrl, stockCode);
+                HttpHeaders headers = createHeaders(token, TR_PROGRAM_TRADE_BY_STOCK);
                 HttpEntity<String> request = new HttpEntity<>(headers);
 
                 ResponseEntity<String> response = restTemplate.exchange(

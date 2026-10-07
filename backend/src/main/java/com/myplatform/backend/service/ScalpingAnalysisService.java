@@ -50,7 +50,7 @@ public class ScalpingAnalysisService {
             log.warn("[단타분석] 현재가 조회 실패: {} - 코드: {}, 메시지: {}", stockCode, errCode, errMsg);
         }
 
-        // 2. 프로그램 매매 조회 (FHKST01010700)
+        // 2. 프로그램 매매 조회 (종목별 프로그램매매추이(체결) FHPPG04650101 — 2026-10-07 정정)
         log.debug("[단타분석] 2. 프로그램 매매 조회 시작");
         JsonNode programData = kisService.getProgramTrading(stockCode);
         if (programData != null && "0".equals(getFieldValue(programData, "rt_cd"))) {
@@ -264,68 +264,29 @@ public class ScalpingAnalysisService {
         return null;
     }
 
+    /** 프로그램 매매 금액 단위 로그 — 처음 판정했을 때·판정 못 했을 때 한 번씩(§5 상태가 바뀐 순간만). */
+    private final java.util.concurrent.atomic.AtomicReference<String> programUnitLogged =
+            new java.util.concurrent.atomic.AtomicReference<>("");
+
     /**
-     * 프로그램 매매 데이터 파싱
+     * 프로그램 매매 데이터 파싱 — 해석은 {@link ProgramTradeRows}(공식 샘플 필드, 단위는 응답 안에서 판정).
+     * 예전엔 응답에 없는 output1.ntby_tr_pbmn·output2[] 를 읽어 값이 한 번도 나오지 않았다(2026-10-07).
      */
     private void parseProgramTrading(JsonNode data, ScalpingAnalysisDto.ScalpingAnalysisDtoBuilder builder) {
-        // output1: 당일 누적 정보
-        JsonNode output1 = data.get("output1");
-        if (output1 != null) {
-            // 프로그램 순매수 금액 (ntby_tr_pbmn: 순매수거래대금)
-            String netBuyStr = getFieldValue(output1, "ntby_tr_pbmn");
-            if (netBuyStr != null && !netBuyStr.isEmpty()) {
-                try {
-                    // 원 단위 -> 억원 단위 변환
-                    BigDecimal netBuy = new BigDecimal(netBuyStr)
-                            .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
-                    builder.programNetBuy(netBuy);
-                    log.debug("[단타분석] 프로그램 순매수: {}억", netBuy);
-                } catch (NumberFormatException e) {
-                    log.warn("[단타분석] 프로그램 순매수 파싱 실패: {}", netBuyStr);
-                }
+        ProgramTradeRows.Parsed parsed = ProgramTradeRows.parse(data);
+        if (parsed.netBuyEok() != null) builder.programNetBuy(parsed.netBuyEok());
+        if (!parsed.series().isEmpty()) builder.programTradingSeries(parsed.series());
+        if (parsed.unitRatio() == null) return;
+        String state = parsed.netBuyEok() != null ? "OK" : "UNKNOWN";
+        if (!state.equals(programUnitLogged.getAndSet(state))) {
+            if (parsed.netBuyEok() != null) {
+                log.info("[단타분석] 프로그램 매매 금액 단위 판정 — 매수 거래대금 ÷ (매수 거래량 × 현재가) = {} ({})",
+                        parsed.unitRatio(), parsed.unitRatio() > 0.1 ? "원" : "백만원");
             } else {
-                log.debug("[단타분석] output1.ntby_tr_pbmn 없음");
+                // 모르는 값은 만들지 않는다(§4c) — 대신 조용히 넘기지 않는다
+                log.warn("[단타분석] 프로그램 매매 금액 단위를 판정하지 못해 값을 비운다 — 매수 거래대금 ÷ (매수 거래량 × 현재가) = {}",
+                        parsed.unitRatio());
             }
-        } else {
-            log.debug("[단타분석] 프로그램 매매 output1 없음");
-        }
-
-        // output2: 시간대별 프로그램 매매 시계열
-        JsonNode output2 = data.get("output2");
-        if (output2 != null && output2.isArray()) {
-            List<ScalpingAnalysisDto.ProgramTradingPoint> series = new ArrayList<>();
-            int itemCount = 0;
-
-            for (JsonNode item : output2) {
-                String timeStr = getFieldValue(item, "stck_cntg_hour");  // 체결시간 (HHMMSS)
-                String netBuyStr = getFieldValue(item, "ntby_tr_pbmn");  // 순매수거래대금
-
-                if (timeStr != null && timeStr.length() >= 4 && netBuyStr != null) {
-                    try {
-                        // 시간 포맷 변환 (HHMMSS -> HH:mm)
-                        String formattedTime = timeStr.substring(0, 2) + ":" + timeStr.substring(2, 4);
-
-                        // 원 단위 -> 억원 단위 변환
-                        BigDecimal netBuy = new BigDecimal(netBuyStr)
-                                .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
-
-                        series.add(ScalpingAnalysisDto.ProgramTradingPoint.builder()
-                                .time(formattedTime)
-                                .netBuyAmount(netBuy)
-                                .build());
-                        itemCount++;
-                    } catch (Exception e) {
-                        // 파싱 실패는 무시
-                    }
-                }
-            }
-
-            // 시간순 정렬 (오래된 것부터)
-            series.sort((a, b) -> a.getTime().compareTo(b.getTime()));
-            builder.programTradingSeries(series);
-            log.debug("[단타분석] 프로그램 매매 시계열: {}건", itemCount);
-        } else {
-            log.debug("[단타분석] 프로그램 매매 output2 없음 또는 빈 배열");
         }
     }
 
