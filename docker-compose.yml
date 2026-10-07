@@ -263,6 +263,9 @@ services:
       # ── news-shorts-factory(nsf-news) 동거 — 서버블록만(화면·API 는 nsf-frontend 컨테이너가 서빙) ──
       # 인증서(nsf-news.dhkim-lab.duckdns.org)는 배포의 scripts/ensure-site-cert.sh 가 발급한다 — 못 하면 그 배포 동안 conf 를 끈다.
       - ./nginx/nsf-news.conf:/etc/nginx/conf.d/nsf-news.conf:ro
+      # ── content-factory 동거 — 서버블록만(화면·API·/r/ 는 cf-frontend 컨테이너가 서빙) ──
+      # 인증서(content-factory.dhkim-lab.duckdns.org)는 배포의 scripts/ensure-site-cert.sh 가 발급한다 — 못 하면 그 배포 동안 conf 를 끈다.
+      - ./nginx/content-factory.conf:/etc/nginx/conf.d/content-factory.conf:ro
       # ── seah(세아 생산관리) 동거 — 마운트 보류(2026-08-21) ────────────────
       # nginx/seah.conf 는 그대로 두고 마운트만 뺀다.
       # 이유: seah 도메인 인증서가 없어 마운트 상태로 nginx 가 recreate 되면 부팅
