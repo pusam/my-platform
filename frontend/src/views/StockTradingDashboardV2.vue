@@ -158,12 +158,12 @@
           <span class="sector-strength-label">⚠ 섹터강도(베타) 분석서버 일시 미가용</span>
         </div>
 
-        <!-- 발굴 = 종합판단 중심 축소(2026-07-01): 종합판단 + 백테스트만. 목록 5트랙/기타 심화는 숨김(코드 보존). -->
+        <!-- 발굴 = 종합판단 중심 축소(2026-07-01): 종합판단 + 백테스트 + (2026-10-07) 💎저평가 목록. 나머지 목록 4트랙/기타 심화는 숨김(코드 보존). -->
         <div class="discover-nav" v-if="activeGnbTab === 'discover'">
-          <!-- 목록 5트랙 — 숨김(discoverListVisible=false). 종합판단 union 에 이미 포함. -->
-          <div class="sub-tabs" v-if="discoverListVisible">
+          <!-- 목록 트랙 — 💎저평가만 다시 보인다(2026-10-07). 나머지 4트랙은 숨김(종합판단 union 에 이미 포함). -->
+          <div class="sub-tabs" v-if="discoverListVisible && shownDiscoverListTabs.length">
             <span class="sub-group-label">목록</span>
-            <button v-for="st in discoverListTabs" :key="st.key"
+            <button v-for="st in shownDiscoverListTabs" :key="st.key"
               :class="['sub-tab-btn', { active: discoverGroup === 'list' && discoverListTab === st.key }]"
               @click="selectDiscoverList(st.key)">
               {{ st.label }}
@@ -184,6 +184,8 @@
             <h2><span class="section-icon">💎</span> 저평가 TOP {{ valueTop10.length > 0 ? valueTop10.length : 10 }}</h2>
             <span v-if="valueTopDataTime" class="rec-data-time">{{ valueTopDataTime }}</span>
           </div>
+          <!-- 무엇을 재는지·무엇이 아닌지(2026-10-07) — 규칙 점수이고 성과는 아직 재 본 적이 없다 -->
+          <p class="value-basis">{{ VALUE_LIST_BASIS }}</p>
           <div v-if="valueTopLoading" class="signal-skeleton">
             <div class="skel-row" v-for="i in 3" :key="'val-sk-'+i"><div class="skel-bar"></div></div>
           </div>
@@ -222,6 +224,8 @@
               </div>
             </div>
           </div>
+          <!-- 조회 실패를 '수집 중'으로 보이지 않는다(§4c) -->
+          <div v-else-if="valueTopUnavailable" class="empty-signal">저평가 목록을 불러오지 못했습니다<br><small>잠시 뒤 다시 열어 주세요</small></div>
           <div v-else class="empty-signal">저평가 종목 데이터 수집 중<br><small>PBR·ROE·부채비율 기반 가치주만 산정 (분기 단위 갱신)</small></div>
         </div>
 
@@ -637,7 +641,7 @@ import {
   recommendationAPI, stockDetailAPI, quantTaAPI, stockAPI
 } from '../utils/api'
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
-import { topNetSum, supplyBasisLabel, consecutiveThroughLabel } from '../utils/marketDataLabels'
+import { topNetSum, supplyBasisLabel, consecutiveThroughLabel, VALUE_LIST_BASIS } from '../utils/marketDataLabels'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
 function withTimeout(promise, ms = 3000) {
@@ -720,8 +724,12 @@ export default {
         { key: 'board', label: '🧭 종합판단' },
         { key: 'backtest', label: '백테스트' }
       ],
-      // 목록 5트랙 노출 여부 — 축소로 숨김(종합판단 union 에 이미 포함). true 로 복구 가능.
-      discoverListVisible: false,
+      // 목록 트랙 노출 — 2026-07-01 축소로 숨겼다가 2026-10-07 💎저평가만 다시 보인다(사용자 "주식 가치에 비해 저가인 종목도 볼 수 있는 거지?").
+      // 나머지 4트랙은 그대로 숨김(종합판단 union 에 이미 포함) — 되살리려면 visibleDiscoverListKeys 에 키를 더한다.
+      discoverListVisible: true,
+      visibleDiscoverListKeys: ['value'],
+      valueTopUnavailable: false,
+      VALUE_LIST_BASIS,
       // 발굴 리스트 서브탭 — 저평가/성장/낙폭과대 중 하나만 표시 (기본 저평가)
       discoverListTab: 'value',
       discoverListTabs: [
@@ -900,7 +908,14 @@ export default {
     },
     // 갱신 시각 막대 — 60초마다 다시 읽는 화면만(2026-10-07). 발굴의 백테스트는 다시 읽는 게 없어 시각이 그 화면 것이 아니었다.
     showFreshness() {
-      return this.activeGnbTab === 'market' || (this.activeGnbTab === 'discover' && this.discoverSubTab === 'board')
+      // 목록(💎저평가)은 60초마다 다시 읽지 않는다 — 그 화면에 '갱신 시각' 막대를 띄우지 않는다(2026-10-07)
+      return this.activeGnbTab === 'market'
+        || (this.activeGnbTab === 'discover' && this.discoverGroup !== 'list' && this.discoverSubTab === 'board')
+    },
+    /** 목록 줄에 보일 트랙 — visibleDiscoverListKeys 순서가 아니라 discoverListTabs 순서. */
+    shownDiscoverListTabs() {
+      const keys = this.visibleDiscoverListKeys || []
+      return (this.discoverListTabs || []).filter(t => keys.includes(t.key))
     },
     currentPhaseKey() {
       // phaseNow(1분 틱)에 반응해야 한다 — new Date() 만 읽으면 반응형 의존성이 없어
@@ -1189,10 +1204,10 @@ export default {
       const valid = ['total', 'board', 'ai-strategy', 'backtest', 'screener', 'quant-ta']
       return valid.includes(sub) ? sub : 'board'   // 기본 = 종합판단 보드
     },
-    // 발굴 기본 그룹 — 목록 5트랙 숨김(종합판단 중심 축소)이라 항상 'deep'.
-    // (복구 시: discoverListVisible=true + 아래 listKeys 분기 되살리기.)
+    // 발굴 기본 그룹 — 종합판단(deep). 목록은 💎저평가만 보이므로 그 딥링크만 'list'(2026-10-07).
     resolveInitialDiscoverGroup() {
-      return 'deep'
+      // ?tab=discover&sub=value — 다시 보이게 한 💎저평가 목록으로 바로(2026-10-07). 그 밖은 종합판단(deep).
+      return this.$route?.query?.sub === 'value' ? 'list' : 'deep'
     },
     resolveInitialMarketSub() {
       const sub = this.$route?.query?.sub
@@ -1218,9 +1233,14 @@ export default {
       try {
         const res = await recommendationAPI.getValueTop10()
         const body = res?.data || res
+        // 서버가 '계산 실패'라고 말하면(dataAvailable=false) 빈 목록을 '수집 중'으로 보이지 않는다(§4c)
+        this.valueTopUnavailable = body?.dataAvailable === false
         this.valueTop10 = (body?.data) || []
         this.valueTopDataTime = body?.dataTime || ''
-      } catch { /* 갱신 실패 시 기존 값 유지 */ }
+      } catch {
+        // 갱신 실패 시 기존 값 유지 — 보여 줄 값이 없을 때만 '불러오지 못했습니다'
+        if (!this.valueTop10.length) this.valueTopUnavailable = true
+      }
       finally { this.valueTopLoading = false }
     },
     // 성장주 TOP 10 — 저평가와 별도 트랙. 분기 데이터라 첫 진입 + 30분 캐시.
@@ -2458,5 +2478,13 @@ export default {
   0%   { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55); }
   20%  { box-shadow: 0 0 0 6px rgba(124, 58, 237, 0.35); }
   100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+}
+.value-basis {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted, #7878a0);
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 </style>

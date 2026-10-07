@@ -316,3 +316,11 @@ export function netIncomeChangeLabel(previous, rate) {
   if (r === null || !Number.isFinite(r)) return '-'
   return `${r > 0 ? '+' : ''}${r.toFixed(2)}%`
 }
+
+/**
+ * 💎저평가 목록이 무엇을 재는지(2026-10-07) — 화면 문구 단일 출처. 규칙 점수(PBR·이익 대비 주가·부채비율·흑자)이고, 동점은
+ * PER 낮은 순, 순이익이 영업이익으로 설명되지 않는 종목은 뺀다(RecommendationService.VALUE_ORDER·EarningsQuality). 실제 성과는
+ * 재 본 적이 없다 — '매수 추천'으로 읽히지 않게 그렇게 적는다.
+ */
+export const VALUE_LIST_BASIS = 'PBR·이익 대비 주가(PER)·부채비율·흑자로 매긴 규칙 점수 · 동점은 PER 낮은 순 · '
+  + '순이익이 영업이익으로 설명되지 않는(일회성 이익) 종목 제외 · 실제 성과는 아직 검증 전입니다'
