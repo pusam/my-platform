@@ -136,6 +136,7 @@
             @click="$emit('select', s.id)"
           >
             <span class="id">#{{ s.id }}</span>
+            <span v-if="sessionTime(s)" class="when">{{ sessionTime(s) }}</span>
             <span class="ins">{{ s.instruction }}</span>
             <span class="st" :class="s.status">{{ statusLabel(s.status) }}</span>
           </button>
@@ -268,9 +269,21 @@ const stateSub = computed(() => {
   if (isFailed.value) {
     return `${props.session?.failureReason || '사유 미상'} — 자동 재시도하지 않는다. 필요하면 지시를 다시 보내라.`
   }
-  if (props.session) return `5턴 완료 · 발언 ${props.session.messages.length - 1}개`
+  if (props.session) {
+    // 언제 대화인지 — 몇 주 전 세션이 '오늘 n/30' 아래에 날짜 없이 '완료'로 보였다(2026-10-07)
+    const when = sessionTime(props.session)
+    return `5턴 완료 · 발언 ${props.session.messages.length - 1}개` + (when ? ` · ${when} 시작` : '')
+  }
   return '지시를 입력하면 5턴(분배→초안→검토→반영→결론)이 돈다'
 })
+
+/** 세션 시작 시각 'MM/DD HH:mm' — 모르면 빈 문자열(서버 startedAt, KST LocalDateTime 문자열). */
+function sessionTime(s) {
+  const t = s && s.startedAt
+  return typeof t === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(t)
+    ? `${t.slice(5, 7)}/${t.slice(8, 10)} ${t.slice(11, 16)}`
+    : ''
+}
 
 const canSend = computed(() => crewEnabled.value && !props.sending && !isRunning.value)
 

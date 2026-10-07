@@ -390,3 +390,23 @@ describe('CrewPanel — 세션 이력', () => {
     expect(w.findAll('.hist-item')[1].classes()).toContain('on')
   })
 })
+
+// 2026-10-07: 관제실을 열면 8/26 대화가 날짜 없이 '완료 · 5턴 완료'로 보였다 — '오늘 0/30' 바로 아래라 오늘 대화처럼 읽혔다
+describe('CrewPanel — 지난 세션은 언제 것인지', () => {
+  it('재현: 상태 줄에 세션 시작 시각을 적는다', () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: completedSession({ startedAt: '2026-08-26T14:02:11' }) } })
+    expect(w.find('.state').text()).toContain('08/26 14:02')
+  })
+
+  it('지난 세션 목록에도 시각을 적는다', async () => {
+    const s = completedSession({ startedAt: '2026-08-26T14:02:11' })
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: s, sessions: [s] } })
+    await w.find('.hist-h').trigger('click')
+    expect(w.find('.hist-item').text()).toContain('08/26 14:02')
+  })
+
+  it('시각을 모르면 덧붙이지 않는다', () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: completedSession() } })
+    expect(w.find('.state').text()).not.toMatch(/undefined|null|NaN/)
+  })
+})
