@@ -236,8 +236,9 @@
         <!-- 핵심 재무 -->
         <div class="financial-section">
           <div class="section-header">
-            <!-- PER·PBR 의 정의는 종목마다 다르다(DART 지배주주 TTM / KIS 연결 TTM / KIS 연간 — per_basis) — 늘 TTM 이라 하지 않는다(2026-10-03) -->
-            <h2>핵심 재무 <span class="ttm-label" title="PER·PBR 기준은 종목별로 DART 지배주주 TTM · KIS 연결 TTM · KIS 연간 중 하나입니다">최근 재무</span></h2>
+            <!-- PER·PBR 큰 숫자는 KIS 최근 결산(연간) EPS·BPS 기준이다(FnGuide 가 죽어 늘 이 경로) — 아래 줄은 점수·목록이 쓰는 최근 실적 기준(2026-10-07).
+                 예전 툴팁은 '종목별로 DART 지배주주 TTM · KIS 연결 TTM · KIS 연간 중 하나'라 했지만 상세 값은 늘 연간이었다. -->
+            <h2>핵심 재무 <span class="ttm-label" title="PER·PBR 큰 숫자는 KIS 최근 결산(연간) EPS·BPS 기준입니다. 아래 줄은 점수·목록(저평가·AI 스윙·마법의 공식)이 쓰는 최근 4분기 이익·최근 분기 자본 기준입니다.">최근 재무</span></h2>
             <div class="investment-tags" v-if="financial?.investmentTags?.length">
               <span v-for="(tag, i) in financial.investmentTags" :key="i" class="inv-tag">{{ tag }}</span>
             </div>
@@ -245,16 +246,22 @@
           <div class="financial-grid">
             <div class="fin-card">
               <span class="fin-label">PER</span>
-              <span class="fin-value" :class="getPERClass(financial?.per)">
-                {{ multipleOrDash(financial?.per, 1) }}
-                <span v-if="financial?.forwardPer" class="forward-badge" :class="{ 'forward-improved': financial.forwardPer < financial.per }">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
+              <span class="fin-value-stack">
+                <span class="fin-value" :class="getPERClass(financial?.per)">
+                  {{ multipleOrDash(financial?.per, 1) }}
+                  <span v-if="financial?.forwardPer" class="forward-badge" :class="{ 'forward-improved': financial.forwardPer < financial.per }">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
+                </span>
+                <span v-if="recentMultipleLine(financial, 'per')" class="fin-sub" :title="recentMultipleTitle(financial)">{{ recentMultipleLine(financial, 'per') }}</span>
               </span>
             </div>
             <div class="fin-card">
               <span class="fin-label">PBR</span>
-              <span class="fin-value" :class="getPBRClass(financial?.pbr)">
-                {{ multipleOrDash(financial?.pbr, 2) }}
-                <span v-if="financial?.forwardPbr" class="forward-badge" :class="{ 'forward-improved': financial.forwardPbr < financial.pbr }">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
+              <span class="fin-value-stack">
+                <span class="fin-value" :class="getPBRClass(financial?.pbr)">
+                  {{ multipleOrDash(financial?.pbr, 2) }}
+                  <span v-if="financial?.forwardPbr" class="forward-badge" :class="{ 'forward-improved': financial.forwardPbr < financial.pbr }">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
+                </span>
+                <span v-if="recentMultipleLine(financial, 'pbr')" class="fin-sub" :title="recentMultipleTitle(financial)">{{ recentMultipleLine(financial, 'pbr') }}</span>
               </span>
             </div>
             <div class="fin-card">
@@ -595,7 +602,7 @@ import DataFreshness from '../components/DataFreshness.vue';
 import HtsChart from '../components/v2/HtsChart.vue';
 import apiClient, { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import { netBuyClass, netBuyText } from '../utils/stockFormat';
-import { multipleOrDash } from '../utils/marketDataLabels';
+import { multipleOrDash, recentMultipleLine, recentMultipleTitle } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import { useChartCalculations } from '../composables/useChartCalculations';
 import { channelComment, breakoutLabel } from '../utils/trendChannel';
@@ -1918,6 +1925,9 @@ onUnmounted(() => {
 .fin-card.wide { grid-column: span 2; }
 .fin-label { color: var(--text-muted, #7878a0); font-size: 0.85rem; }
 .fin-value { font-weight: 600; font-family: 'Monaco', monospace; }
+/* PER·PBR 큰 숫자(결산) 아래 '최근 실적 기준' 줄(2026-10-07) */
+.fin-value-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; }
+.fin-sub { font-size: 0.75rem; color: var(--text-muted, #7878a0); font-weight: 400; text-align: right; }
 .fin-value.positive { color: var(--stock-up, #f87171); }
 .fin-value.negative { color: var(--stock-down, #60a5fa); }
 

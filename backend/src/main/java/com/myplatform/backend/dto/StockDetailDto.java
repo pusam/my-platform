@@ -3,6 +3,7 @@ package com.myplatform.backend.dto;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -123,6 +124,13 @@ public class StockDetailDto {
         private BigDecimal forwardEps;        // Forward EPS (12M 선행, 원)
         private BigDecimal forwardBps;        // Forward BPS (12M 선행, 원)
         private BigDecimal epsGrowthRate;     // EPS 성장률 (%)
+
+        // ========== 최근 실적 기준(2026-10-07) — 점수·목록(저평가·AI 스윙·마법의 공식)이 쓰는 재무 행 ==========
+        // 위 per·pbr 은 KIS 최근 결산(연간) EPS·BPS 기준이라 이익이 크게 변한 해엔 몇 배씩 다르다 — 둘을 기준과 함께 나란히 보인다.
+        private BigDecimal perRecent;         // 최근 4분기 이익 기준 PER(그 행의 EPS, 현재가로 다시 나눔) — 적자·모름은 null
+        private BigDecimal pbrRecent;         // 최근 분기 자본 기준 PBR(그 행의 BPS) — 모름은 null
+        private String recentBasis;           // CTRL(DART 지배주주) · CONSOL(KIS 연결, 비지배 포함)
+        private LocalDate recentAsOf;         // 그 재무 행의 수집일
 
         // ========== 수급 보조 지표 ==========
         private BigDecimal foreignOwnership;  // 외국인 지분율 (%)

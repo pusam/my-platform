@@ -769,6 +769,14 @@ public class StockDetailService {
                 }
             }
 
+            // 최근 실적 기준 PER·PBR(2026-10-07) — 점수·목록이 쓰는 재무 행. 못 구하면 비운다(위 연간 값은 그대로).
+            RecentMultiples recent = null;
+            try {
+                recent = recentMultiples(latestKisDailyRow(stockCode), currentPrice);
+            } catch (Exception e) {
+                log.debug("[StockDetail] {} 최근 실적 기준 PER·PBR 조회 실패: {}", stockCode, e.getMessage());
+            }
+
             return FinancialInfo.builder()
                     .per(per)
                     .pbr(pbr)
@@ -779,6 +787,10 @@ public class StockDetailService {
                     .netMargin(netMargin)
                     .debtRatio(debtRatio)
                     .marketCap(marketCap)
+                    .perRecent(recent != null ? recent.per() : null)
+                    .pbrRecent(recent != null ? recent.pbr() : null)
+                    .recentBasis(recent != null ? recent.basis() : null)
+                    .recentAsOf(recent != null ? recent.asOf() : null)
                     .foreignOwnership(foreignOwnership != null && foreignOwnership.compareTo(BigDecimal.ZERO) > 0
                             ? foreignOwnership : null)
                     .build();
@@ -787,6 +799,39 @@ public class StockDetailService {
             log.warn("[StockDetail] 재무 정보 조회 실패: {}", e.getMessage());
             return null;
         }
+    }
+
+    /** 최근 실적 기준 PER·PBR — {@link #recentMultiples} 의 결과. */
+    record RecentMultiples(BigDecimal per, BigDecimal pbr, String basis, LocalDate asOf) {}
+
+    /**
+     * 최근 실적 기준 PER·PBR — 순수 함수(2026-10-07, {@code StockDetailRecentMultiplesTest}).
+     *
+     * <p>점수·목록(저평가·AI 스윙·마법의 공식)이 쓰는 KIS 일별 재무 행의 EPS(최근 4분기 이익)·BPS(최근 분기 자본)를 현재가로 다시
+     * 나눈다. 상세의 기본 PER·PBR 은 KIS 최근 결산(연간) EPS·BPS 라 이익이 크게 변한 해엔 몇 배씩 다르다(삼성전자 10/7: 41.4 vs 10.5).
+     * 그 행이 연간 값뿐(KIS)이면 같은 값을 '최근' 이름으로 한 번 더 보이지 않도록 null, 적자면 PER 만 비운다(§4c).
+     */
+    static RecentMultiples recentMultiples(StockFinancialData row, BigDecimal currentPrice) {
+        if (row == null || row.getMarketCap() == null || currentPrice == null || currentPrice.signum() <= 0) return null;
+        String basis = row.getPerBasis();
+        if (!"CTRL".equals(basis) && !"CONSOL".equals(basis)) return null;
+        BigDecimal per = row.getEps() != null && row.getEps().signum() > 0
+                ? currentPrice.divide(row.getEps(), 1, RoundingMode.HALF_UP) : null;
+        BigDecimal pbr = row.getBps() != null && row.getBps().signum() > 0
+                ? currentPrice.divide(row.getBps(), 2, RoundingMode.HALF_UP) : null;
+        if (per == null && pbr == null) return null;
+        return new RecentMultiples(per, pbr, basis, row.getReportDate());
+    }
+
+    /** 그 종목의 최신 KIS 일별 재무 행(시가총액이 있는 행) — 미래 날짜(추정치 잔여) 행은 거른다. 없으면 null. */
+    private StockFinancialData latestKisDailyRow(String stockCode) {
+        List<StockFinancialData> rows = FinancialRowSynthesizer.excludeFutureDated(
+                stockFinancialDataRepository.findByStockCodeOrderByReportDateDesc(stockCode), LocalDate.now());
+        if (rows == null) return null;
+        for (StockFinancialData r : rows) {
+            if (r != null && r.getMarketCap() != null) return r;
+        }
+        return null;
     }
 
     /**

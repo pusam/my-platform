@@ -183,6 +183,33 @@ export function multipleOrDash(v, digits = 1) {
 }
 
 /**
+ * 종목 상세 PER·PBR 아래 '최근 실적 기준' 줄(2026-10-07). 큰 숫자는 KIS 최근 결산(연간) EPS·BPS 기준이고, 이 줄은 점수·목록
+ * (저평가·AI 스윙·마법의 공식)이 쓰는 재무 행 — 최근 4분기 이익·최근 분기 자본 — 을 지금 주가로 다시 나눈 값이다(백엔드 단일
+ * 출처 StockDetailService.recentMultiples). 이익이 크게 변한 해엔 몇 배씩 다르다(삼성전자 10/7: 결산 41.4 · 최근 4분기 10.6).
+ * 모르면 null(줄을 숨긴다). 비지배 포함 연결(CONSOL)이면 그렇게 적는다.
+ */
+export function recentMultipleLine(financial, kind) {
+  if (!financial) return null
+  const isPbr = kind === 'pbr'
+  const v = isPbr ? financial.pbrRecent : financial.perRecent
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return null
+  const main = Number(isPbr ? financial.pbr : financial.per)
+  const prefix = Number.isFinite(main) && main > 0 ? '결산 기준 · ' : ''
+  const consol = financial.recentBasis === 'CONSOL' ? ' · 연결' : ''
+  return `${prefix}${isPbr ? '최근 분기' : '최근 4분기'} ${n.toFixed(isPbr ? 2 : 1)}배${consol}`
+}
+
+/** 위 줄의 설명(툴팁) — 어떤 정의·언제 수집한 재무인지. 줄이 없으면 null. */
+export function recentMultipleTitle(financial) {
+  if (!financial || (recentMultipleLine(financial, 'per') === null && recentMultipleLine(financial, 'pbr') === null)) return null
+  const basis = financial.recentBasis === 'CONSOL' ? 'KIS 연결 — 비지배지분 포함' : 'DART 지배주주'
+  const asOf = financial.recentAsOf ? ` · ${financial.recentAsOf} 수집 재무` : ''
+  return `점수·목록이 쓰는 값: 최근 4분기 이익·최근 분기 자본(${basis})을 지금 주가로 나눴습니다${asOf}`
+}
+
+/**
  * 해외 시세 숫자(가격·차액) — 크기에 맞춘 자릿수(2026-10-06). 10 미만(유로/달러 1.1218·구리 6.65)은 소수 넷째 자리까지,
  * 나머지는 둘째 자리. 예전엔 전부 둘째 자리로 잘라 유로/달러 등락 −0.0005 가 '0.00'이었다. 모르면 '-'.
  */
