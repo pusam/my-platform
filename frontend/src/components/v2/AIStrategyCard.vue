@@ -26,7 +26,7 @@
         <span class="chart-analysis-icon">📈</span>
         <span class="chart-analysis-title">AI 차트 해석</span>
       </div>
-      <p class="chart-analysis-body">{{ aiAnalysis.chartAnalysis }}</p>
+      <p class="chart-analysis-body">{{ plainAnalysisText(aiAnalysis.chartAnalysis) }}</p>
     </div>
 
     <div class="strategy-box" :class="aiRecommendationClass">
@@ -34,11 +34,12 @@
         <span class="strategy-signal">{{ aiAnalysis?.technicalSignal || '-' }}</span>
         <span class="strategy-rec" :class="'rec-' + aiRecommendationClass">{{ getRecommendationLabel(aiAnalysis?.recommendation) }}</span>
       </div>
-      <p class="strategy-text">{{ aiAnalysis?.strategy || '-' }}</p>
+      <!-- Gemini 마크다운은 기호만 걷어 낸 평문으로(줄 유지) — v-html 금지(2026-10-07) -->
+      <p class="strategy-text">{{ plainAnalysisText(aiAnalysis?.strategy) || '-' }}</p>
 
       <!-- 단기/장기 충돌 분석 -->
       <div v-if="aiAnalysis?.conflictAnalysis" class="conflict-analysis">
-        <p>{{ aiAnalysis.conflictAnalysis }}</p>
+        <p>{{ plainAnalysisText(aiAnalysis.conflictAnalysis) }}</p>
       </div>
 
       <!-- 동적 가격 가이드 -->
@@ -100,6 +101,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import { plainAnalysisText } from '../../utils/plainAnalysisText';
 
 const props = defineProps({
   aiAnalysis: { type: Object, default: null },
@@ -281,7 +283,7 @@ const formatPrice = (price) => {
   margin: 0;
 }
 
-.strategy-text { font-size: 0.9rem; color: var(--text-secondary, #b0b0c8); line-height: 1.5; margin: 0; }
+.strategy-text { font-size: 0.9rem; color: var(--text-secondary, #b0b0c8); line-height: 1.5; margin: 0; white-space: pre-line; }
 
 .reasons-section {
   margin-top: 12px;

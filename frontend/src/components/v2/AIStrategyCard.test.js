@@ -77,3 +77,19 @@ describe('AIStrategyCard (P-IA ③ 후속 분리)', () => {
     expect(w.find('.consensus-section').exists()).toBe(false)
   })
 })
+
+// 2026-10-07 화면 점검(에코프로): Gemini 마크다운이 '## …'·'**■ 종합 판단:**' 그대로 한 덩어리로 보였다
+describe('AIStrategyCard — 전략 본문은 마크다운 기호 없는 평문', () => {
+  it('재현: ##·** 를 보이지 않고 줄을 살린다', () => {
+    const w = mountCard({ aiAnalysis: { ...baseAi,
+      strategy: '## 에코프로 (086520) 분석\n**■ 종합 판단:** **관망**\n* **진입:** 90,000원 부근' } })
+    const text = w.find('.strategy-text').text()
+    expect(text).not.toContain('**')
+    expect(text).not.toContain('## ')
+    expect(text).toContain('■ 종합 판단: 관망')
+    expect(text).toContain('• 진입: 90,000원 부근')
+    // 평문 렌더링 유지(v-html 금지) — 태그 문자열은 글자로 남는다
+    const injected = mountCard({ aiAnalysis: { ...baseAi, strategy: '<b>굵게</b>' } })
+    expect(injected.find('.strategy-text').text()).toBe('<b>굵게</b>')
+  })
+})
