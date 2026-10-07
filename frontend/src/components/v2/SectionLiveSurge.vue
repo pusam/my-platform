@@ -17,7 +17,9 @@
 
     <div class="sub-controls">
       <div class="filter-item">
-        <label>최소 변화량</label>
+        <!-- 서버는 누적 순매수(netBuyAmount)로 거른다 — 카드의 '변화량'(10분 변화)과 다른 값이다(2026-10-07).
+             예전 이름표 '최소 변화량'이라 '100억 이상'을 10분에 100억 산 종목으로 읽었다. -->
+        <label title="장 시작부터 쌓인 순매수 기준 — 카드의 '변화량'(직전 10분 변화)과 다르다">누적 순매수</label>
         <select v-model="minChange" @change="fetchSurge">
           <option :value="30">30억 이상</option>
           <option :value="50">50억 이상</option>

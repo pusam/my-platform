@@ -226,3 +226,17 @@ describe('SectionLiveSurge — 카드 안에서도 순매수의 날짜를 밝힌
     expect(rateRow.find('.value').text()).toBe('0.00%')
   })
 })
+
+/**
+ * 필터 이름표 — 2026-10-07 화면 점검. 드롭다운이 '최소 변화량 30억 이상'인데 서버는 누적 순매수(netBuyAmount)로 거른다
+ * (InvestorSurgeService.getSurgeStocks — 10분 변화량 아님). 카드의 '변화량'(+8,900만 = 10분 변화)과 같은 말을 써서
+ * '100억 이상'을 고르면 10분에 100억씩 산 종목인 줄 알았다. 이름표는 서버가 실제로 거르는 값으로.
+ */
+describe('SectionLiveSurge — 필터는 누적 순매수 기준이라고 말한다', () => {
+  it('재현: 필터 이름표가 "변화량"이 아니라 "누적 순매수"', () => {
+    const w = mount(SectionLiveSurge, { props: { active: false } })
+    const label = w.find('.sub-controls .filter-item label').text()
+    expect(label).toContain('누적 순매수')
+    expect(label).not.toContain('변화량')
+  })
+})
