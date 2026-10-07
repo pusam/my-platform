@@ -238,6 +238,42 @@ public class StockAnalysisService {
      * - 차이가 클 경우 일회성 이익 경고
      * - operatingProfit/netIncome이 없으면 다른 분기 데이터에서 조회
      */
+    /** 일회성 이익 판정 결과 — 경고 여부·사유·(순이익 − 영업이익) ÷ 영업이익 비율(영업이익이 양수일 때만, 아니면 null). */
+    record OneTimeGain(boolean warning, String reason, BigDecimal gapRatio) {}
+
+    /**
+     * 일회성 이익 판정(순수, 2026-10-07 분리). 경고 여부는 종전과 같다 — (순이익 − 영업이익) ÷ |영업이익| 이 50% 초과이거나
+     * 영업이익 흑자·순이익 적자. 바뀐 것은 <b>영업이익이 음수일 때의 문구와 비율</b>: 예전엔 '순이익이 영업이익 대비 128.8% 높음'
+     * (삼성SDI — 영업손실 −11,297억·순이익 +3,255억)처럼 음수를 기준으로 한 % 를 말해 읽을 수 없었다. 그때는 사실을 말하고 비율은 비운다.
+     */
+    static OneTimeGain judgeOneTimeGain(BigDecimal operatingProfit, BigDecimal netIncome) {
+        if (operatingProfit == null || netIncome == null || operatingProfit.signum() == 0) {
+            return new OneTimeGain(false, null, null);
+        }
+        BigDecimal gapRatio = netIncome.subtract(operatingProfit)
+                .divide(operatingProfit.abs(), 4, RoundingMode.HALF_UP)
+                .multiply(new BigDecimal("100"));
+        boolean gainHeavy = gapRatio.compareTo(ONE_TIME_GAIN_THRESHOLD) > 0;
+        if (operatingProfit.signum() < 0) {
+            // 음수 기준의 '대비 %'는 읽을 수 없다 — 비율은 비우고 사실만
+            if (!gainHeavy) return new OneTimeGain(false, null, null);
+            String reason = netIncome.signum() > 0
+                    ? "영업손실인데 순이익 흑자 — 영업외 이익(자산매각·지분법·환차익 등) 확인 필요"
+                    : "영업손실보다 순손실이 크게 작음 — 영업외 이익(자산매각·지분법·환차익 등) 확인 필요";
+            return new OneTimeGain(true, reason, null);
+        }
+        // 순이익이 영업이익보다 50% 이상 많으면 일회성 이익 의심
+        if (gainHeavy) {
+            return new OneTimeGain(true, String.format("순이익이 영업이익 대비 %.1f%% 높음 (자산매각, 환차익 등 확인 필요)",
+                    gapRatio.doubleValue()), gapRatio);
+        }
+        // 영업이익은 흑자인데 순이익이 적자면 영업외비용 경고
+        if (netIncome.signum() < 0) {
+            return new OneTimeGain(true, "영업이익 흑자, 순이익 적자 (영업외비용 확인 필요)", gapRatio);
+        }
+        return new OneTimeGain(false, null, gapRatio);
+    }
+
     private FinancialHealthDto analyzeFinancialHealth(StockFinancialData data) {
         BigDecimal operatingProfit = data.getOperatingProfit();
         BigDecimal netIncome = data.getNetIncome();
@@ -316,33 +352,13 @@ public class StockAnalysisService {
                     data.getStockCode(), roe, netIncome, totalEquity);
         }
 
-        // 일회성 이익 분석
-        boolean hasOneTimeGainWarning = false;
-        String oneTimeGainReason = null;
-        BigDecimal profitGap = null;
-        BigDecimal profitGapRatio = null;
-
-        if (operatingProfit != null && netIncome != null &&
-            operatingProfit.compareTo(BigDecimal.ZERO) != 0) {
-
-            profitGap = netIncome.subtract(operatingProfit);
-            profitGapRatio = profitGap
-                    .divide(operatingProfit.abs(), 4, RoundingMode.HALF_UP)
-                    .multiply(new BigDecimal("100"));
-
-            // 순이익이 영업이익보다 50% 이상 많으면 일회성 이익 의심
-            if (profitGapRatio.compareTo(ONE_TIME_GAIN_THRESHOLD) > 0) {
-                hasOneTimeGainWarning = true;
-                oneTimeGainReason = String.format("순이익이 영업이익 대비 %.1f%% 높음 (자산매각, 환차익 등 확인 필요)",
-                        profitGapRatio.doubleValue());
-            }
-            // 영업이익은 흑자인데 순이익이 적자면 영업외비용 경고
-            else if (operatingProfit.compareTo(BigDecimal.ZERO) > 0 &&
-                     netIncome.compareTo(BigDecimal.ZERO) < 0) {
-                hasOneTimeGainWarning = true;
-                oneTimeGainReason = "영업이익 흑자, 순이익 적자 (영업외비용 확인 필요)";
-            }
-        }
+        // 일회성 이익 분석 — 판정은 judgeOneTimeGain(순수) 한 곳
+        BigDecimal profitGap = (operatingProfit != null && netIncome != null && operatingProfit.signum() != 0)
+                ? netIncome.subtract(operatingProfit) : null;
+        OneTimeGain oneTimeGain = judgeOneTimeGain(operatingProfit, netIncome);
+        boolean hasOneTimeGainWarning = oneTimeGain.warning();
+        String oneTimeGainReason = oneTimeGain.reason();
+        BigDecimal profitGapRatio = oneTimeGain.gapRatio();
 
         // 점수 계산
         int score = calculateFinancialScore(operatingMargin, roe, debtRatio, hasOneTimeGainWarning);
