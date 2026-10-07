@@ -113,6 +113,32 @@ class QuantScreenerEarningsQualityTest {
     }
 
     @Test
+    @DisplayName("재현: 순이익이 전년보다 2배 넘게 는 종목은 마법의 공식에서 빠진다 — 액토즈소프트 +540%(10/7 AI 스윙 2위), 증가율 모르는 쇼박스는 남는다")
+    void magicFormulaExcludesEarningsSpike() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        StockFinancialData actoz = magicWithCap("052790", "액토즈소프트", "1.00", "17.90", "742", "379", "531", "524");
+        actoz.setProfitGrowth(new BigDecimal("539.76"));
+        StockFinancialData showbox = magicWithCap("086980", "쇼박스", "3.00", "25.96", "1158", "411", "351", "1068");
+        when(stockFinancialDataRepository.findForMagicFormula(any())).thenReturn(List.of(actoz, showbox));
+
+        assertThat(service.getMagicFormulaStocks(10, null)).extracting(ScreenerResultDto::getStockCode).containsExactly("086980");
+    }
+
+    @Test
+    @DisplayName("재현: PEG 도 같은 규칙 — 10/7 AI 가치 1·2위(동원모빌리티 +151%·화승코퍼레이션 +115%, PEG 0.01)는 빠지고 +100% 이하는 남는다")
+    void lowPegExcludesEarningsSpike() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        when(stockFinancialDataRepository.findLowPegStocks(any(), any())).thenReturn(List.of(
+                peg("018500", "동원모빌리티", "1.30", "24.33", "0.01", "150.79", "635", "6852", "363", "474"),
+                peg("013520", "화승코퍼레이션", "1.70", "24.63", "0.01", "115.06", "1289", "16808", "746", "1071"),
+                peg("019180", "티에이치엔", "1.20", "27.59", "0.01", "100.00", "896", "11302", "789", "750")));
+
+        List<ScreenerResultDto> results = service.getLowPegStocks(new BigDecimal("1.0"), new BigDecimal("10"), 10);
+
+        assertThat(results).extracting(ScreenerResultDto::getStockCode).containsExactly("019180");
+    }
+
+    @Test
     @DisplayName("PEG — 순이익이 영업이익의 2.8배(국보디자인)·52배(유성티엔에스)면 PEG 0.01 이어도 빠진다")
     void lowPegExcludesDistortedEarnings() {
         when(stockStatusService.isActive(anyString())).thenReturn(true);

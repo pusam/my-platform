@@ -47,6 +47,18 @@ public final class EarningsQuality {
     }
 
     /**
+     * 이익 급증 기준(%) — 순이익이 전년보다 이만큼 넘게 늘면 한 해의 이익(일회성·정점)이 PER 을 끌어내린 것으로 본다(2026-10-07).
+     * 저평가 목록·마법의 공식·PEG 공통. 10/7 근거: 저평가 PER 순 상위 액토즈소프트 +540%·제이엠티 +329%, AI 가치 상위 5 전부
+     * +100~174%(PEG 0.01 — 같은 이익이 PER 을 낮추고 성장률을 높인다), AI 스윙 2위 액토즈. 성적에 맞춰 옮기지 말 것.
+     */
+    public static final BigDecimal MAX_PROFIT_GROWTH_PCT = new BigDecimal("100");
+
+    /** 이익 급증인가 — 순이익 증가율(전년 대비 %)이 기준을 넘는다. 모르면(null, 전년 적자 분모 포함) false — 판정하지 않는다(§4c). */
+    public static boolean isEarningsSpike(BigDecimal profitGrowthPct) {
+        return profitGrowthPct != null && profitGrowthPct.compareTo(MAX_PROFIT_GROWTH_PCT) > 0;
+    }
+
+    /**
      * PER 이 실제로 쓴 순이익(억원) — 시가총액 ÷ PER(같은 행, 둘 다 양수일 때). 판정은 이 값으로 한다(2026-10-07).
      *
      * <p>PER 은 DART 지배주주 순이익(per_basis=CTRL)으로 만드는데 행의 net_income 은 KIS 연결 순이익이라, net_income 으로 판정하면

@@ -79,17 +79,21 @@ public class QuantScreenerService {
         List<StockFinancialData> kept = new ArrayList<>(rows.size());
         int nonOperating = 0;
         int exceedsRevenue = 0;
+        int spiked = 0;
         for (StockFinancialData s : rows) {
             // 순이익은 PER 이 실제로 쓴 값(시총 ÷ PER) — 지배주주 PER 과 KIS 연결 순이익이 갈리면 그 이익을 못 봤다(2026-10-07, 디에이피)
             EarningsQuality.Verdict v = EarningsQuality.judge(s.getRevenue(), s.getOperatingProfit(),
                     EarningsQuality.perImpliedNetIncome(s.getMarketCap(), s.getPer(), s.getNetIncome()));
             if (v == EarningsQuality.Verdict.NON_OPERATING_DOMINANT) nonOperating++;
             else if (v == EarningsQuality.Verdict.OPERATING_EXCEEDS_REVENUE) exceedsRevenue++;
+            // 이익 급증(2026-10-07) — 한 해의 이익이 PER 을 끌어내리고(PEG 면 성장률까지 올려) 순위 1등이 되던 것. 순이익 증가율이 없으면
+            // EPS 증가율(성장률 배치에선 같은 값)로, 둘 다 모르면 판정하지 않는다.
+            else if (EarningsQuality.isEarningsSpike(s.getProfitGrowth() != null ? s.getProfitGrowth() : s.getEpsGrowth())) spiked++;
             else kept.add(s);
         }
         if (kept.size() != rows.size()) {
-            log.info("{}: 이익의 질 {}건 제외 (순이익이 영업이익의 2배 초과·영업손실 흑자 {}건, 영업이익 > 매출 {}건)",
-                    screen, rows.size() - kept.size(), nonOperating, exceedsRevenue);
+            log.info("{}: 이익의 질 {}건 제외 (순이익이 영업이익의 2배 초과·영업손실 흑자 {}건, 영업이익 > 매출 {}건, 순이익 전년 대비 +{}% 초과 {}건)",
+                    screen, rows.size() - kept.size(), nonOperating, exceedsRevenue, EarningsQuality.MAX_PROFIT_GROWTH_PCT, spiked);
         }
         return kept;
     }

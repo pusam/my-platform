@@ -983,7 +983,7 @@ public class RecommendationService {
             }
             // 이익 급증(2026-10-07) — 순이익이 전년보다 2배 넘게 늘어 PER 이 내려간 종목은 '기업에 비해 싸다'의 근거가 약하다(일회성·정점
             // 이익. 10/7 상위 후보 액토즈소프트 +540%·제이엠티 +329%·영화테크 +169%). 증가율을 모르면(null) 판정하지 않는다(§4c).
-            if (fin.getProfitGrowth() != null && fin.getProfitGrowth().compareTo(VALUE_MAX_PROFIT_GROWTH_PCT) > 0) {
+            if (EarningsQuality.isEarningsSpike(fin.getProfitGrowth())) {
                 spiked++;
                 continue;
             }
@@ -1110,9 +1110,6 @@ public class RecommendationService {
      * 되살리면 만점 133종목). 예전엔 점수만 비교해 동점이 입력 순서(종목코드 해시 순서)로 남아 상위 10 이 사실상 무작위였다.
      * 동점이면 PER 낮은 순(이익 대비 더 싼 쪽) → PBR 낮은 순 → 종목코드 순. PER·PBR 을 모르면 뒤로. 점수 산식은 그대로다.
      */
-    /** 저평가 목록에서 뺄 순이익 증가율(전년 대비, %) — 이보다 크면 한 해의 이익이 PER 을 끌어내린 것으로 본다(2026-10-07). */
-    static final BigDecimal VALUE_MAX_PROFIT_GROWTH_PCT = new BigDecimal("100");
-
     /**
      * PER 이 실제로 쓴 순이익(억원) — 시가총액 ÷ PER(같은 행, 둘 다 양수일 때). 지배주주 기준(CTRL) PER 은 DART 순이익이라 행의
      * net_income(KIS 연결)과 다를 수 있어, 이익의 질을 PER 과 같은 순이익으로 판정하려고 쓴다. 못 구하면 행의 net_income.
