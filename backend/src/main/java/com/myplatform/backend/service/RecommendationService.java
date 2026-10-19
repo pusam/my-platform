@@ -113,6 +113,11 @@ public class RecommendationService {
     // 종합 판단 보드 union(P2-14 Phase2) — 최근 calculate() scoreMap(seed=AI/실적/수급 종목의 4카테고리)
     // 을 보존해 발굴 union 종목의 4-cat lookup 에 재사용(재점수 없이). calculate() 미실행(장외 DB 경로)이면 stale/null.
     private volatile Map<String, StockScore> cachedScoreMap = null;
+    // 마지막 계산의 기술 채점에서 봉 노후로 건너뛴 후보 수 — 빈 결과를 '관망'으로 발행할지·09:00 알림을 낼지 판단에 쓴다(2026-10-19)
+    private volatile int lastTechnicalStale = 0;
+    // 비동기 일봉 수집에 예약된 종목 — 수집이 끝나기 전 다음 계산이 같은 종목을 또 예약하지 않게(2026-10-19).
+    // StockAnalysisService 의 중복 방지는 '지금 받는 중인 한 종목'만 막아, 수집 스레드 둘이 같은 목록을 돌면 대부분을 두 번 받았다.
+    private final java.util.Set<String> priceHistoryCollecting = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final long CACHE_MINUTES = 30;
     private static final int NA = -1;
 
@@ -178,7 +183,7 @@ public class RecommendationService {
             try {
                 List<RecommendationDto> result = calculate();
                 if (!result.isEmpty() || shouldPublishEmptyResult(
-                        cachedScoreMap != null ? cachedScoreMap.size() : 0)) {
+                        cachedScoreMap != null ? cachedScoreMap.size() : 0, lastTechnicalStale)) {
                     cachedTop5 = result;
                     cacheTime = now;
                     return buildResponse(result, now.format(TIME_FMT) + " 기준", true);
@@ -234,7 +239,7 @@ public class RecommendationService {
                 cachedTop5 = result;
                 cacheTime = LocalDateTime.now();
                 log.info("[종합추천] 백그라운드 계산 완료 - {}건", result.size());
-            } else if (shouldPublishEmptyResult(cachedScoreMap != null ? cachedScoreMap.size() : 0)) {
+            } else if (shouldPublishEmptyResult(cachedScoreMap != null ? cachedScoreMap.size() : 0, lastTechnicalStale)) {
                 // 정상 계산인데 55컷 통과 0건 = 유효한 '관망' 결론(급락일 등) — 어제 스냅샷을
                 // 계속 노출하는 대신 빈 결과를 발행해 UI 가 "관망" 을 말하게 한다(§4c, 2026-07-28).
                 // scoreMap 이 빈약하면(입력 데이터 몰락 의심) 발행하지 않고 기존 스냅샷 유지(안전).
@@ -242,6 +247,11 @@ public class RecommendationService {
                 cacheTime = LocalDateTime.now();
                 log.info("[종합추천] 백그라운드 계산 완료 - 컷 통과 0건(관망) → 빈 결과 발행(scoreMap {}종목)",
                         cachedScoreMap.size());
+            } else if (cachedScoreMap != null && cachedScoreMap.size() >= 10) {
+                // 후보 대부분이 봉 노후로 기술 미채점 — 기술 없이는 최대 47점이라 컷을 못 넘는 게 당연하다. '관망'이 아니라
+                // '아직 모름'이므로 발행하지 않는다(2026-10-19). 예약한 수집이 끝난 뒤 다음 계산이 정상 결과를 낸다.
+                log.warn("[종합추천] 계산 결과 0건 — 후보 {}종목 중 {}종목이 봉 노후로 기술 미채점, '관망'으로 발행하지 않고 기존 결과 유지(봉 수집 뒤 다음 계산)",
+                        cachedScoreMap.size(), lastTechnicalStale);
             } else {
                 log.warn("[종합추천] 계산 결과 0건 + scoreMap 빈약 — 입력 데이터 이상 의심, 기존 스냅샷 유지");
             }
@@ -257,7 +267,31 @@ public class RecommendationService {
      * 0건(관망)"으로 보고 발행, 그 미만이면 데이터 소스 몰락 의심이라 기존 스냅샷 유지. 테스트 대상.
      */
     static boolean shouldPublishEmptyResult(int scoredStockCount) {
-        return scoredStockCount >= 10;
+        return shouldPublishEmptyResult(scoredStockCount, 0);
+    }
+
+    /**
+     * 빈 결과 발행 — 위 규칙 + 후보 대부분(절반 이상)이 봉 노후로 기술 미채점이면 미발행(2026-10-19). 기술 없이는 원점수가
+     * 최대 38점(100점 환산 47)이라 55점 컷을 아무도 못 넘는다 — 그 빈 결과는 '관망'이 아니라 '아직 모름'이다(§4c).
+     */
+    static boolean shouldPublishEmptyResult(int scoredStockCount, int staleTechnicalCount) {
+        return scoredStockCount >= 10 && !technicalMostlyStale(scoredStockCount, staleTechnicalCount);
+    }
+
+    /** 후보의 절반 이상이 봉 노후로 기술 미채점인가 — 순수 함수. */
+    static boolean technicalMostlyStale(int scoredStockCount, int staleTechnicalCount) {
+        return scoredStockCount > 0 && staleTechnicalCount * 2 >= scoredStockCount;
+    }
+
+    /** 수집 대상 중 최신 봉(기준일 이상)이 생긴 종목 수 — 순수 함수. 기준일을 모르면(달력 실패) 봉이 있기만 하면 센다. */
+    static int countFresh(java.util.Collection<String> codes, Map<String, java.time.LocalDate> latestByCode,
+                          java.time.LocalDate cutoff) {
+        int n = 0;
+        for (String code : codes) {
+            java.time.LocalDate d = latestByCode.get(code);
+            if (d != null && (cutoff == null || !d.isBefore(cutoff))) n++;
+        }
+        return n;
     }
 
     /**
@@ -519,6 +553,13 @@ public class RecommendationService {
             } catch (java.util.concurrent.TimeoutException e) {
                 log.warn("[상승가속알림] 계산이 {}분 안에 안 끝남 — 오늘 알림 스킵(다음 거래일 재시도)",
                         CALC_JOIN_TIMEOUT.toMinutes());
+                return;
+            }
+            int scoredToday = cachedScoreMap != null ? cachedScoreMap.size() : 0;
+            if (technicalMostlyStale(scoredToday, lastTechnicalStale)) {
+                // 기술 점수 없이 매긴 점수로 '가속'을 판정하지 않는다(2026-10-19) — 어제 스냅샷보다 낮게 나와 알림이 안 나가거나,
+                // 우연히 봉이 받아져 있던 종목만으로 판정된다.
+                log.info("[상승가속알림] 후보 {}종목 중 {}종목이 봉 노후로 기술 미채점 — 오늘 알림 스킵", scoredToday, lastTechnicalStale);
                 return;
             }
             if (todayList.isEmpty()) {
@@ -2266,7 +2307,7 @@ public class RecommendationService {
     // ==================== ⑤ 기술적 (/20) ====================
 
     private void scoreTechnical(Map<String, StockScore> scoreMap) {
-        int calc = 0, fallback = 0, skip = 0;
+        int calc = 0, fallback = 0, skip = 0, stale = 0;
         // 부족 종목은 모아뒀다가 비동기로 수집 (API 응답 블로킹 방지)
         List<String> needsCollection = new ArrayList<>();
 
@@ -2306,6 +2347,7 @@ public class RecommendationService {
                 if (!isPriceHistoryFresh(history, staleCutoff)) {
                     needsCollection.add(stock.stockCode);
                     skip++;
+                    stale++;
                     continue;
                 }
 
@@ -2389,24 +2431,72 @@ public class RecommendationService {
                 calc++;
             } catch (Exception e) { skip++; }
         }
-        log.debug("[종합추천] 기술: {}건 계산, {}건 폴백, {}건 스킵", calc, fallback, skip);
+        log.debug("[종합추천] 기술: {}건 계산, {}건 폴백, {}건 스킵(봉 노후 {})", calc, fallback, skip, stale);
+        this.lastTechnicalStale = stale;
 
-        // 부족 종목 비동기 수집 (다음 calculate() 호출 시 사용 가능)
+        // 부족 종목 비동기 수집 (다음 calculate() 호출 시 사용 가능). 앞 계산이 예약해 아직 받는 중인 종목은 다시 예약하지 않는다.
         if (!needsCollection.isEmpty()) {
-            log.info("[종합추천] 가격히스토리 부족 {}종목 → 비동기 수집 예약", needsCollection.size());
-            new Thread(() -> {
+            List<String> toCollect = new ArrayList<>();
+            for (String code : needsCollection) {
+                if (priceHistoryCollecting.add(code)) toCollect.add(code);
+            }
+            int already = needsCollection.size() - toCollect.size();
+            if (toCollect.isEmpty()) {
+                log.info("[종합추천] 가격히스토리 부족 {}종목 — 전부 앞 계산이 수집 중", needsCollection.size());
+                return;
+            }
+            log.info("[종합추천] 가격히스토리 부족 {}종목 → 비동기 수집 예약 {}종목{}", needsCollection.size(), toCollect.size(),
+                    already > 0 ? " (앞 계산이 수집 중 " + already + ")" : "");
+            final java.time.LocalDate summaryCutoff = staleCutoff;
+            Runnable job = () -> {
                 long started = System.currentTimeMillis();
-                int failed = 0;
-                for (String code : needsCollection) {
-                    try {
-                        stockAnalysisService.collectPriceHistory(code);
-                    } catch (Exception e) { failed++; }
+                try {
+                    for (String code : toCollect) {
+                        try {
+                            stockAnalysisService.collectPriceHistory(code);
+                        } catch (Exception e) {
+                            log.debug("[종합추천] 가격히스토리 수집 예외 {}: {}", code, e.getMessage());
+                        } finally {
+                            priceHistoryCollecting.remove(code);
+                        }
+                    }
+                } finally {
+                    priceHistoryCollecting.removeAll(toCollect);   // 중간에 빠져나가도 예약을 남기지 않는다
                 }
-                // 끝났다는 요약 한 줄 — 종목별 저장 로그는 DEBUG 로 내렸다(§5, 2026-10-07)
-                log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 (예외 {}) · {}초",
-                        needsCollection.size(), failed, (System.currentTimeMillis() - started) / 1000);
-            }, "price-history-collector").start();
+                // 끝났다는 요약 한 줄 — 종목별 저장 로그는 DEBUG(§5, 2026-10-07). 수집기는 실패(예외·빈 응답)를 삼키므로
+                // 결과는 저장된 봉으로 센다(2026-10-19) — 예전 '(예외 N)' 은 늘 0 이라 KIS 장애에도 성공처럼 보였다.
+                long secs = (System.currentTimeMillis() - started) / 1000;
+                int fresh;
+                try {
+                    fresh = countFresh(toCollect, latestBarDates(toCollect), summaryCutoff);
+                } catch (Exception e) {
+                    log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 · {}초 (결과 확인 실패: {})", toCollect.size(), secs, e.getMessage());
+                    return;
+                }
+                if (fresh * 2 < toCollect.size()) {
+                    log.warn("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 중 최신 봉 {}종목뿐 · {}초 (KIS 응답 확인 필요)",
+                            toCollect.size(), fresh, secs);
+                } else {
+                    log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 중 최신 봉 {}종목 · {}초", toCollect.size(), fresh, secs);
+                }
+            };
+            try {
+                new Thread(job, "price-history-collector").start();
+            } catch (Throwable t) {
+                priceHistoryCollecting.removeAll(toCollect);
+                log.warn("[종합추천] 가격히스토리 수집 스레드 시작 실패 — 다음 계산이 다시 예약: {}", t.getMessage());
+            }
         }
+    }
+
+    /** 종목별 저장된 최신 봉 날짜(최근 2주) — 수집 결과 요약용. */
+    private Map<String, java.time.LocalDate> latestBarDates(List<String> codes) {
+        Map<String, java.time.LocalDate> out = new HashMap<>();
+        for (StockPriceHistory b : priceHistoryRepository.findByStockCodesSince(codes, java.time.LocalDate.now().minusDays(14))) {
+            if (b == null || b.getStockCode() == null || b.getTradeDate() == null) continue;
+            out.merge(b.getStockCode(), b.getTradeDate(), (a, c) -> c.isAfter(a) ? c : a);
+        }
+        return out;
     }
 
     // ==================== ⑥ 실시간 교차검증 (상세페이지 정합성) ====================
