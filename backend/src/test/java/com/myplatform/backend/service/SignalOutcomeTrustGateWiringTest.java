@@ -133,4 +133,49 @@ class SignalOutcomeTrustGateWiringTest {
         assertThat(v.rows()).isZero();
         assertThat(v.state()).isEqualTo(TrustGateRules.State.COLLECTING);
     }
+
+    private static SignalOutcome notOk(String type, String code, String status) {
+        SignalOutcome s = ok(type, code);
+        s.setD3Status(status);
+        s.setD3PctChange(null);
+        s.setD3MaePct(null);
+        return s;
+    }
+
+    @Test
+    @DisplayName("재현(2026-10-19): 평가에서 빠진 시그널(거래정지·봉 없음)을 게이트 설명에 센다 — 최악일 수 있는 결과가 조용히 사라지지 않게")
+    void notEvaluatedSignalsAreCounted() {
+        SignalOutcomeRepository repo = mock(SignalOutcomeRepository.class);
+        when(repo.findD3OkSince(any(), anyString())).thenReturn(List.of(
+                ok("BUY", "005930"), ok(ControlGroupService.CONTROL_SIGNAL_TYPE, "C1")));
+        when(repo.findD3NotOkSince(any(), anyString())).thenReturn(List.of(
+                notOk("BUY", "294090", "HALTED_IN_WINDOW"),
+                notOk("STRONG_BUY", "000660", "MISSING_BARS"),
+                notOk(ControlGroupService.CONTROL_SIGNAL_TYPE, "C2", "MISSING_BARS")));   // 대조군은 시그널 표본이 아니다
+        SignalOutcomeService svc = new SignalOutcomeService(repo, mock(StockPriceService.class),
+                mock(StockCatalystRepository.class),
+                provider(), provider(), provider(), provider(), provider(), provider(),
+                provider(), provider(), provider(), provider(), provider(), provider());
+
+        TrustGateRules.Verdict v = svc.trustGate(LocalDate.of(2026, 9, 1));
+
+        assertThat(v.detail()).contains("평가에서 빠진 시그널 2건");
+        assertThat(v.detail()).contains("창 안 거래정지 1").contains("봉 없음 1");
+    }
+
+    @Test
+    @DisplayName("평가 제외 집계 — 보드 시그널만, 종목·날짜당 1건, 그 종목·날짜에 OK 행이 있으면 빠진 것이 아니다")
+    void notEvaluatedBreakdownHygiene() {
+        var okRows = List.of(ok("BUY", "005930"));
+        var notOkRows = List.of(
+                notOk("STRONG_BUY", "005930", "MISSING_BARS"),             // 같은 종목·날짜에 OK 행이 있다 — 승격 2행
+                notOk("BUY", "000660", "MISSING_BARS"),
+                notOk("STRONG_BUY", "000660", "MISSING_BARS"),             // 승격 2행 → 1건
+                notOk("BUY", "294090", "HALTED_IN_WINDOW"),
+                notOk(ControlGroupService.CONTROL_SIGNAL_TYPE, "C9", "NO_INDEX"));  // 대조군 — 세지 않는다
+
+        assertThat(SignalOutcomeService.notEvaluatedBreakdown(notOkRows, okRows))
+                .containsExactlyInAnyOrderEntriesOf(java.util.Map.of("MISSING_BARS", 1, "HALTED_IN_WINDOW", 1));
+        assertThat(SignalOutcomeService.notEvaluatedBreakdown(List.of(), okRows)).isEmpty();
+    }
 }

@@ -213,4 +213,19 @@ class SignalOutcomeRepositoryD3Test {
                 .containsExactlyInAnyOrder(before.getStockCode(), "C1");
         assertThat(current).extracting(SignalOutcome::getStockCode).containsExactlyInAnyOrder("L2", "L3", "C2");
     }
+
+    @Test
+    @DisplayName("findD3NotOkSince — 교정 평가를 시도했는데 OK 가 아닌 행만(시도 전·OK 제외), from 미만 제외(2026-10-19)")
+    void findD3NotOkSince_selectsAttemptedNonOk() {
+        LocalDate d = LocalDate.of(2026, 9, 1);
+        insertGateRow("C1", d, "HALTED_IN_WINDOW", null, false);
+        insertGateRow("C2", d, "MISSING_BARS", null, true);
+        insertGateRow("C3", d, "OK", "-1.0000", true);                 // OK — 제외
+        insertGateRow("C4", d, null, null, true);                      // 시도 전 — 제외
+        insertGateRow("C5", FROM.minusDays(1), "NO_INDEX", null, false);  // 시작일 이전 — 제외
+
+        List<SignalOutcome> rows = repo.findD3NotOkSince(FROM, "OK");
+
+        assertThat(rows).extracting(SignalOutcome::getStockCode).containsExactlyInAnyOrder("C1", "C2");
+    }
 }

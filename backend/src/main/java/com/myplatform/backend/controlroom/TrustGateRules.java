@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * "추천을 믿고 사도 되나"를 <b>표본·비용·불확실성</b>으로 판정하는 순수 함수 (2026-09-16).
@@ -106,8 +107,42 @@ public final class TrustGateRules {
             int excludedDays,
             List<String> blockers,
             String headline,
-            String detail
+            String detail,
+            String notEvaluatedNote
     ) {}
+
+    /** 교정 평가 상태 → 화면 이름(평가 제외 사유). 모르는 상태는 이름 그대로. */
+    static final Map<String, String> NOT_EVALUATED_LABELS = Map.of(
+            "HALTED_IN_WINDOW", "창 안 거래정지",
+            "MISSING_BARS", "봉 없음",
+            "NO_INDEX", "지수 없음",
+            "FETCH_FAILED", "수집 실패(재시도)",
+            "UNIT_MISMATCH_SUSPECT", "단위 어긋남 의심",
+            "CORPORATE_ACTION_SUSPECT", "액면변경 의심",
+            "NO_START_PRICE", "기록가 없음");
+
+    /**
+     * 평가에서 빠진 시그널 요약 — "평가에서 빠진 시그널 3건 — 봉 없음 2 · 창 안 거래정지 1"(많은 순). 없으면 null. 순수.
+     * 거래정지·봉 결측은 가장 나쁜 결과일 수 있어 그 수를 같이 봐야 남은 표본의 수익을 읽을 수 있다(2026-10-19, §4c).
+     */
+    static String notEvaluatedNote(Map<String, Integer> notEvaluated) {
+        if (notEvaluated == null || notEvaluated.isEmpty()) return null;
+        int total = notEvaluated.values().stream().mapToInt(v -> v == null ? 0 : v).sum();
+        if (total <= 0) return null;
+        String parts = notEvaluated.entrySet().stream()
+                .filter(e -> e.getValue() != null && e.getValue() > 0)
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed()
+                        .thenComparing(e -> NOT_EVALUATED_LABELS.getOrDefault(e.getKey(), e.getKey())))
+                .map(e -> NOT_EVALUATED_LABELS.getOrDefault(e.getKey(), e.getKey()) + " " + e.getValue())
+                .collect(java.util.stream.Collectors.joining(" · "));
+        return "평가에서 빠진 시그널 " + total + "건 — " + parts;
+    }
+
+    /** 평가 제외를 모를 때(이전 산식 참고치 등) — 종전 판정. */
+    public static Verdict judge(List<DayPair> pairs, int rows, int controlRows,
+                                Shape shape, int excludedDays) {
+        return judge(pairs, rows, controlRows, shape, excludedDays, Map.of());
+    }
 
     /**
      * 판정한다.
@@ -117,9 +152,11 @@ public final class TrustGateRules {
      * @param controlRows  대조군 평가 완료 행 수
      * @param shape        손익 분포(없으면 모든 필드 null 인 Shape)
      * @param excludedDays 시그널은 있었으나 대조군 짝이 없어 빠진 날 수(§4c 조용한 제외 금지)
+     * @param notEvaluated 교정 평가가 OK 가 아니라 표본에서 빠진 시그널 수(상태별) — 설명에 드러낸다(2026-10-19)
      */
     public static Verdict judge(List<DayPair> pairs, int rows, int controlRows,
-                                Shape shape, int excludedDays) {
+                                Shape shape, int excludedDays, Map<String, Integer> notEvaluated) {
+        String excludedNote = notEvaluatedNote(notEvaluated);
         List<DayPair> usable = pairs == null ? List.<DayPair>of()
                 : pairs.stream()
                        .filter(p -> p != null && p.signalMeanPct() != null && p.controlMeanPct() != null)
@@ -180,7 +217,8 @@ public final class TrustGateRules {
                 excludedDays,
                 List.copyOf(blockers),
                 headline(state, blockers),
-                detail(state, days, excludedDays, costAdjusted, edge, moe));
+                detail(state, days, excludedDays, costAdjusted, edge, moe, excludedNote),
+                excludedNote);
     }
 
     private static String headline(State state, List<String> blockers) {
@@ -192,7 +230,7 @@ public final class TrustGateRules {
     }
 
     private static String detail(State state, int days, int excludedDays,
-                                 BigDecimal costAdjusted, BigDecimal edge, BigDecimal moe) {
+                                 BigDecimal costAdjusted, BigDecimal edge, BigDecimal moe, String excludedNote) {
         StringBuilder sb = new StringBuilder();
         sb.append("유효 표본은 행 수가 아니라 고유 거래일 수다(같은 날 행은 같은 시장 충격을 공유). 현재 ")
           .append(days).append("일. ");
@@ -209,6 +247,10 @@ public final class TrustGateRules {
         if (excludedDays > 0) {
             sb.append("⚠ 대조군 짝이 없어 빠진 날 ").append(excludedDays)
               .append("일 — 기록 실패가 변동성 큰 날에 몰리면 비교창이 평온한 날로 치우친다. ");
+        }
+        if (excludedNote != null) {
+            sb.append("⚠ ").append(excludedNote)
+              .append(" — 거래정지·봉 결측은 가장 나쁜 결과일 수 있어 위 수익은 그만큼 낙관 쪽일 수 있다. ");
         }
         if (state == State.CONSIDER_EXPANDING) {
             sb.append("과거 성적은 미래 수익을 보장하지 않는다. 확대는 모의운용 범위 안에서만 검토한다.");

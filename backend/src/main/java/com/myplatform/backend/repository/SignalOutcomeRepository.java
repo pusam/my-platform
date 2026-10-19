@@ -189,6 +189,18 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
     List<SignalOutcome> findD3OkSince(@Param("from") LocalDate from, @Param("ok") String ok);
 
     /**
+     * 교정 평가를 시도했지만 OK 가 아닌 행 — 게이트(⑦)가 표본에서 <b>뺀</b> 것을 세려고 읽는다(2026-10-19, §4c 조용한 제외 금지).
+     * 거래정지·봉 결측은 가장 나쁜 결과일 수 있어 그 수를 같이 보여야 남은 표본의 수익을 읽을 수 있다.
+     */
+    @Query("""
+        SELECT s FROM SignalOutcome s
+         WHERE s.d3Status IS NOT NULL
+           AND s.d3Status <> :ok
+           AND s.signalDate >= :from
+        """)
+    List<SignalOutcome> findD3NotOkSince(@Param("from") LocalDate from, @Param("ok") String ok);
+
+    /**
      * {@link #findD3OkSince} 의 구간판 — {@code [from, toExclusive)}. 신뢰 게이트(⑦)의 <b>이전 산식 참고치</b>용
      * (2026-10-01): 표본 경계 이전 행을 현재 산식 표본과 섞지 않고 따로 접는다.
      */

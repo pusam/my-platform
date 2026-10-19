@@ -147,6 +147,11 @@
           이익 {{ pct(trust.avgWin) }} / 손실 {{ pct(trust.avgLoss) }}
           · 최악 {{ pct(trust.worst) }} · 낙폭 {{ pct(trust.avgMaePct) }}
         </div>
+        <!-- 표본에서 빠진 시그널 — 거래정지·봉 결측은 최악일 수 있어 위 숫자 옆에 같이 둔다(2026-10-19, 문구는 백엔드 단일 출처) -->
+        <div v-if="trust.notEvaluatedNote" class="s trust-excluded"
+             title="교정 평가가 끝나지 않아 위 수익·최악·낙폭에 들어가지 않은 시그널이다. 거래정지·봉 결측은 가장 나쁜 결과일 수 있어 위 수익은 그만큼 낙관 쪽일 수 있다.">
+          ⚠ {{ trust.notEvaluatedNote }}
+        </div>
         <!--
           표본 경계(2026-10-01): 9/29~10/1 입력 수정 뒤 기록분만 현재 산식 표본이다. 이전 산식 성적은 참고로만 —
           숨기면 "근거 없음"으로, 섞으면 옛 성적이 새 산식 성적으로 읽힌다. 판정에 섞였는지는 백엔드가 정한다.
@@ -444,6 +449,7 @@ const headroomText = computed(() => {
 .trust-nums em { font-style: normal; color: var(--cr-mut); }
 .trust-nums .dead { color: var(--cr-mut); }
 .trust-nums .bad { color: var(--cr-red); }
+.trust-excluded { color: var(--cr-amb); }
 .trust-shape { color: var(--cr-mut); font-family: var(--cr-mono); }
 .trust-nums .up { color: var(--cr-grn); }
 .trust-nums .down { color: var(--cr-red); }

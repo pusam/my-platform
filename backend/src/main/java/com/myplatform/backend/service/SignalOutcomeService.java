@@ -729,10 +729,29 @@ public class SignalOutcomeService {
      */
     public com.myplatform.backend.controlroom.TrustGateRules.Verdict trustGate(LocalDate from) {
         // 2026-09-21 전환 — 교정 평가(V59, d3_*) OK 행만. 구값(pct_change_3d)은 컬럼에 남아 있지만 여기서 읽지 않는다.
-        List<SignalOutcome> all = repository.findD3OkSince(
-                from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from),
-                SignalD3Evaluator.Status.OK.name());
-        return aggregateTrustGate(all);
+        LocalDate start = from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from);
+        List<SignalOutcome> all = repository.findD3OkSince(start, SignalD3Evaluator.Status.OK.name());
+        // 평가에서 빠진 시그널(거래정지·봉 없음 등)도 센다 — 표본에서 조용히 사라지지 않게(2026-10-19, §4c)
+        List<SignalOutcome> notOk = repository.findD3NotOkSince(start, SignalD3Evaluator.Status.OK.name());
+        return aggregateTrustGate(all, notEvaluatedBreakdown(notOk, all));
+    }
+
+    /**
+     * 표본에서 빠진 시그널 수(교정 평가 상태별) — 순수 함수. 게이트와 같은 측정 위생: 보드 시그널만(대조군 제외), 종목·날짜당
+     * 최초 기록 1건, 그 종목·날짜에 OK 행이 있으면 빠진 것이 아니다(승격 2행 중 한 행만 OK 인 경우).
+     */
+    static Map<String, Integer> notEvaluatedBreakdown(List<SignalOutcome> notOk, List<SignalOutcome> ok) {
+        if (notOk == null || notOk.isEmpty()) return Map.of();
+        java.util.Set<String> okKeys = new java.util.HashSet<>();
+        for (SignalOutcome s : filterBoardSignals(ok == null ? List.of() : ok)) {
+            okKeys.add(s.getStockCode() + "|" + s.getSignalDate());
+        }
+        Map<String, Integer> out = new java.util.TreeMap<>();
+        for (SignalOutcome s : dedupPerStockDay(filterBoardSignals(notOk))) {
+            if (s.getD3Status() == null || okKeys.contains(s.getStockCode() + "|" + s.getSignalDate())) continue;
+            out.merge(s.getD3Status(), 1, Integer::sum);
+        }
+        return out;
     }
 
     /**
@@ -753,6 +772,12 @@ public class SignalOutcomeService {
      * 여기서도 교정 OK 행만 센다 — 구값이 있어도 교정이 OK 가 아니면 표본이 아니다(봉 결측을 구값으로 메우지 않는다).
      */
     static com.myplatform.backend.controlroom.TrustGateRules.Verdict aggregateTrustGate(List<SignalOutcome> rowsIn) {
+        return aggregateTrustGate(rowsIn, Map.of());
+    }
+
+    /** {@link #aggregateTrustGate(List)} + 평가에서 빠진 시그널 수(설명에 드러낸다). */
+    static com.myplatform.backend.controlroom.TrustGateRules.Verdict aggregateTrustGate(
+            List<SignalOutcome> rowsIn, Map<String, Integer> notEvaluated) {
         List<SignalOutcome> all = rowsIn == null ? List.of() : rowsIn;
         List<SignalOutcome> signals = dedupPerStockDay(filterBoardSignals(all));
         // 대조군은 표본 경계(9/1) 이후만 — 그 전 대조군은 유니버스가 달라 base rate 가 낮다(edge 과대 방향).
@@ -781,7 +806,7 @@ public class SignalOutcomeService {
                 .filter(s -> d3Ok(s) && common.contains(s.getSignalDate())).count();
 
         return com.myplatform.backend.controlroom.TrustGateRules.judge(
-                pairs, inWindow.size(), controlRows, shapeOf(inWindow), excludedDays);
+                pairs, inWindow.size(), controlRows, shapeOf(inWindow), excludedDays, notEvaluated);
     }
 
     /** 교정 평가(V59)가 OK 인 행인가 — 게이트가 읽는 유일한 조건. 레거시 evaluatedAt 은 보지 않는다. */

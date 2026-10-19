@@ -252,4 +252,20 @@ class TrustGateRulesTest {
         assertThat(v.edgeMarginOfError())
                 .isEqualByComparingTo(TrustGateRules.marginOfError(diffs).setScale(2, java.math.RoundingMode.HALF_UP));
     }
+
+    @Test
+    @DisplayName("평가 제외 문구 — 많은 순, 화면 이름으로, 없으면 null(판정은 그대로)")
+    void notEvaluatedNoteOrderAndNull() {
+        assertThat(TrustGateRules.notEvaluatedNote(java.util.Map.of("HALTED_IN_WINDOW", 1, "MISSING_BARS", 2)))
+                .isEqualTo("평가에서 빠진 시그널 3건 — 봉 없음 2 · 창 안 거래정지 1");
+        assertThat(TrustGateRules.notEvaluatedNote(java.util.Map.of())).isNull();
+        assertThat(TrustGateRules.notEvaluatedNote(null)).isNull();
+
+        var v = TrustGateRules.judge(wobbly(12, 3.0, 0.5), 40, 40, HEALTHY_SHAPE, 0, java.util.Map.of("NO_INDEX", 1));
+        var plain = TrustGateRules.judge(wobbly(12, 3.0, 0.5), 40, 40, HEALTHY_SHAPE, 0);
+        assertThat(v.notEvaluatedNote()).isEqualTo("평가에서 빠진 시그널 1건 — 지수 없음 1");
+        assertThat(v.detail()).contains("평가에서 빠진 시그널 1건");
+        assertThat(v.state()).isEqualTo(plain.state());
+        assertThat(plain.notEvaluatedNote()).isNull();
+    }
 }

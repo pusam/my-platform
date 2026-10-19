@@ -495,7 +495,8 @@ public class ControlRoomSnapshotService {
                     shape.avgWin(), shape.avgLoss(), shape.worst(), shape.avgMaePct(),
                     v.excludedDays(), v.blockers(), v.headline(),
                     TRUST_GATE_MEASUREMENT_CAVEAT + sampleBoundaryCaveat(boundary, legacy) + v.detail(),
-                    boundary.since() == null ? null : boundary.since().toString(), boundary.status().name(), legacy);
+                    boundary.since() == null ? null : boundary.since().toString(), boundary.status().name(), legacy,
+                    v.notEvaluatedNote());
         } catch (Exception e) {
             log.warn("[관제실] 신뢰 게이트 집계 실패: {}", e.getMessage());
             return unavailableTrustGate("집계 실패 (" + e.getClass().getSimpleName() + ")");
@@ -598,7 +599,7 @@ public class ControlRoomSnapshotService {
         return new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
                 null, null, null, false, false, null, null, null, null, 0, List.of(), why,
                 "신뢰 게이트를 집계하지 못했다. 표본이 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.",
-                null, null, null);
+                null, null, null, null);
     }
 
     /**

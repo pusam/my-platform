@@ -301,6 +301,12 @@ describe('ControlRoomKpis ⑦ — "믿고 사도 되나" 게이트', () => {
     expect(span.classes()).toContain('bad')
   })
 
+  it('재현(2026-10-19): 표본에서 빠진 시그널(거래정지·봉 없음)을 숫자 옆에 보인다 — 없으면 줄이 없다', () => {
+    const c = trustCard({ notEvaluatedNote: '평가에서 빠진 시그널 2건 — 봉 없음 1 · 창 안 거래정지 1' })
+    expect(c.find('.trust-excluded').text()).toContain('평가에서 빠진 시그널 2건 — 봉 없음 1 · 창 안 거래정지 1')
+    expect(trustCard().find('.trust-excluded').exists()).toBe(false)
+  })
+
   it('어느 쪽으로도 못 넘으면 그때만 "0 과 구분되지 않는다"', () => {
     const span = trustCard({ edgeVsControl: 0.3, edgeMarginOfError: 1.1 }).find('.trust-nums span[title]')
     expect(span.attributes('title')).toContain('0 과 구분되지 않는다')

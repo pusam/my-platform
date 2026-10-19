@@ -244,6 +244,10 @@ public final class CrewContextBuilder {
         if (t.excludedDays() > 0) {
             sb.append("  ⚠ 대조군 짝 없어 제외된 날 ").append(t.excludedDays()).append("일\n");
         }
+        if (t.notEvaluatedNote() != null) {
+            // 표본에서 빠진 시그널 — 거래정지·봉 결측은 최악일 수 있다(2026-10-19)
+            sb.append("  ⚠ ").append(t.notEvaluatedNote()).append("(최악일 수 있다)\n");
+        }
         if (t.blockers() != null && !t.blockers().isEmpty()) {
             sb.append("  막는 것: ").append(String.join(", ", t.blockers())).append('\n');
         }

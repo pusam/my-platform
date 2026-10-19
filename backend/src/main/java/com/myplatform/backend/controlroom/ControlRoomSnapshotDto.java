@@ -81,7 +81,8 @@ public record ControlRoomSnapshotDto(
             String noteDetail,
             String sampleSince,
             String sampleStatus,
-            LegacyReference legacy
+            LegacyReference legacy,
+            String notEvaluatedNote
     ) {}
 
     /**

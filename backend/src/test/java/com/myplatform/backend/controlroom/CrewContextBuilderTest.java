@@ -149,10 +149,11 @@ class CrewContextBuilderTest {
                         "표본 수집 중 — 고유 거래일 4/10일", "유효 표본은 고유 거래일 수다",
                         "2026-10-02", "PROVISIONAL",
                         new ControlRoomSnapshotDto.LegacyReference("2026-06-25", "2026-10-02", 183, 44, 35,
-                                new java.math.BigDecimal("-4.33"), new java.math.BigDecimal("0.17"), "EVALUABLE"))
+                                new java.math.BigDecimal("-4.33"), new java.math.BigDecimal("0.17"), "EVALUABLE"),
+                        null)
                 : new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
                         null, null, null, false, false, null, null, null, null,
-                        0, List.of(), "집계 실패", "측정 자체가 실패했다", null, null, null);
+                        0, List.of(), "집계 실패", "측정 자체가 실패했다", null, null, null, null);
     }
 
     @Test
@@ -172,6 +173,25 @@ class CrewContextBuilderTest {
         assertThat(text).contains("불확실성 밖 — 무작위보다 유의하게 나쁨");
         assertThat(text).doesNotContain("0 과 구분 안 됨");
         assertThat(text).contains("평균낙폭 -5.42%");
+    }
+
+    @Test
+    @DisplayName("재현(2026-10-19): 표본에서 빠진 시그널(거래정지·봉 없음)도 크루에 간다 — 최악일 수 있는 결과가 조용히 사라지지 않게")
+    void notEvaluatedSignalsReachCrew() {
+        ControlRoomSnapshotDto.Kpis k = kpis();
+        ControlRoomSnapshotDto.TrustGate base = k.trustGate();
+        ControlRoomSnapshotDto.TrustGate t = new ControlRoomSnapshotDto.TrustGate(base.dataAvailable(), base.state(),
+                base.rows(), base.distinctDays(), base.controlRows(), base.costAdjustedReturn(), base.edgeVsControl(),
+                base.edgeMarginOfError(), base.edgeExceedsUncertainty(), base.edgeBelowUncertainty(),
+                base.avgWin(), base.avgLoss(), base.worst(), base.avgMaePct(), base.excludedDays(), base.blockers(),
+                base.note(), base.noteDetail(), base.sampleSince(), base.sampleStatus(), base.legacy(),
+                "평가에서 빠진 시그널 2건 — 봉 없음 1 · 창 안 거래정지 1");
+        ControlRoomSnapshotDto.Kpis withExcluded = new ControlRoomSnapshotDto.Kpis(k.candidates(), k.gates(),
+                k.lossBreaker(), k.volRegime(), k.undecided(), k.financialInput(), t, k.botGate());
+
+        String text = CrewContextBuilder.build(snapshot(withExcluded), 8192).text();
+
+        assertThat(text).contains("⚠ 평가에서 빠진 시그널 2건 — 봉 없음 1 · 창 안 거래정지 1(최악일 수 있다)");
     }
 
     @Test
@@ -339,7 +359,7 @@ class CrewContextBuilderTest {
                 new java.math.BigDecimal("-6.00"), new java.math.BigDecimal("-3.00"),
                 0, List.of("우위 0.30%p 가 불확실성 ±1.10%p 를 못 넘음"),
                 "평가 가능 — 아직 확대 근거 없음: 우위 0.30%p 가 불확실성 ±1.10%p 를 못 넘음", "설명",
-                "2026-10-12", "PROVISIONAL", null);
+                "2026-10-12", "PROVISIONAL", null, null);
         ControlRoomSnapshotDto.Kpis within = new ControlRoomSnapshotDto.Kpis(k.candidates(), k.gates(), k.lossBreaker(),
                 k.volRegime(), k.undecided(), k.financialInput(), t, k.botGate());
 
