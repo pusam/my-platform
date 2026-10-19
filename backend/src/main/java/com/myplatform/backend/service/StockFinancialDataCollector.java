@@ -296,18 +296,12 @@ public class StockFinancialDataCollector {
                     per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
                 }
 
-                // TTM EPS 기반 ROE 재계산
-                // BPS가 음수(자본잠식)인 경우에도 계산하되, 부호가 순이익과 일관되도록 보정
-                if (bps != null && bps.compareTo(BigDecimal.ZERO) != 0) {
+                // TTM EPS 기반 ROE 재계산 — BPS 가 양수일 때만(2026-10-19). 예전엔 BPS 가 음수(자본잠식)여도 계산하고 부호를 순이익에
+                // 맞춰 뒤집어 EPS 2,000 ÷ BPS −50 = +4,000% 가 마법의 공식 ROE 1위가 될 수 있었다 — 자본잠식 판정은 아래에서 한다.
+                if (bps != null && bps.signum() > 0) {
                     roe = eps.divide(bps, 6, RoundingMode.HALF_UP)
                             .multiply(new BigDecimal("100"))
                             .setScale(2, RoundingMode.HALF_UP);
-                    // 부호 보정: 순이익 양수 → ROE 양수, 순이익 음수 → ROE 음수
-                    if (netIncome.compareTo(BigDecimal.ZERO) > 0 && roe.compareTo(BigDecimal.ZERO) < 0) {
-                        roe = roe.abs();
-                    } else if (netIncome.compareTo(BigDecimal.ZERO) < 0 && roe.compareTo(BigDecimal.ZERO) > 0) {
-                        roe = roe.negate();
-                    }
                 }
             }
 
@@ -383,6 +377,23 @@ public class StockFinancialDataCollector {
                             .setScale(2, RoundingMode.HALF_UP);
                     financialData.setRoe(roe);
                 }
+            }
+
+            // ★ 자본잠식(최신 자본총계 음수 — 재무상태표, 못 받았으면 KIS BPS 부호)이면 PBR·ROE 는 의미가 없다 — 모른다(2026-10-19).
+            //   예전엔 분기 자본이 음수면 '없음'으로 보고 작년 연간 자본(양수)을 썼고, 그것도 없으면 PBR 은 KIS 현재가 API 값(작년 결산
+            //   BPS 기준)으로 남았다. 적자 + 자본잠식의 ROE 는 (−)÷(−) 라 양수가 되기도 한다. BPS 는 음수 그대로(자본잠식이라는 사실).
+            //   아래 DART 지배지분 자본이 양수면 그것이 PBR 을 다시 만든다(지배주주 기준이 우선).
+            boolean capitalImpaired = totalEquity != null ? totalEquity.signum() < 0 : (bps != null && bps.signum() < 0);
+            if (capitalImpaired) {
+                if (totalEquity != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                    bps = totalEquity.multiply(new BigDecimal("100000000")).divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                    financialData.setBps(bps);
+                }
+                pbr = null;
+                roe = null;
+                financialData.setPbr(null);
+                financialData.setRoe(null);
+                noteState("자본잠식(자본총계 음수) — PBR·ROE 모름");
             }
 
             // ★ 지배주주 기준(2026-09-30): DART 지배주주 순이익 최근 4분기·지배지분 자본이 있으면 PER·EPS·BPS·PBR·ROE 를
@@ -619,15 +630,21 @@ public class StockFinancialDataCollector {
                         }
 
                         // ★ TTM 기준 영업이익률/순이익률 덮어쓰기 (연간 ratio API 값 대체)
+                        //   이익 TTM 을 모르면(한 분기라도 공란) 그 이익률도 모른다(2026-10-19) — 예전엔 모르는 이익을 0 으로 두고 나눠
+                        //   영업이익 칸은 NULL 인데 영업이익률은 0.00% 인 행이 저장됐다(0% 는 실재할 수 있는 값이라 결측과 구분이 안 된다).
                         if (ttmRevenueRaw.compareTo(BigDecimal.ZERO) > 0) {
-                            ratios.put("operatingMargin", ttmOperatingProfitRaw
-                                    .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
-                                    .multiply(new BigDecimal("100"))
-                                    .setScale(2, RoundingMode.HALF_UP));
-                            ratios.put("netMargin", ttmNetIncomeRaw
-                                    .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
-                                    .multiply(new BigDecimal("100"))
-                                    .setScale(2, RoundingMode.HALF_UP));
+                            if (ttm[1] != null) {
+                                ratios.put("operatingMargin", ttmOperatingProfitRaw
+                                        .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100"))
+                                        .setScale(2, RoundingMode.HALF_UP));
+                            }
+                            if (ttm[2] != null) {
+                                ratios.put("netMargin", ttmNetIncomeRaw
+                                        .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100"))
+                                        .setScale(2, RoundingMode.HALF_UP));
+                            }
                         }
 
                         // ROE 는 여기서 '보정'하지 않는다 — 예전 보정(연간 ROE × TTM 순이익률 ÷ 연간 순이익률)의 '연간 순이익률'이
@@ -673,7 +690,19 @@ public class StockFinancialDataCollector {
                                 BigDecimal totalCptl = parseBigDecimal(latestBs.path("total_cptl").asText());
                                 BigDecimal totalLblt = parseBigDecimal(latestBs.path("total_lblt").asText());
 
-                                if (totalCptl.compareTo(BigDecimal.ZERO) <= 0) {
+                                if (totalCptl.signum() < 0) {
+                                    // ★ 자본잠식(자본총계 음수)은 실재하는 값이다(2026-10-19) — 0·공란(파싱 실패)처럼 다음 시도(연간)로 넘어가
+                                    //   작년 자본(양수)을 쓰지 않는다. 음수 자본으로 만든 부채비율·ROE 는 의미가 없어 만들지 않고, 재무비율
+                                    //   API 의 부채비율(연간 결산 기준)도 지운다 — PBR·ROE 는 호출부가 '모름'으로 둔다.
+                                    bsDataFound = true;
+                                    ratios.put("totalEquity", totalCptl);
+                                    if (totalAset.compareTo(BigDecimal.ZERO) > 0) ratios.put("totalAssets", totalAset);
+                                    if (totalLblt.compareTo(BigDecimal.ZERO) > 0) ratios.put("totalDebt", totalLblt);
+                                    ratios.remove("debtRatio");
+                                    log.debug("[재무상태표] {} - FID_DIV_CLS_CODE={} 자본잠식(자본총계 {}억)", stockCode, divClsCode, totalCptl);
+                                    continue;
+                                }
+                                if (totalCptl.compareTo(BigDecimal.ZERO) == 0) {
                                     log.debug("[재무상태표] {} - FID_DIV_CLS_CODE={} 자본총계 0 또는 없음, 다음 시도", stockCode, divClsCode);
                                     if ("1".equals(divClsCode)) {
                                         Thread.sleep(100);

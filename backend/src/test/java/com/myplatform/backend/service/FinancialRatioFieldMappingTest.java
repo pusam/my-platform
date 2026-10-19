@@ -124,4 +124,59 @@ class FinancialRatioFieldMappingTest {
         assertThat(ratios.get("operatingProfit")).as("고치기 전: 100+200+300+400 = 1,000").isNull();
         assertThat(ratios.get("netIncome")).isNull();
     }
+
+    @Test
+    @DisplayName("재현(2026-10-19): 영업이익 TTM 을 모르면(한 분기 공란) 영업이익률도 모른다 — 매출만 있다고 0.00% 를 만들지 않는다")
+    void unknownOperatingProfitIsNotZeroMargin() {
+        respond("financial-ratio", RATIO_BODY);
+        // 개별 분기 5개(매출 700·순이익 50) — 202603 분기의 영업이익만 공란
+        respond("income-statement", incomeBody(new String[]{"202606", "202603", "202512", "202509", "202506"},
+                new String[]{"700", "700", "700", "700", "700"},
+                new String[]{"70", null, "70", "70", "70"}, new String[]{"50", "50", "50", "50", "50"}));
+        respond("balance-sheet", BALANCE_FAIL);
+
+        Map<String, BigDecimal> ratios = collector.getFinancialRatios("token", "282620");
+
+        assertThat(ratios.get("revenue")).isEqualByComparingTo("2800");
+        assertThat(ratios.get("operatingProfit")).isNull();
+        assertThat(ratios.get("operatingMargin")).as("고치기 전: 모르는 영업이익을 0 으로 나눠 0.00").isNull();
+        assertThat(ratios.get("netMargin")).as("순이익은 아니까 순이익률은 그대로").isEqualByComparingTo("7.14");
+    }
+
+    /** 재무상태표 응답 — 분기(FID_DIV_CLS_CODE=1)·연간(0)을 따로. */
+    private void respondBalance(String quarterlyBody, String annualBody) {
+        when(restTemplate.exchange(contains("balance-sheet?FID_DIV_CLS_CODE=1"), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(quarterlyBody));
+        when(restTemplate.exchange(contains("balance-sheet?FID_DIV_CLS_CODE=0"), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(annualBody));
+    }
+
+    @Test
+    @DisplayName("재현(2026-10-19): 최신 분기 자본총계가 음수(자본잠식)면 그 값을 쓴다 — 작년 연간 자본(+300억)으로 대체하지 않는다")
+    void capitalImpairmentIsNotReplacedByAnnualEquity() {
+        respond("financial-ratio", RATIO_BODY);
+        respond("income-statement", "{\"rt_cd\":\"0\",\"output\":[]}");
+        respondBalance("{\"rt_cd\":\"0\",\"output\":[{\"total_aset\":\"500\",\"total_cptl\":\"-50\",\"total_lblt\":\"550\"}]}",
+                "{\"rt_cd\":\"0\",\"output\":[{\"total_aset\":\"800\",\"total_cptl\":\"300\",\"total_lblt\":\"500\"}]}");
+
+        Map<String, BigDecimal> ratios = collector.getFinancialRatios("token", "282620");
+
+        assertThat(ratios.get("totalEquity")).as("고치기 전: 연간 자본 300 으로 대체").isEqualByComparingTo("-50");
+        assertThat(ratios.get("debtRatio")).as("자본잠식이면 부채비율은 의미가 없다 — 연간 자본으로 만든 166.67% 도, 재무비율 API 값도 쓰지 않는다")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("자본총계 0·공란(파싱 실패)은 종전대로 결측 — 연간으로 넘어간다")
+    void zeroEquityStillFallsBackToAnnual() {
+        respond("financial-ratio", RATIO_BODY);
+        respond("income-statement", "{\"rt_cd\":\"0\",\"output\":[]}");
+        respondBalance("{\"rt_cd\":\"0\",\"output\":[{\"total_aset\":\"\",\"total_cptl\":\"\",\"total_lblt\":\"\"}]}",
+                "{\"rt_cd\":\"0\",\"output\":[{\"total_aset\":\"800\",\"total_cptl\":\"300\",\"total_lblt\":\"500\"}]}");
+
+        Map<String, BigDecimal> ratios = collector.getFinancialRatios("token", "282620");
+
+        assertThat(ratios.get("totalEquity")).isEqualByComparingTo("300");
+        assertThat(ratios.get("debtRatio")).isEqualByComparingTo("166.67");
+    }
 }
