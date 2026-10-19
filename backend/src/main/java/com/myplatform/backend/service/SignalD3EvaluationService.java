@@ -100,6 +100,13 @@ public class SignalD3EvaluationService {
     private final ObjectProvider<StockStatusService> statusProvider;
     private final Clock clock;
 
+    /**
+     * dead-man switch(2026-10-19) — 실행이 끝나면 심박을 남긴다. 게이트·화면 성적이 이 배치의 값을 읽는데 레거시 19:30 평가 심박만
+     * 있어 이 배치가 죽어도 '정상'이었다. 없으면(단위테스트·Redis 없음) 건너뛴다.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private BatchHeartbeatService heartbeat;
+
     /** 기동 시 따라잡기 — 배포·재시작으로 19:45 를 놓친 날을 메운다. 장중이면 미룬다. */
     @Value("${signal.d3.catch-up-on-startup:true}")
     private boolean catchUpOnStartup;
@@ -165,6 +172,7 @@ public class SignalD3EvaluationService {
         try {
             Report r = run(false, MAX_FETCH_STOCKS_PER_RUN, false);
             log.info("[D3평가] {} {}", label, summarize(r));
+            if (heartbeat != null) heartbeat.recordSuccess(BatchHeartbeatService.JOB_D3_EVALUATION);
         } catch (Exception e) {
             log.error("[D3평가] {} 배치 실패: {}", label, e.getMessage(), e);
         }
