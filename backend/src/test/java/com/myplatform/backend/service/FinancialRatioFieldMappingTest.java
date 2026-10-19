@@ -96,4 +96,32 @@ class FinancialRatioFieldMappingTest {
                 .as("고치기 전: 22.81 × TTM 순이익률 7.14 ÷ '연간 순이익률'(실은 순이익 증가율 41.77) = 3.90")
                 .isEqualByComparingTo("22.81");
     }
+
+    /** 손익계산서 응답 — 최신순. revenue 가 null 이면 sale_account 를 빈 문자열로(KIS 가 공란을 주는 모양). */
+    private static String incomeBody(String[] periods, String[] revenue, String[] op, String[] net) {
+        StringBuilder q = new StringBuilder("{\"rt_cd\":\"0\",\"output\":[");
+        for (int i = 0; i < periods.length; i++) {
+            if (i > 0) q.append(',');
+            q.append("{\"stac_yymm\":\"").append(periods[i])
+                    .append("\",\"sale_account\":\"").append(revenue[i] == null ? "" : revenue[i])
+                    .append("\",\"bsop_prti\":\"").append(op[i] == null ? "" : op[i])
+                    .append("\",\"thtr_ntin\":\"").append(net[i] == null ? "" : net[i]).append("\"}");
+        }
+        return q.append("]}").toString();
+    }
+
+    @Test
+    @DisplayName("재현(2026-10-19): 매출이 비어 누적 여부를 판정 못 하면 TTM 을 만들지 않는다 — 누적값 4개를 더한 영업이익 1,000(실제 400)을 쓰지 않는다")
+    void undecidedCumulativeMakesNoTtm() {
+        respond("financial-ratio", RATIO_BODY);
+        respond("income-statement", incomeBody(new String[]{"202512", "202509", "202506", "202503"},
+                new String[]{null, null, null, null},
+                new String[]{"400", "300", "200", "100"}, new String[]{"330", "250", "160", "80"}));
+        respond("balance-sheet", BALANCE_FAIL);
+
+        Map<String, BigDecimal> ratios = collector.getFinancialRatios("token", "282620");
+
+        assertThat(ratios.get("operatingProfit")).as("고치기 전: 100+200+300+400 = 1,000").isNull();
+        assertThat(ratios.get("netIncome")).isNull();
+    }
 }

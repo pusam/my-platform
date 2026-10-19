@@ -573,8 +573,12 @@ public class StockFinancialDataCollector {
                                 QuarterlyFinancials.withDetectedCumulative(rawFigures);
                         boolean isCumulative = !figures.isEmpty() && figures.get(0).cumulative();
 
+                        // 누적 여부를 판정 못 하면(인접 분기 부족·매출 공란) 개별 분기로 쓰지 않는다 — TTM 도 모른다(2026-10-19)
                         List<QuarterlyFinancials.Figures> individuals =
-                                QuarterlyFinancials.toIndividualQuarters(figures);
+                                QuarterlyFinancials.usableIndividualQuarters(figures);
+                        // 4분기 이상 받았는데 판정이 안 된 경우(매출 공란 등)만 따로 센다 — 4분기 미만은 '연속 4분기 부족'과 같다
+                        boolean cumulativeUndecided = rawFigures.size() >= QuarterlyFinancials.TTM_QUARTERS
+                                && QuarterlyFinancials.judgeCumulative(rawFigures) == null;
                         BigDecimal[] ttm = QuarterlyFinancials.ttmSum(individuals);
 
                         // ★ 분기 원본 보존 (R1) — 이미 받아서 버리던 배열을 적재만 한다. 새 API 호출 없음.
@@ -593,7 +597,8 @@ public class StockFinancialDataCollector {
                             // 아래 !=0 가드가 걸러 ratios 에 안 담기고, 그게 의도된 동작이다.
                             log.debug("[손익계산서 TTM] {} - 연속 4분기 확보 실패(원본 {} / 개별 {}) — TTM 미산출",
                                     stockCode, rawFigures.size(), individuals.size());
-                            noteState("TTM 미산출(연속 4분기 부족)");
+                            noteState(cumulativeUndecided ? "TTM 미산출(누적 여부 판정 불가 — 인접 분기 부족·매출 공란)"
+                                    : "TTM 미산출(연속 4분기 부족)");
                         }
 
                         // ★ 단위: KIS 원본이 이미 **억원**이다 — /100 하지 않는다(2026-08-28 실측 정정).
@@ -994,7 +999,7 @@ public class StockFinancialDataCollector {
                     .map(q -> new QuarterlyFinancials.Figures(q.getFiscalPeriod(), q.getPeriodEnd(),
                             q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
                     .collect(java.util.stream.Collectors.toList());
-            out.put(e.getKey(), QuarterlyFinancials.toIndividualQuarters(raw));
+            out.put(e.getKey(), QuarterlyFinancials.usableIndividualQuarters(raw));
         }
         return out;
     }

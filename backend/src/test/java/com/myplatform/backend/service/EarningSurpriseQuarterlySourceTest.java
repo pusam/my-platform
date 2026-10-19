@@ -76,6 +76,8 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("인접 2분기 영업이익 +20% 이상이면 POSITIVE — 레거시 경로에선 나올 수 없던 판정")
     void detectsPositiveFromAdjacentQuarters() {
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(
+                q(3, "10000", "900", "700", false),     // 개별 분기로 판정되게 앞 분기를 채운다(연속 4분기)
+                q(2, "10500", "950", "750", false),
                 q(1, "10000", "1000", "800", false),
                 q(0, "12000", "1500", "1200", false)));
 
@@ -110,6 +112,9 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("분기가 건너뛰어져 있으면(중간 결측) 비교하지 않는다 — 6개월치를 한 분기로 부풀리지 않게")
     void refusesSkippedQuarter() {
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(
+                q(5, "10000", "1000", "800", false),      // 개별 분기로 판정되게 앞 분기를 채운다
+                q(4, "10000", "1000", "800", false),
+                q(3, "10000", "1000", "800", false),
                 q(2, "10000", "1000", "800", false),
                 q(0, "24000", "3000", "2400", false)));   // 1분기 전이 결측
 
@@ -121,6 +126,8 @@ class EarningSurpriseQuarterlySourceTest {
     void refusesStaleQuarters() {
         // 5·6분기 전 = 15개월 이상 전 → 인접 쌍은 만들어지지만 노후로 탈락
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(
+                q(8, "10000", "900", "700", false),       // 개별 분기로 판정되게 앞 분기를 채운다
+                q(7, "10500", "950", "750", false),
                 q(6, "10000", "1000", "800", false),
                 q(5, "12000", "1500", "1200", false)));
 
@@ -174,6 +181,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("2분기 연속 적자 후 흑자 = 진짜 TURNAROUND")
     void consecutiveLossThenProfitIsTurnaround() {
         List<EarningSurpriseDto> out = runWith(
+                q(3, "9500", "30", "20", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(2, "10000", "-50", "-40", false),    // prev2 적자
                 q(1, "11000", "-20", "-15", false),    // prev 적자
                 q(0, "12000", "80", "60", false));     // latest 흑자
@@ -186,6 +194,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("한 분기만 적자면 서프라이즈가 아니다 — 실측 209건 중 111건이 이 부류였다")
     void singleQuarterBlipIsNotASurprise() {
         List<EarningSurpriseDto> out = runWith(
+                q(3, "9500", "60", "45", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(2, "10000", "70", "55", false),      // prev2 흑자 ← 여기가 차이
                 q(1, "11000", "-20", "-15", false),    // prev 적자(한 분기 삐끗)
                 q(0, "12000", "80", "60", false));     // latest 흑자
@@ -199,6 +208,7 @@ class EarningSurpriseQuarterlySourceTest {
         // 100억 적자 → 1억 흑자면 (1-(-100))/100 = +101% 라 POSITIVE cr>=100 으로 20점을 받는다.
         // TURNAROUND 만 막고 변화율 경로를 열어두면 효과가 없다.
         List<EarningSurpriseDto> out = runWith(
+                q(3, "9500", "60", "45", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(2, "10000", "70", "55", false),      // prev2 흑자 → 삐끗
                 q(1, "11000", "-100", "-80", false),
                 q(0, "12000", "1", "1", false));
@@ -210,6 +220,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("적자와 무관한 POSITIVE 는 그대로 — 연속성 조건이 정상 경로를 건드리지 않는다")
     void normalPositiveIsUntouched() {
         List<EarningSurpriseDto> out = runWith(
+                q(3, "9500", "55", "45", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(2, "10000", "60", "50", false),
                 q(1, "11000", "100", "80", false),
                 q(0, "12000", "150", "120", false));   // +50%
@@ -242,6 +253,7 @@ class EarningSurpriseQuarterlySourceTest {
     void turnaroundBelowYearAgoIsNotASurprise() {
         List<EarningSurpriseDto> out = runWith(
                 q(4, "12000", "66", "50", false),       // 전년 동기
+                q(3, "11000", "50", "40", false),       // 개별 분기로 판정되게 채운다
                 q(2, "9000", "-40", "-30", false),      // prev2 적자
                 q(1, "8000", "-70", "-55", false),      // prev 적자
                 q(0, "10000", "14", "10", false));      // latest 흑자
@@ -254,6 +266,8 @@ class EarningSurpriseQuarterlySourceTest {
     void yearOverYearGrowthKeepsSurprise() {
         List<EarningSurpriseDto> out = runWith(
                 q(4, "10000", "40", "30", false),       // 전년 동기 40
+                q(3, "9500", "30", "25", false),        // 개별 분기로 판정되게 채운다
+                q(2, "9200", "25", "20", false),
                 q(1, "9000", "19", "15", false),
                 q(0, "12000", "54", "40", false));      // 54 > 40
 
@@ -267,6 +281,7 @@ class EarningSurpriseQuarterlySourceTest {
     void yearAgoLossKeepsTurnaround() {
         List<EarningSurpriseDto> out = runWith(
                 q(4, "10000", "-30", "-25", false),     // 전년 동기 적자
+                q(3, "10000", "-40", "-30", false),     // 개별 분기로 판정되게 채운다
                 q(2, "10000", "-50", "-40", false),
                 q(1, "11000", "-20", "-15", false),
                 q(0, "12000", "80", "60", false));
@@ -280,6 +295,8 @@ class EarningSurpriseQuarterlySourceTest {
     void netIncomeFallbackUsesNetIncomeYearOverYear() {
         List<EarningSurpriseDto> out = runWith(
                 q(4, "10000", null, "100", false),      // 전년 동기 순이익 100
+                q(3, "10000", null, "70", false),       // 개별 분기로 판정되게 채운다
+                q(2, "10000", null, "60", false),
                 q(1, "10000", null, "50", false),
                 q(0, "10000", null, "90", false));      // 직전 대비 +80%, 전년 동기 대비 -10%
 
@@ -290,6 +307,8 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("전년 동기 자료가 없으면 판정 보류 = 종전대로(결측은 차단 근거가 아니다) — 상장 1년 미만 등")
     void missingYearAgoBaseKeepsCurrentBehavior() {
         List<EarningSurpriseDto> out = runWith(
+                q(3, "10000", "80", "60", false),       // 개별 분기로 판정되게 채운다(전년 동기 q(4)는 일부러 없다)
+                q(2, "10500", "90", "70", false),
                 q(1, "11000", "100", "80", false),
                 q(0, "12000", "150", "120", false));
 
@@ -302,6 +321,8 @@ class EarningSurpriseQuarterlySourceTest {
     void negativeSurpriseIsUntouched() {
         List<EarningSurpriseDto> out = runWith(
                 q(4, "10000", "200", "150", false),
+                q(3, "10000", "200", "150", false),     // 개별 분기로 판정되게 채운다
+                q(2, "10000", "200", "150", false),
                 q(1, "10000", "200", "150", false),
                 q(0, "10000", "100", "80", false));     // 직전 대비 -50%
 
@@ -313,5 +334,16 @@ class EarningSurpriseQuarterlySourceTest {
     private List<EarningSurpriseDto> runWith(StockQuarterlyFinancial... rows) {
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(rows));
         return service.detectFromQuarterly();
+    }
+
+    @Test
+    @DisplayName("재현: 누적 여부를 판정 못 한 신규 상장 종목(분기 3개)은 서프라이즈를 만들지 않는다 — 반기 누적 21 vs 1분기 10 = 가짜 +110%")
+    void undecidedNewListingMakesNoSurprise() {
+        when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(
+                q(2, "400", "40", "30", false),    // 직전 사업연도 연간
+                q(1, "100", "10", "8", false),     // 1분기
+                q(0, "210", "21", "17", false)));  // 반기 누적 — 2분기 단독은 11
+
+        assertThat(service.detectFromQuarterly()).isEmpty();
     }
 }

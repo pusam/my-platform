@@ -146,7 +146,7 @@ class QuarterlyFinancialsTest {
         }
 
         @Test
-        @DisplayName("인접쌍 3개 미만·매출 결측이면 판정 불가 → false(개별 취급, 종전 동작)")
+        @DisplayName("인접쌍 3개 미만·매출 결측이면 판정 불가 → false(저장 칸용 — 소비처는 usableIndividualQuarters 로 거른다)")
         void undecidableIsFalse() {
             assertThat(QuarterlyFinancials.detectCumulative(null)).isFalse();
             assertThat(QuarterlyFinancials.detectCumulative(List.of())).isFalse();
@@ -405,6 +405,69 @@ class QuarterlyFinancialsTest {
                     ind("202506", "1100", "-20", "-15"),
                     ind("202509", "1300", "90", "70")));
             assertThat(blip[2].operatingProfit().signum()).isPositive();   // prev2 는 흑자
+        }
+    }
+
+    /**
+     * 누적 여부를 판정 못 한 행은 개별 분기로 쓰지 않는다(2026-10-19, 리뷰 에이전트 지적).
+     * 재현: KIS 분기 손익은 사실상 전 종목이 누적(YTD)인데, 판정 불가(인접 분기 쌍 3개 미만 — 상장 1년 미만, 매출 공란 분기)를
+     * '개별'로 저장·사용했다. 신규 상장 종목은 반기 누적 21 이 'Q2'가 되어 1분기 10 대비 +110% 실적 급증(최대 20점)이 됐고,
+     * 매출이 비어 판정이 안 되는 종목은 누적값 4개를 더해 영업이익 TTM 이 1,000(실제 400)으로 부풀었다.
+     */
+    @Nested
+    @DisplayName("판정 불가 행은 개별 분기로 쓰지 않는다")
+    class UndecidedIsNotIndividual {
+
+        @Test
+        @DisplayName("judgeCumulative — 인접쌍 3개 미만이면 null(판정 불가), 그 밖엔 누적 여부")
+        void judgeIsTriState() {
+            assertThat(QuarterlyFinancials.judgeCumulative(List.of(
+                    ind("202512", "400", "40", "30"), ind("202603", "100", "10", "8"),
+                    ind("202606", "210", "21", "17")))).isNull();
+            assertThat(QuarterlyFinancials.judgeCumulative(List.of(
+                    cum("202503", "1000", "100", "80"), cum("202506", "2000", "200", "160"),
+                    cum("202509", "3000", "300", "250"), cum("202512", "4000", "400", "330")))).isTrue();
+            assertThat(QuarterlyFinancials.judgeCumulative(List.of(
+                    ind("202503", "1000", "90", "70"), ind("202506", "1050", "95", "75"),
+                    ind("202509", "980", "88", "68"), ind("202512", "1100", "100", "80")))).isFalse();
+        }
+
+        @Test
+        @DisplayName("재현: 신규 상장 3분기(누적)를 개별로 쓰지 않는다 — 반기 누적이 'Q2'가 되지 않게")
+        void newlyListedIsExcluded() {
+            List<Figures> rows = QuarterlyFinancials.withDetectedCumulative(List.of(
+                    ind("202512", "400", "40", "30"), ind("202603", "100", "10", "8"),
+                    ind("202606", "210", "21", "17")));
+
+            assertThat(QuarterlyFinancials.usableIndividualQuarters(rows)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("재현: 매출이 비어 판정이 안 되는 4분기 누적값을 더해 TTM 을 부풀리지 않는다(1,000 vs 실제 400)")
+        void revenueBlankIsExcludedFromTtm() {
+            List<Figures> rows = QuarterlyFinancials.withDetectedCumulative(List.of(
+                    ind("202503", null, "100", "80"), ind("202506", null, "200", "160"),
+                    ind("202509", null, "300", "250"), ind("202512", null, "400", "330")));
+
+            List<Figures> usable = QuarterlyFinancials.usableIndividualQuarters(rows);
+
+            assertThat(usable).isEmpty();
+            assertThat(QuarterlyFinancials.ttmSum(usable)).isNull();
+        }
+
+        @Test
+        @DisplayName("개별이라고 판정된 분기와 누적 분기는 종전대로 쓴다")
+        void decidedRowsPassAsBefore() {
+            List<Figures> individual = QuarterlyFinancials.withDetectedCumulative(List.of(
+                    ind("202503", "1000", "90", "70"), ind("202506", "1050", "95", "75"),
+                    ind("202509", "980", "88", "68"), ind("202512", "1100", "100", "80")));
+            assertThat(QuarterlyFinancials.usableIndividualQuarters(individual)).hasSize(4);
+
+            List<Figures> cumulative = QuarterlyFinancials.withDetectedCumulative(List.of(
+                    cum("202503", "1000", "100", "80"), cum("202506", "2000", "200", "160"),
+                    cum("202509", "3000", "300", "250"), cum("202512", "4000", "400", "330")));
+            assertThat(QuarterlyFinancials.usableIndividualQuarters(cumulative))
+                    .isEqualTo(QuarterlyFinancials.toIndividualQuarters(cumulative));
         }
     }
 }

@@ -139,7 +139,7 @@ public class EarningSurpriseService {
                             q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
                     .collect(Collectors.toList());
 
-            List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.toIndividualQuarters(raw);
+            List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.usableIndividualQuarters(raw);
             QuarterlyFinancials.Figures[] pair = QuarterlyFinancials.latestAdjacentPair(individuals);
             if (pair == null) { notEnough++; continue; }
 
@@ -643,7 +643,7 @@ public class EarningSurpriseService {
                                 q.getFiscalPeriod(), q.getPeriodEnd(),
                                 q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
                         .collect(Collectors.toList());
-                List<QuarterlyFinancials.Figures> ind = QuarterlyFinancials.toIndividualQuarters(raw);
+                List<QuarterlyFinancials.Figures> ind = QuarterlyFinancials.usableIndividualQuarters(raw);
 
                 QuarterlyFinancials.Figures[] pair = QuarterlyFinancials.latestAdjacentPair(ind);
                 if (pair == null) continue;
