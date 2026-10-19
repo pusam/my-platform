@@ -810,14 +810,19 @@ public class StockDetailService {
      * <p>점수·목록(저평가·AI 스윙·마법의 공식)이 쓰는 KIS 일별 재무 행의 EPS(최근 4분기 이익)·BPS(최근 분기 자본)를 현재가로 다시
      * 나눈다. 상세의 기본 PER·PBR 은 KIS 최근 결산(연간) EPS·BPS 라 이익이 크게 변한 해엔 몇 배씩 다르다(삼성전자 10/7: 41.4 vs 10.5).
      * 그 행이 연간 값뿐(KIS)이면 같은 값을 '최근' 이름으로 한 번 더 보이지 않도록 null, 적자면 PER 만 비운다(§4c).
+     *
+     * <p>PER 과 PBR 의 '최근' 여부는 따로 판단한다(2026-10-19) — {@code per_basis} 는 순이익 정의(CTRL·CONSOL·KIS)일 뿐이고,
+     * BPS 는 수집기가 그와 별개로 정한다(지배지분 자본이 있으면 그것, 없으면 KIS 최근 분기 자본총계, 둘 다 없으면 연간).
+     * 그래서 PBR 은 최근 분기 자본총계가 있는 행(BPS 가 최근 분기 자본)일 때만 보이고, 그 기준(지배·연결)은 행에 남지 않아 단정하지 않는다.
      */
     static RecentMultiples recentMultiples(StockFinancialData row, BigDecimal currentPrice) {
         if (row == null || row.getMarketCap() == null || currentPrice == null || currentPrice.signum() <= 0) return null;
         String basis = row.getPerBasis();
-        if (!"CTRL".equals(basis) && !"CONSOL".equals(basis)) return null;
-        BigDecimal per = row.getEps() != null && row.getEps().signum() > 0
+        boolean ttmEarnings = "CTRL".equals(basis) || "CONSOL".equals(basis);
+        boolean recentEquity = row.getTotalEquity() != null && row.getTotalEquity().signum() > 0;
+        BigDecimal per = ttmEarnings && row.getEps() != null && row.getEps().signum() > 0
                 ? currentPrice.divide(row.getEps(), 1, RoundingMode.HALF_UP) : null;
-        BigDecimal pbr = row.getBps() != null && row.getBps().signum() > 0
+        BigDecimal pbr = recentEquity && row.getBps() != null && row.getBps().signum() > 0
                 ? currentPrice.divide(row.getBps(), 2, RoundingMode.HALF_UP) : null;
         if (per == null && pbr == null) return null;
         return new RecentMultiples(per, pbr, basis, row.getReportDate());

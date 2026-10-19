@@ -251,7 +251,7 @@
                   {{ multipleOrDash(financial?.per, 1) }}
                   <span v-if="financial?.forwardPer" class="forward-badge" :class="{ 'forward-improved': financial.forwardPer < financial.per }">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
                 </span>
-                <span v-if="recentMultipleLine(financial, 'per')" class="fin-sub" :title="recentMultipleTitle(financial)">{{ recentMultipleLine(financial, 'per') }}</span>
+                <span v-if="recentMultipleLine(financial, 'per')" class="fin-sub" :title="recentMultipleTitle(financial, 'per')">{{ recentMultipleLine(financial, 'per') }}</span>
               </span>
             </div>
             <div class="fin-card">
@@ -261,7 +261,7 @@
                   {{ multipleOrDash(financial?.pbr, 2) }}
                   <span v-if="financial?.forwardPbr" class="forward-badge" :class="{ 'forward-improved': financial.forwardPbr < financial.pbr }">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
                 </span>
-                <span v-if="recentMultipleLine(financial, 'pbr')" class="fin-sub" :title="recentMultipleTitle(financial)">{{ recentMultipleLine(financial, 'pbr') }}</span>
+                <span v-if="recentMultipleLine(financial, 'pbr')" class="fin-sub" :title="recentMultipleTitle(financial, 'pbr')">{{ recentMultipleLine(financial, 'pbr') }}</span>
               </span>
             </div>
             <div class="fin-card">

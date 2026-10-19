@@ -21,7 +21,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class StockDetailRecentMultiplesTest {
 
     private static StockFinancialData row(String eps, String bps, String basis, Long marketCap) {
+        return row(eps, bps, basis, marketCap, "1000000");   // KIS 최근 분기 자본총계가 있는 행(BPS 가 최근 분기 자본)
+    }
+
+    private static StockFinancialData row(String eps, String bps, String basis, Long marketCap, String totalEquity) {
         StockFinancialData f = new StockFinancialData();
+        f.setTotalEquity(totalEquity == null ? null : new BigDecimal(totalEquity));
         f.setStockCode("005930");
         f.setReportDate(LocalDate.of(2026, 10, 7));
         f.setEps(eps == null ? null : new BigDecimal(eps));
@@ -45,9 +50,20 @@ class StockDetailRecentMultiplesTest {
     }
 
     @Test
-    @DisplayName("연간 값뿐인 행(KIS)은 보이지 않는다 — 같은 값을 '최근' 이름으로 한 번 더 보이지 않게")
+    @DisplayName("연간 값뿐인 행(순이익 KIS 연간·최근 분기 자본 없음)은 보이지 않는다 — 같은 값을 '최근' 이름으로 한 번 더 보이지 않게")
     void annualOnlyRowIsNotShown() {
-        assertThat(StockDetailService.recentMultiples(row("6564", "63997", "KIS", 15755721L), new BigDecimal("272000"))).isNull();
+        assertThat(StockDetailService.recentMultiples(row("6564", "63997", "KIS", 15755721L, null), new BigDecimal("272000"))).isNull();
+    }
+
+    @Test
+    @DisplayName("재현(2026-10-19): 순이익 기준이 KIS 연간이어도 최근 분기 자본이 있으면 PBR 은 최근 분기로 보인다 — BPS 기준은 per_basis 와 따로 정해진다")
+    void pbrFollowsEquityNotPerBasis() {
+        StockDetailService.RecentMultiples m = StockDetailService.recentMultiples(
+                row("6564", "96654", "KIS", 15755721L, "5793097"), new BigDecimal("272000"));
+
+        assertThat(m).isNotNull();
+        assertThat(m.per()).as("순이익이 연간이면 '최근 4분기' PER 은 없다").isNull();
+        assertThat(m.pbr()).isEqualByComparingTo("2.81");
     }
 
     @Test
