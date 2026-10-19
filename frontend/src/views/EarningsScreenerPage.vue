@@ -581,8 +581,8 @@
                   </span>
                 </div>
                 <div class="supply-summary">
-                  <span v-if="diagnosisData.supplyDemand.isBothBuying" class="both-buying">🔥 외국인+기관 5일 누적 동반 순매수</span>
-                  <span v-else-if="diagnosisData.supplyDemand.isBothSelling" class="both-selling">❄️ 외국인+기관 5일 누적 동반 순매도 — 주의</span>
+                  <span v-if="diagnosisData.supplyDemand.bothBuying" class="both-buying">🔥 외국인+기관 5일 누적 동반 순매수</span>
+                  <span v-else-if="diagnosisData.supplyDemand.bothSelling" class="both-selling">❄️ 외국인+기관 5일 누적 동반 순매도 — 주의</span>
                 </div>
                 <div class="card-assessment">{{ diagnosisData.supplyDemand.assessment }}</div>
               </div>

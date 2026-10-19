@@ -3,9 +3,10 @@ import { mount } from '@vue/test-utils'
 import PeerComparisonCard from './PeerComparisonCard.vue'
 
 const peers = [
-  { stockName: '삼성전자', pbr: 1.3, dividendYield: 2.1, isCurrent: true },
-  { stockName: 'SK하이닉스', pbr: 0.4, dividendYield: 1.2, isCurrent: false },
-  { stockName: 'A사', pbr: 1.8, dividendYield: 0.5, isCurrent: false }
+  // 실제 응답 이름 — 백엔드 원시 boolean isCurrent 는 JSON 에서 current 다(BooleanJsonKeyContractTest, 2026-10-19)
+  { stockName: '삼성전자', pbr: 1.3, dividendYield: 2.1, current: true },
+  { stockName: 'SK하이닉스', pbr: 0.4, dividendYield: 1.2, current: false },
+  { stockName: 'A사', pbr: 1.8, dividendYield: 0.5, current: false }
 ]
 
 function mountCard(props = {}) {
