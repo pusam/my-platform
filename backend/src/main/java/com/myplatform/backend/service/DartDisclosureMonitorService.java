@@ -26,7 +26,9 @@ import java.util.Set;
  *      (2026-07-07 관심/포지션 확장 — 상한 {@value #TARGET_MAX_NAMES}, 초과분 로그)
  *   3) 각 종목에 대해 DartService.searchDisclosuresByName → 위험(기존 DANGER 키워드) +
  *      주요(NOTABLE 키워드 — 소송·계약해지 등, <b>중립 톤</b> §4c) 분류
- *   4) 이미 본 공시(rceptNo 기준)는 Redis 에 3일 TTL 로 저장 — 중복 방지
+ *   4) 최근 {@value #RECENT_WINDOW_DAYS}일 안에 접수된 공시만 본다(2026-10-19). 이미 보낸 공시(rceptNo 기준)는 Redis 에 10일 —
+ *      창보다 길게 — 저장해 한 번만 나간다. 예전엔 조회 창(3개월)보다 기억(3일)이 짧아 같은 공시가 3일마다 다시 나갔고,
+ *      서버가 3일 넘게 꺼졌다 켜지면 3개월치가 한꺼번에 나갔다.
  *   5) 신규 공시만 텔레그램 리스크 채널 전송
  *
  * <p><b>DART rate 계산(상한 근거)</b>: 실행 횟수/일 ≈ 장중 144(5분×12h) + 야간 4 + 새벽 8 = 156.
@@ -38,7 +40,11 @@ import java.util.Set;
 public class DartDisclosureMonitorService {
 
     private static final String CACHE_SEEN = "dartSeen";
-    private static final Duration SEEN_TTL = Duration.ofDays(3);
+    // 보낸 공시 기억 — 알림 창(RECENT_WINDOW_DAYS)보다 길어야 한 공시가 한 번만 나간다(2026-10-19, 예전 3일)
+    private static final Duration SEEN_TTL = Duration.ofDays(10);
+    /** 알림 창 — 최근 이만큼 안에 접수된 공시만 알린다. 꺼져 있던 동안의 공시도 이 안이면 켜진 뒤 한 번 나간다. */
+    static final int RECENT_WINDOW_DAYS = 7;
+    private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
     /** 감시 대상 상한 — DART 일 10,000콜 한도 기준(클래스 javadoc rate 계산). 초과분은 로그로 가시화. */
     static final int TARGET_MAX_NAMES = 30;
 
@@ -223,11 +229,13 @@ public class DartDisclosureMonitorService {
             if (all == null) return -1;
             if (all.isEmpty()) return 0;
 
+            java.time.LocalDate today = java.time.LocalDate.now(KST);
             int sent = 0;
             for (DartDisclosure d : all) {
                 if (d == null) continue;
                 String rceptNo = d.getRceptNo();
                 if (rceptNo == null || rceptNo.isBlank()) continue;
+                if (!isRecentReceipt(d.getRceptDt(), rceptNo, today)) continue;   // 창 밖 = 이미 알렸거나 너무 오래됨
 
                 String notableKeyword = d.isDangerous() ? null : matchNotableKeyword(d.getReportNm());
                 if (!d.isDangerous() && notableKeyword == null) continue;   // 위험도 주요도 아님
@@ -253,6 +261,26 @@ public class DartDisclosureMonitorService {
      * 주요 공시 키워드 매칭 — <b>순수 함수(테스트 대상)</b>. 매칭 키워드 또는 null.
      * 기존 DANGER 와 별개(위험은 dartService 가 이미 플래깅) — 여긴 관심/보유 종목용 보조 필터.
      */
+    /**
+     * 최근 {@value #RECENT_WINDOW_DAYS}일 안에 접수됐는가 — 순수 함수. 접수일 칸이 비면 접수번호 앞 8자리(접수일)로 읽는다.
+     * 날짜를 끝내 모르면 알린다(조용히 빼지 않는다, §4c) — 반복은 '보냄' 기억(10일)이 막는다.
+     */
+    static boolean isRecentReceipt(String rceptDt, String rceptNo, java.time.LocalDate today) {
+        java.time.LocalDate received = parseYmd(rceptDt);
+        if (received == null && rceptNo != null && rceptNo.length() >= 8) received = parseYmd(rceptNo.substring(0, 8));
+        if (received == null) return true;
+        return !received.isBefore(today.minusDays(RECENT_WINDOW_DAYS));
+    }
+
+    private static java.time.LocalDate parseYmd(String s) {
+        if (s == null || s.length() != 8) return null;
+        try {
+            return java.time.LocalDate.parse(s, java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     static String matchNotableKeyword(String reportNm) {
         if (reportNm == null || reportNm.isBlank()) return null;
         for (String keyword : NOTABLE_KEYWORDS) {
