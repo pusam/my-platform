@@ -338,6 +338,8 @@ public class SignalWeeklyReportService {
                 if (!line.dataAvailable() || line.verdict() == null) {
                     sb.append("측정 실패 — ").append(TelegramNotificationService.escapeHtml(line.note()));
                 } else {
+                    // 휴장일 기록 매도를 뺐다는 메모 등 — 관제실 카드처럼 판정 앞에(조용히 빼지 않는다 §4c, 2026-10-19)
+                    if (line.note() != null) sb.append(TelegramNotificationService.escapeHtml(line.note())).append(" — ");
                     sb.append(TelegramNotificationService.escapeHtml(line.verdict().headline()));
                     sb.append(String.format(" (거래 %d건·거래일 %d일)", line.verdict().trades(), line.verdict().distinctDays()));
                 }

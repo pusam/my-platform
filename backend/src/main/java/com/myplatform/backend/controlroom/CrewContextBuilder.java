@@ -278,6 +278,8 @@ public final class CrewContextBuilder {
                 sb.append(" · 기간 ").append(l.firstTradeDay()).append('~').append(l.lastTradeDay());
             }
             sb.append('\n');
+            // 판정 문구 — 휴장일 기록 매도를 뺐다는 메모가 앞에 붙는다(관제실 카드와 같은 줄, 2026-10-19). 예전엔 데이터가 있으면 안 넣었다.
+            if (l.note() != null) sb.append("  판정: ").append(l.note()).append('\n');
             sb.append("  하루평균(비용차감) ").append(pct(l.dailyMeanPct()))
               .append(l.marginOfError() == null ? " ±미상(거래일 부족)" : " ±" + l.marginOfError().toPlainString())
               .append(l.profitExceedsUncertainty() ? "(불확실성 초과)" : "(0 과 구분 안 됨)")

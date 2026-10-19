@@ -307,4 +307,21 @@ class CrewContextBuilderTest {
 
         assertThat(text).contains("봇을 믿고 맡겨도 되나: 측정 불가(집계 실패) — 집계 실패 (DataAccessException)");
     }
+
+    @Test
+    @DisplayName("재현: 휴장일 기록 매도를 뺐다는 메모가 크루 문맥에도 들어간다 — 관제실 카드에만 있었다(2026-10-19)")
+    void closedDayNoteReachesCrew() {
+        ControlRoomSnapshotDto.BotGateLine line = new ControlRoomSnapshotDto.BotGateLine("VIRTUAL", true, "EVALUABLE",
+                112, 16, new java.math.BigDecimal("-0.53"), new java.math.BigDecimal("0.41"), false,
+                new java.math.BigDecimal("38.6"), new java.math.BigDecimal("1.10"), new java.math.BigDecimal("-1.40"),
+                new java.math.BigDecimal("-4.80"), new java.math.BigDecimal("-8.30"), -755_241L,
+                "2026-07-03", "2026-07-27", List.of(), 0, List.of(),
+                "휴장일 기록 매도 2건 제외(체결될 수 없는 거래) — 평가 가능 — 아직 근거 없음: 하루 평균 순수익 -0.53%", "설명");
+        ControlRoomSnapshotDto.BotGate bot = new ControlRoomSnapshotDto.BotGate(true, "VIRTUAL", false,
+                "2026-07-27T15:20:15", List.of(line), null, "설명");
+
+        String text = CrewContextBuilder.build(snapshot(kpisWithBotGate(bot)), 8192).text();
+
+        assertThat(text).contains("휴장일 기록 매도 2건 제외(체결될 수 없는 거래)");
+    }
 }
