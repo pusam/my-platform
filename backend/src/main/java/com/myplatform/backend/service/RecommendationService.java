@@ -325,7 +325,10 @@ public class RecommendationService {
             for (RecommendationDto dto : items) {
                 com.myplatform.backend.dto.StockPriceDto p = prices.get(dto.getStockCode());
                 if (p != null) {
-                    if (p.getChangeRate() != null) dto.setChangeRate(p.getChangeRate());
+                    if (p.getChangeRate() != null) {
+                        dto.setChangeRate(p.getChangeRate());
+                        dto.setChangeRateBasisDate(null);   // 실시간 시세 — 확정 봉 기준일을 지운다(2026-10-19)
+                    }
                     if (p.getCurrentPrice() != null) dto.setCurrentPrice(p.getCurrentPrice());
                 }
             }
@@ -2231,7 +2234,7 @@ public class RecommendationService {
         //   (한국 16시 초기화)라 장중 회차엔 테마가 거의 안 붙고, 같은 종목이 한도 상태에 따라 섹터 축 +10(100점 환산 +12.5)을
         //   받거나 못 받았다. 테마는 AI 전략 화면 표시용으로만 남는다. 10/1 "LLM 은 점수·순위를 바꾸지 않는다"와 같은 원칙 —
         //   되살리지 말 것(RecommendationGeminiThemeTest). 이 날이 종합추천 섹터 축의 표본 경계다.
-        Map<String, BigDecimal> settledChange = settledChangeRates(scoreMap.keySet());
+        Map<String, SettledChange> settledChange = settledChangeRates(scoreMap.keySet());
 
         // 3. 종목별 섹터 점수 — 종목 등락률만 (시장분위기 일괄 가산 제거 P1, Gemini 테마 가산 제거 2026-10-06).
         int scored = 0;
@@ -2239,7 +2242,9 @@ public class RecommendationService {
             int ss = 0;
             // 종목 자체 등락률 보너스 — 마지막 확정 봉 기준(모르면 가점 없음, 후보가 실어 온 값으로 메우지 않는다).
             // 같은 값을 후보에 실어 둔다 — 동점 순서('덜 오른 종목 우선')도 이 값 하나로 견준다(2026-10-19).
-            stock.settledChangeRate = settledChange.get(stock.stockCode);
+            SettledChange sc = settledChange.get(stock.stockCode);
+            stock.settledChangeRate = sc != null ? sc.rate() : null;
+            stock.settledChangeDate = sc != null ? sc.date() : null;
             BigDecimal cr = stock.settledChangeRate;
             if (cr != null) {
                 double v = cr.doubleValue();
@@ -2276,7 +2281,10 @@ public class RecommendationService {
      * <p>기술 채점과 같은 봉을 쓴다: 저장된 최신 봉이고, 직전 거래일보다 오래되면 노후라 모름(null). 마감 전 봉은 저장되지
      * 않으므로({@code StockAnalysisService.isSettledBar}) 장중엔 전 종목이 직전 거래일 등락률이다. 조회 실패는 빈 맵 — 가점 없음(§4c).
      */
-    private Map<String, BigDecimal> settledChangeRates(Collection<String> codes) {
+    /** 마지막 확정 봉의 등락률과 그 날짜. */
+    record SettledChange(BigDecimal rate, java.time.LocalDate date) {}
+
+    private Map<String, SettledChange> settledChangeRates(Collection<String> codes) {
         if (codes == null || codes.isEmpty()) return Map.of();
         java.time.LocalDate today = java.time.LocalDate.now();
         java.time.LocalDate cutoff;
@@ -2296,10 +2304,10 @@ public class RecommendationService {
             log.warn("[종합추천] 섹터 등락률(확정 봉) 조회 실패 — 가점 없음: {}", e.getMessage());
             return Map.of();
         }
-        Map<String, BigDecimal> out = new HashMap<>();
+        Map<String, SettledChange> out = new HashMap<>();
         for (StockPriceHistory b : latest.values()) {
             if (cutoff != null && b.getTradeDate().isBefore(cutoff)) continue;   // 노후 = 모름
-            if (b.getChangeRate() != null) out.put(b.getStockCode(), b.getChangeRate());
+            if (b.getChangeRate() != null) out.put(b.getStockCode(), new SettledChange(b.getChangeRate(), b.getTradeDate()));
         }
         return out;
     }
@@ -2899,7 +2907,9 @@ public class RecommendationService {
                     .validCount(vc)
                     .tags(s.getTags() != null && !s.getTags().isBlank()
                             ? Arrays.asList(s.getTags().split(",")) : Collections.emptyList())
-                    .changeRate(s.getChangeRate()).build();
+                    // 저장된 등락률은 어느 날 기준인지 남지 않는다(예전 행은 후보가 실어 온 값) — 싣지 않고, 실시간 시세가 있으면
+                    // buildResponse 가 채운다(2026-10-19). 시각을 모르는 값을 '오늘' 등락률처럼 보이지 않게.
+                    .changeRate(null).build();
             }).toList();
             cachedTop5 = result;
             cacheTime = snapshots.get(0).getSnapshotAt();
@@ -3001,7 +3011,9 @@ public class RecommendationService {
                 .growth(s.growth >= 0 ? s.growth : NA)
                 .validCount(vc)
                 .tags(new ArrayList<>(s.tags))
-                .changeRate(s.changeRate).build();
+                // 표시 등락률 = 마지막 확정 봉 등락률 + 그 날짜(2026-10-19) — 실시간 시세가 있으면 buildResponse 가 덮는다
+                .changeRate(s.settledChangeRate)
+                .changeRateBasisDate(s.settledChangeRate != null ? s.settledChangeDate : null).build();
     }
 
     // ==================== Inner Classes ====================
@@ -3022,6 +3034,8 @@ public class RecommendationService {
         BigDecimal changeRate;
         // 마지막 확정 봉 등락률 — scoreSectorMomentum 이 settledChangeRates 로 채운다(모르면 null). 섹터 점수·동점 순서 단일 출처.
         BigDecimal settledChangeRate;
+        // 그 확정 봉의 날짜 — 후보 카드 등락률의 기준일(2026-10-19). 등락률을 모르면 null.
+        java.time.LocalDate settledChangeDate;
         // phase31 P2 — 5거래일 누적 등락률 (%). scoreTechnical 에서 채움. 신규 진입 감점에 사용.
         double fiveDayReturn = 0.0;
         // 리스크 공시 페널티(0 또는 5) — applyRiskPenalty 에서 설정. composite raw 합산
@@ -3052,7 +3066,10 @@ public class RecommendationService {
         private String stockCode, stockName;
         private int totalScore, aiStrategy, earnings, supplyDemand, technical, sectorMomentum, valueStability, growth, validCount;
         private List<String> tags;
+        // 표시 등락률 — 마지막 확정 봉 등락률(기준일 = changeRateBasisDate), 실시간 시세(캐시)가 있으면 그 값(기준일 null)(2026-10-19).
+        // 예전엔 후보가 실어 온 값(수급 행 = 직전 거래일, AI = 스냅샷 시점)이라 캐시가 없으면 다른 시각 값이 '오늘' 등락률처럼 보였다.
         private BigDecimal changeRate;
+        private java.time.LocalDate changeRateBasisDate;
         private BigDecimal currentPrice;
         // 저평가 TOP 10 전용 — 4 항목 점수 분해 (UI 막대 그래프용). 종합 추천은 모두 null.
         private Integer valuePbrScore;             // 0~8

@@ -97,6 +97,8 @@
               <span v-if="c.changeRate != null" class="cc-change" :class="changeClass(c.changeRate)">
                 {{ signed(c.changeRate) }}%
               </span>
+              <!-- 마지막 확정 봉 기준이면 그 날짜(실시간 시세가 없을 때) — 다른 날 등락률을 '오늘'처럼 보이지 않게(2026-10-19) -->
+              <span v-if="c.changeRate != null && c.changeRateBasisDate" class="cc-basis">{{ closeBasisLabel(c.changeRateBasisDate) }}</span>
             </div>
           </div>
           <!-- 📺 유튜브 참고 의견 — 카드(추천 근거·종목 열기) 밖에 따로 둔다: 점수·순위와 무관한 외부 참고라
@@ -212,6 +214,7 @@ import { ref, computed, onMounted } from 'vue';
 import apiClient, { recommendationAPI, paperTradingAPI, youtubeOpinionAPI } from '../../utils/api';
 import YoutubeOpinionList from './YoutubeOpinionList.vue';
 import { summaryText, formatKst, coverageText } from '../../utils/youtubeOpinion';
+import { closeBasisLabel } from '../../utils/stockFormat';
 
 const props = defineProps({
   marketData: { type: Object, default: null }
@@ -716,6 +719,7 @@ onMounted(() => {
 .cc-price { text-align: right; }
 .cc-price-num { display: block; font-size: 13px; font-weight: 600; }
 .cc-change { font-size: 12px; }
+.cc-basis { display: block; font-size: 11px; color: var(--text-muted); }
 
 /* 신뢰도(실측) — 매수 후보 섹션 상단, 후보를 보기 전에 "얼마나 믿을 수 있나"부터 */
 .today-trust {

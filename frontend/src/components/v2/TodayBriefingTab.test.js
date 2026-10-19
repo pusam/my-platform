@@ -576,3 +576,24 @@ describe('TodayBriefingTab — 키보드로 연다', () => {
     expect(w.emitted('open-stock')).toEqual([['207940']])
   })
 })
+
+// 2026-10-19: 후보 카드 등락률은 실시간 시세(캐시)가 없으면 후보가 실어 온 값이었다 — 수급 후보는 직전 거래일, AI 후보는 스냅샷
+// 시점 값이 시각 표시 없이 '오늘' 등락률처럼 보였다(가격 칸이 비어 등락률만 보이는 경우가 그것). 이제 서버가 마지막 확정 봉 등락률과
+// 그 날짜(changeRateBasisDate)를 보내고, 실시간 시세로 덮으면 날짜를 지운다.
+describe('TodayBriefingTab — 후보 등락률 기준일', () => {
+  it('재현: 마지막 확정 봉 기준이면 그 날짜를 붙인다 — 실시간처럼 보이지 않게', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, dataTime: '10:30 기준', realtime: true, data: [
+      { stockCode: '005930', stockName: '삼성전자', totalScore: 82, tags: [], changeRate: 1.2, changeRateBasisDate: '2026-10-16' }
+    ] } })
+    const w = await mountTab()
+    expect(w.find('.cc-basis').exists()).toBe(true)
+    expect(w.find('.cc-basis').text()).toBe('10/16 종가')
+  })
+
+  it('실시간 시세면(기준일 없음) 날짜를 붙이지 않는다', async () => {
+    stubAll()
+    const w = await mountTab()
+    expect(w.find('.cc-basis').exists()).toBe(false)
+  })
+})

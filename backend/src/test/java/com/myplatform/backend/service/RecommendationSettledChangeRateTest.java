@@ -142,4 +142,34 @@ class RecommendationSettledChangeRateTest {
         assertThat(s.technical).isEqualTo(7);
         assertThat(s.tags).contains("⚠수급괴리");
     }
+
+    // ---------------------------------------------------------------- '오늘' 탭 후보 카드 등락률
+
+    @Test
+    @DisplayName("재현: 후보 카드 등락률은 실어 온 값(AI 스냅샷 시점 +5.0%)이 아니라 마지막 확정 봉(+1.2%)과 그 날짜 — 시세 캐시가 없을 때 시각 표시 없이 보였다")
+    void dtoChangeRateIsSettledWithBasisDate() {
+        StockScore s = tied("A", "5.0", "1.2");
+        s.settledChangeDate = LocalDate.of(2026, 10, 16);
+        RecommendationService service = mock(RecommendationService.class, CALLS_REAL_METHODS);
+
+        RecommendationService.RecommendationDto dto = ReflectionTestUtils.invokeMethod(service, "toDto", s);
+
+        assertThat(dto.getChangeRate()).isEqualByComparingTo("1.2");
+        assertThat(dto.getChangeRateBasisDate()).isEqualTo(LocalDate.of(2026, 10, 16));
+    }
+
+    @Test
+    @DisplayName("실시간 시세(캐시)가 있으면 그 값으로 덮고 기준일을 지운다 — 실시간 값")
+    void liveQuoteOverridesAndClearsBasisDate() {
+        RecommendationService.RecommendationDto dto = RecommendationService.RecommendationDto.builder().stockCode("A")
+                .changeRate(new BigDecimal("1.2")).changeRateBasisDate(LocalDate.of(2026, 10, 16)).build();
+        StockPriceDto live = new StockPriceDto();
+        live.setChangeRate(new BigDecimal("3.3"));
+        RecommendationService service = serviceWith(List.of(), Map.of("A", live));
+
+        ReflectionTestUtils.invokeMethod(service, "refreshPrices", List.of(dto));
+
+        assertThat(dto.getChangeRate()).isEqualByComparingTo("3.3");
+        assertThat(dto.getChangeRateBasisDate()).isNull();
+    }
 }
