@@ -35,3 +35,22 @@ describe('investorFlowNote', () => {
     expect(src).toMatch(/class="supply-note"/)
   })
 })
+
+// 2026-10-19: 백엔드가 요일·달력과 무관하게 08~20시를 '실시간'이라 해, 휴장일에도·장 마감 뒤 조회 실패에도 "15:40 뒤 제공"이라 했다.
+// 이제 장이 닫힌 날은 출처가 '휴장'이고, 거래일 15:40 이후면 investorDataExpected=true 가 온다(StockDetailClosedDayTest).
+describe('investorFlowNote — 휴장일·장 마감 뒤', () => {
+  it('재현: 휴장일이면 오늘은 장이 열리지 않았다고 말한다', () => {
+    const note = investorFlowNote({ dataSource: '휴장', foreignNetBuy: null, instNetBuy: null })
+    expect(note).toContain('장이 열리지 않았')
+    expect(note).not.toContain('15:40')
+  })
+
+  it('재현: 거래일 15:40 뒤인데 비었으면 "마감 뒤 제공"이라 하지 않는다 — 이유를 지어내지 않는다', () => {
+    expect(investorFlowNote({ dataSource: '실시간', investorDataExpected: true, foreignNetBuy: null, instNetBuy: null })).toBe('')
+  })
+
+  it('장중(15:40 전)은 종전대로 마감 뒤 제공이라고 말한다', () => {
+    expect(investorFlowNote({ dataSource: '실시간', investorDataExpected: false, foreignNetBuy: null, instNetBuy: null }))
+      .toContain('장 마감')
+  })
+})

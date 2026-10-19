@@ -28,7 +28,7 @@
         {{ noDataText }}
       </p>
       <!-- 장 마감 뒤·휴장일 값은 '마지막 거래일'의 것이다 — 예전엔 "오늘의 최종"이라 했고 주말 낮엔 실시간처럼 말했다(2026-10-04).
-           평일 공휴일은 화면이 달력을 몰라 장중처럼 보일 수 있다(서버 dataSource 도 같은 한계) -->
+           평일 공휴일은 서버가 dataSource '휴장'으로 알려 준다(2026-10-19) -->
       <p v-else-if="isWeekend && hasValidData" class="post-market-text">
         휴장 — 마지막 거래일의 체결강도
       </p>
@@ -93,7 +93,9 @@ const isAfterMarket = computed(() => {
 });
 
 // 주말 — 장이 열리지 않는다(평일 공휴일은 화면이 달력을 몰라 못 가린다)
+// 장이 닫힌 날 — 주말이거나 서버가 '휴장'이라 한 날(평일 공휴일, 2026-10-19). 화면은 달력을 몰라 예전엔 평일 공휴일을 장중처럼 말했다.
 const isWeekend = computed(() => {
+  if (props.dataSource === '휴장') return true;
   const d = new Date(nowTick.value).getDay();
   return d === 0 || d === 6;
 });
