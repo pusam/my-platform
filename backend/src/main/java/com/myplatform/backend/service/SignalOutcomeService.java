@@ -137,6 +137,12 @@ public class SignalOutcomeService {
                 || priceAtSignal.signum() <= 0) {
             return;
         }
+        // 장이 닫힌 날엔 기록하지 않는다(2026-10-19) — 휴장일 게이트가 크론 입구에만 있어, 휴장일에 종목 화면을 열면 요청 경로
+        // (AI 분석 재계산·복합 신호)가 직전 거래일 데이터로 휴장일 날짜 행을 남겼다. 9/28 에 지운 가짜 행과 같은 부류라 여기 한 곳에서 막는다.
+        if (marketClosedToday()) {
+            log.debug("[SignalOutcome] 휴장일 — 기록 안 함 ({}/{})", signalType, stockCode);
+            return;
+        }
         LocalDate today = LocalDate.now();
         // 1차 방어: 앱레벨 dedup(findExisting). 2차 방어: DB UNIQUE(uq_so_type_code_date, V36).
         // 멀티 인스턴스/경합으로 findExisting 를 동시 통과해도 아래 INSERT(REQUIRES_NEW)가 UNIQUE 위반 → benign 처리.
@@ -270,6 +276,16 @@ public class SignalOutcomeService {
             log.debug("[SignalOutcome] 중복 record 무시(경합 UNIQUE): {}/{}", signalType, stockCode);
         } catch (Exception e) {
             log.debug("[SignalOutcome] record 실패 ({}/{}): {}", signalType, stockCode, e.getMessage());
+        }
+    }
+
+    /** 오늘 장이 닫혔는가 — 달력을 모르면(미주입·조회 실패) 종전대로 기록한다(fail-open). */
+    private boolean marketClosedToday() {
+        try {
+            MarketCalendarService calendar = calendarProvider != null ? calendarProvider.getIfAvailable() : null;
+            return calendar != null && calendar.isMarketClosed();
+        } catch (Exception e) {
+            return false;
         }
     }
 
