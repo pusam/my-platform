@@ -382,4 +382,43 @@ class SignalD3EvaluationServiceTest {
         assertThat(ctl.oldAvgPct()).isNull();
         assertThat(report.caveat()).contains("게이트 전환");
     }
+
+    // ==================== 지수 조회 실패(2026-10-19) ====================
+
+    @Test
+    @DisplayName("재현: 지수 일봉 조회가 실패하면 NO_INDEX(7일 뒤 재시도)가 아니라 FETCH_FAILED(다음 날) — 종목 봉도 받지 않는다")
+    void indexFetchFailureIsFetchFailedNotNoIndex() {
+        Rig g = rig();
+        when(g.kis().getIndexDailyOhlcv(any(), anyInt(), any())).thenThrow(new RuntimeException("EGW00215 초당 거래건수 초과"));
+
+        var report = g.svc().run(false, 120, false);
+
+        assertThat(g.pending().getD3Status()).as("일시 장애를 '지수 없음'으로 7일 묶지 않는다").isEqualTo("FETCH_FAILED");
+        assertThat(g.pending().getD3Note()).contains("지수");
+        assertThat(report.fetchFailedRows()).isEqualTo(1);
+        verify(g.analysis(), never()).collectPriceHistoryRange(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("지수 응답이 비어 있어도 같다 — 일시 장애로 보고 다음 날 다시")
+    void emptyIndexResponseIsFetchFailed() {
+        Rig g = rig();
+        when(g.kis().getIndexDailyOhlcv(any(), anyInt(), any())).thenReturn(List.of());
+
+        g.svc().run(false, 120, false);
+
+        assertThat(g.pending().getD3Status()).isEqualTo("FETCH_FAILED");
+        verify(g.analysis(), never()).collectPriceHistoryRange(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("대기 행이 없으면 지수도 부르지 않는다 — KIS 를 쓰지 않는다")
+    void noDueRowsNoIndexCall() {
+        Rig g = rig();
+        when(g.repo().findD3Pending(any(), any(), any(), any(), any(), any(), any())).thenReturn(List.of());
+
+        g.svc().run(false, 120, false);
+
+        verify(g.kis(), never()).getIndexDailyOhlcv(any(), anyInt(), any());
+    }
 }

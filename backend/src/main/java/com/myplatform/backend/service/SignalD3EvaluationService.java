@@ -137,8 +137,11 @@ public class SignalD3EvaluationService {
                          int fetched, int fetchFailed, int fetchFailedRows, int skippedByCap, int unchanged,
                          Map<String, Integer> evaluatedByStatus, List<String> notes) {}
 
-    /** 19:45 — 18:30 일봉 갱신·19:30 기존 평가 뒤. */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 45 19 * * MON-FRI", zone = "Asia/Seoul")
+    /**
+     * 19:45 — 18:30 일봉 갱신·19:30 기존 평가 뒤. 초 필드는 :20 — KIS 를 부르는 크론은 :00 을 피한다(§4b, 2026-10-19:
+     * 잔고 감시·워머가 :00 에 몰려 초당 한도(EGW00215)로 지수 조회 한 번이 밀리면 그날 행 전체가 미평가였다).
+     */
+    @Scheduled(scheduler = "batchScheduler", cron = "20 45 19 * * MON-FRI", zone = "Asia/Seoul")
     public void nightly() {
         runAndLog("야간");
     }
@@ -213,9 +216,22 @@ public class SignalD3EvaluationService {
                     coverage, 0, 0, 0, 0, 0, Map.of(), notes);
         }
 
-        // ③ 지수 D+3 종가 — 실행당 1콜. 실패하면 이번 실행 행은 NO_INDEX(재시도 가능)로 남는다.
+        // ③ 지수 D+3 종가 — 실행당 1콜. 대기 행이 없으면 부르지 않는다.
+        if (due.isEmpty()) {
+            return new Report(false, today, settled, candidates.size(), notDue, 0, 0,
+                    coverage, 0, 0, 0, 0, 0, Map.of(), notes);
+        }
         LocalDate earliest = due.stream().map(d -> d.window().get(0)).min(LocalDate::compareTo).orElse(today);
         Map<LocalDate, BigDecimal> indexClose = loadIndexCloses(earliest, today, notes);
+        if (indexClose == null) {
+            // 지수를 못 받았다(예외·빈 응답·KIS 미구성) — 일시 장애다. 예전엔 그대로 평가해 행 전체가 NO_INDEX('지수 없음', 7일 뒤
+            // 재시도)로 기록돼 그날 표본이 일주일 밀렸다(2026-10-19). 수집 실패(다음 날 재시도)로 남기고, 아무 행도 평가할 수 없으니
+            // 종목 봉도 받지 않는다(KIS 호출 낭비 없음). OK 행(force 재평가)은 덮지 않는다.
+            int marked = markFailed(due, "지수 일봉 조회 실패 — " + String.join(" · ", notes), now);
+            log.warn("[D3평가] 지수 일봉을 못 받아 이번 실행은 평가하지 않는다 — {}행 수집 실패로 기록(다음 날 재시도)", marked);
+            return new Report(false, today, settled, candidates.size(), notDue, due.size(), byStock.size(),
+                    coverage, 0, 0, marked, 0, 0, Map.of(), notes);
+        }
 
         // ④ 종목별: 봉 수집(상한) → 응답 봉으로만 평가 → 변한 것만 저장. 못 받으면 FETCH_FAILED 기록.
         Map<String, Integer> byStatus = new TreeMap<>();
@@ -285,11 +301,16 @@ public class SignalD3EvaluationService {
      * 수집 실패를 행에 기록한다 — 사유·시각. 이미 OK 인 행(force 재평가 중)은 덮지 않는다. 반환 = 기록한 행 수.
      */
     int markFetchFailed(List<Due> dues, String reason, LocalDateTime now) {
+        return markFailed(dues, "봉 수집 실패: " + reason, now);
+    }
+
+    /** 수집 실패(FETCH_FAILED — 다음 날 재시도)를 사유 그대로 기록한다. OK 행은 덮지 않는다. 반환 = 기록한 행 수. */
+    private int markFailed(List<Due> dues, String note, LocalDateTime now) {
         int n = 0;
         for (Due d : dues) {
             SignalOutcome row = d.row();
             if (SignalD3Evaluator.Status.OK.name().equals(row.getD3Status())) continue;
-            apply(row, SignalD3Evaluator.Result.of(SignalD3Evaluator.Status.FETCH_FAILED, d.window().get(2), "봉 수집 실패: " + reason), now);
+            apply(row, SignalD3Evaluator.Result.of(SignalD3Evaluator.Status.FETCH_FAILED, d.window().get(2), note), now);
             repository.save(row);
             n++;
         }
@@ -368,12 +389,15 @@ public class SignalD3EvaluationService {
         return out;
     }
 
-    /** KOSPI 일봉 종가 — 앵커=오늘, 필요한 창 시작일까지. 실패는 빈 맵 + 사유(행은 NO_INDEX 로 재시도). */
+    /**
+     * KOSPI 일봉 종가 — 앵커=오늘, 필요한 창 시작일까지. <b>못 받으면 null</b> + 사유(호출부가 수집 실패로 기록 — 다음 날 재시도).
+     * 받았는데 특정 D+3 날짜만 없으면 그 행은 평가기가 NO_INDEX(7일 뒤)로 둔다 — '지수 없음'은 그때만이다.
+     */
     private Map<LocalDate, BigDecimal> loadIndexCloses(LocalDate from, LocalDate today, List<String> notes) {
         KoreaInvestmentService kis = kisProvider.getIfAvailable();
         if (kis == null || !kis.isConfigured()) {
-            notes.add("KIS 미구성 — 지수 종가 없음(행은 NO_INDEX 로 재시도)");
-            return Map.of();
+            notes.add("KIS 미구성 — 지수 종가 없음");
+            return null;
         }
         try {
             int span = (int) java.time.temporal.ChronoUnit.DAYS.between(from, today) + 5;
@@ -383,11 +407,14 @@ public class SignalD3EvaluationService {
                 if (r == null || r.date() == null || r.close() == null || r.close().signum() <= 0) continue;
                 out.put(LocalDate.parse(r.date().replace("-", ""), KIS_DATE), r.close());
             }
-            if (out.isEmpty()) notes.add("지수 일봉 응답 비어 있음(행은 NO_INDEX 로 재시도)");
+            if (out.isEmpty()) {
+                notes.add("지수 일봉 응답 비어 있음");
+                return null;
+            }
             return out;
         } catch (Exception e) {
             notes.add("지수 일봉 조회 실패: " + e.getMessage());
-            return Map.of();
+            return null;
         }
     }
 
