@@ -55,6 +55,7 @@ class RecommendationAuditFix2Test {
      * 3순위 tie-break 는 {@code changeRate asc}(덜 오른 종목 우선 = 추격 완화)인데, null 을 0.0 으로
      * 대체해 <b>등락률을 모르는 종목이 "0% 상승"으로 최상위</b>에 놓였다. changeRate 는 일부 진입
      * 경로에서만 채워지므로, 실제 +12% 급등주가 +0.8% 종목을 이기는 <b>의도 정반대</b> 결과가 났다.
+     * (2026-10-19 부터 견주는 값은 마지막 확정 봉 등락률 {@code settledChangeRate} — 결측 규칙은 같다.)
      */
     @Test
     void 등락률_결측_종목이_덜오른_종목보다_우선되지_않는다() {
@@ -114,7 +115,8 @@ class RecommendationAuditFix2Test {
         s.supplyDemand = Math.min(20, raw / 4);
         s.technical = Math.min(20, raw / 4);
         s.sectorMomentum = Math.min(20, raw - 3 * (raw / 4));
-        s.changeRate = changeRate == null ? null : BigDecimal.valueOf(changeRate);
+        // 동점 순서가 견주는 값 — 마지막 확정 봉 등락률(2026-10-19 부터, RecommendationSettledChangeRateTest)
+        s.settledChangeRate = changeRate == null ? null : BigDecimal.valueOf(changeRate);
         return new StubScore(code, s);
     }
 

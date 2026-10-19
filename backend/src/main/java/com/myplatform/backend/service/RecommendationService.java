@@ -1512,7 +1512,7 @@ public class RecommendationService {
 
         // 정렬 tie-break 용 — 어제(또는 20시간 전) 스냅샷 점수. delta = 오늘 - 어제 desc 로
         // "막 올라온 종목"이 "이미 다 올라간 종목" 보다 우선. prevScoreMap 비어있으면 0 으로
-        // 폴백 → 최후 tie-break 인 changeRate desc 로 위임.
+        // 폴백 → 최후 tie-break 인 '마지막 확정 봉 등락률 asc'(덜 오른 종목 우선)로 위임.
         final Map<String, Integer> prevScoreMap = new HashMap<>();
         try {
             LocalDateTime cutoff = LocalDateTime.now().minusHours(20);
@@ -2196,8 +2196,10 @@ public class RecommendationService {
         int scored = 0;
         for (StockScore stock : scoreMap.values()) {
             int ss = 0;
-            // 종목 자체 등락률 보너스 — 마지막 확정 봉 기준(모르면 가점 없음, 후보가 실어 온 값으로 메우지 않는다)
-            BigDecimal cr = settledChange.get(stock.stockCode);
+            // 종목 자체 등락률 보너스 — 마지막 확정 봉 기준(모르면 가점 없음, 후보가 실어 온 값으로 메우지 않는다).
+            // 같은 값을 후보에 실어 둔다 — 동점 순서('덜 오른 종목 우선')도 이 값 하나로 견준다(2026-10-19).
+            stock.settledChangeRate = settledChange.get(stock.stockCode);
+            BigDecimal cr = stock.settledChangeRate;
             if (cr != null) {
                 double v = cr.doubleValue();
                 if (v > 3.0) ss += 4;
@@ -2309,12 +2311,15 @@ public class RecommendationService {
 
                 if (history == null || history.size() < 5) {
                     needsCollection.add(stock.stockCode);
-                    // 즉시 폴백 점수 부여 (changeRate 없어도 최소 점수)
-                    if (stock.changeRate != null) {
-                        double cr = stock.changeRate.doubleValue();
+                    // 즉시 폴백 점수 부여 — 그 종목의 마지막 확정 봉 등락률로(2026-10-19). 예전엔 후보가 실어 온 등락률
+                    // (수급 행·AI 스냅샷 시점 등 출처마다 시각이 다르다)을 써서, 저장된 확정 봉이 있는데도 다른 시각 값으로 매겼다.
+                    // 노후 가드를 통과했으니 history.get(0) 이 직전 거래일 이후의 확정 봉이다(DESC). 등락률을 모르면 최소 3점(종전).
+                    BigDecimal lastSettled = (history == null || history.isEmpty()) ? null : history.get(0).getChangeRate();
+                    if (lastSettled != null) {
+                        double cr = lastSettled.doubleValue();
                         stock.technical = (cr > 2.0) ? 8 : (cr > 0) ? 5 : (cr > -2.0) ? 3 : 1;
                     } else {
-                        stock.technical = 3; // changeRate 없어도 최소 3점 (validCount에 포함)
+                        stock.technical = 3; // 등락률 없어도 최소 3점 (validCount에 포함)
                     }
                     stock.tags.add("기술(간편)");
                     fallback++;
@@ -2513,9 +2518,9 @@ public class RecommendationService {
                     }
                 }
 
-                // 3. 수급-가격 괴리: 주가 상승 + 수급 점수 없음 → 개인 주도 의심
-                BigDecimal cr = (livePrice != null && livePrice.getChangeRate() != null)
-                        ? livePrice.getChangeRate() : stock.changeRate;
+                // 3. 수급-가격 괴리: 주가 상승 + 수급 점수 없음 → 개인 주도 의심. 실시간 시세가 있을 때만 판정한다(2026-10-19) —
+                //    예전엔 없으면 후보가 실어 온 등락률(AI 스냅샷 시점·수급 행 등 다른 시각)로 −3 을 매겼다. 모르면 판정하지 않는다(§4c).
+                BigDecimal cr = livePrice != null ? livePrice.getChangeRate() : null;
                 if (cr != null && cr.doubleValue() > 1.0 && stock.supplyDemand <= 0) {
                     stock.technical = Math.max(0, stock.technical - 3);
                     stock.tags.add("⚠수급괴리");
@@ -2724,8 +2729,9 @@ public class RecommendationService {
      * <ol>
      *   <li>normalized total desc</li>
      *   <li>delta(오늘 - 어제) desc — 추천 풀 안에서 막 가속한 종목 우선</li>
-     *   <li>changeRate <b>asc</b> — 점수·delta 동률이면 <b>덜 오른 종목</b> 우선(추격 인상 완화).
-     *       기존엔 desc(많이 오른 종목 우선)라 "이미 많이 올랐다"가 상위 노출 요인이었음(phase 38 약화).</li>
+     *   <li>마지막 확정 봉 등락률({@code settledChangeRate}) <b>asc</b> — 점수·delta 동률이면 <b>덜 오른 종목</b> 우선(추격 인상 완화).
+     *       기존엔 desc(많이 오른 종목 우선)라 "이미 많이 올랐다"가 상위 노출 요인이었음(phase 38 약화). 2026-10-19 부터 섹터
+     *       점수와 같은 확정 봉 값 — 예전엔 후보가 실어 온 등락률이라 종목마다 다른 시각(수급 행·AI 스냅샷 시점)을 견줬다.</li>
      * </ol>
      *
      * <p>⚠ <b>차트 타이밍 승격 시 점검(P2-12, 작업5)</b>: 3차 tie-break(changeRate asc, "덜 오른 종목")는
@@ -2743,12 +2749,12 @@ public class RecommendationService {
                     Integer prev = prevScoreMap.get(s.stockCode);
                     return prev != null ? s.getNormalizedTotal() - prev : 0;
                 }, Comparator.reverseOrder())
-                // changeRate asc — 점수·delta 동률이면 덜 오른 종목 우선(추격 인상 완화, phase 38).
+                // 마지막 확정 봉 등락률 asc — 점수·delta 동률이면 덜 오른 종목 우선(추격 인상 완화, phase 38).
+                // 섹터 점수와 같은 값(scoreSectorMomentum 이 채운다, 2026-10-19) — 후보가 실어 온 changeRate 는 출처마다
+                // 시각이 달라(수급 행 = 직전 거래일, AI = 스냅샷 시점) 같은 줄에서 다른 날을 견줬다.
                 // 결측은 MAX_VALUE 로 두어 <b>맨 뒤</b>로 보낸다(2026-08-05 감사). 예전엔 0.0 으로
-                // 대체해 "등락률을 모르는 종목"이 "0% 상승"으로 최상위에 놓였는데, changeRate 는 일부
-                // 진입 경로에서만 채워지므로 실제 +12% 급등주가 +0.8% 종목을 이기는 의도 정반대
-                // 결과가 났다. 모르는 것을 '덜 올랐다'고 우대하지 않는다(§4c).
-                .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : Double.MAX_VALUE);
+                // 대체해 "등락률을 모르는 종목"이 "0% 상승"으로 최상위에 놓였다. 모르는 것을 '덜 올랐다'고 우대하지 않는다(§4c).
+                .thenComparing(s -> s.settledChangeRate != null ? s.settledChangeRate.doubleValue() : Double.MAX_VALUE);
     }
 
     /**
@@ -2921,7 +2927,11 @@ public class RecommendationService {
         // valueStability 처럼 totalScore 산식엔 미포함 (별도 표시 factor).
         int growth = -1;
         Set<String> tags = new LinkedHashSet<>();
+        // 후보가 실어 온 등락률 — 출처마다 시각이 다르다(수급 행 = 직전 거래일, AI = 스냅샷 시점, 실적만 = 없음).
+        // 표시·스냅샷 저장용(buildResponse 가 캐시 시세로 덮는다). 점수·순서에는 쓰지 않는다.
         BigDecimal changeRate;
+        // 마지막 확정 봉 등락률 — scoreSectorMomentum 이 settledChangeRates 로 채운다(모르면 null). 섹터 점수·동점 순서 단일 출처.
+        BigDecimal settledChangeRate;
         // phase31 P2 — 5거래일 누적 등락률 (%). scoreTechnical 에서 채움. 신규 진입 감점에 사용.
         double fiveDayReturn = 0.0;
         // 리스크 공시 페널티(0 또는 5) — applyRiskPenalty 에서 설정. composite raw 합산
