@@ -508,6 +508,11 @@ public class AiStockAnalysisService {
      * - Rate Limit 방지를 위해 제한된 수만 호출
      */
     private void enhanceTopPicksWithAi(List<AiStockRecommendationDto> picks, int maxCount) {
+        // 표시용 코멘트라 Gemini 하루 한도의 저우선 예산을 쓴다(2026-10-19) — 소진이면 부르지 않는다(호출 간 2초 대기도 건너뛴다)
+        if (!geminiService.lowPriorityCallAllowed()) {
+            log.debug("AI 분석 보강 생략 — Gemini 저우선 예산 소진(재료 분류·종목 상세 AI 분석 몫 보존)");
+            return;
+        }
         int count = 0;
         for (AiStockRecommendationDto stock : picks) {
             if (count >= maxCount) break;

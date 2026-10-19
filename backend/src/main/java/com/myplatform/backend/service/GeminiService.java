@@ -272,6 +272,12 @@ public class GeminiService {
         if (stockDataSummary == null || stockDataSummary.isEmpty()) {
             return "분석할 데이터가 없습니다.";
         }
+        // AI 주식 분석 코멘트는 표시용(저우선)이다(2026-10-19) — 점수에 안 들어가고 TOP PICK 문구에만 쓰인다. 워머가 저녁에도 매시간
+        // 다시 돌려(회차당 최대 6회) 16시에 열린 새 창을 다음 날 아침 재료 분류 전에 써 버렸다. AI 전략 코멘트와 같은 저우선 예산을 쓴다.
+        if (!lowPriorityCallAllowed()) {
+            log.debug("[AI 종목 추천] 하루 한도 창의 저우선 예산 소진·quota 압박 — 코멘트 없이 진행");
+            return "Rate Limit — 저우선 예산 소진(재료 분류·종목 상세 AI 분석 몫 보존)";
+        }
 
         String prompt = String.format("""
                 당신은 한국 주식시장 전문 AI 애널리스트입니다.
@@ -1548,6 +1554,15 @@ public class GeminiService {
             }
         }
         return quotaWindowCalls.get();
+    }
+
+    /**
+     * 표시용 코멘트(저우선)를 지금 불러도 되는가 — 하루 한도 창의 저우선 예산이 남았고 quota 압박이 없을 때(2026-10-19 공개).
+     * AI 전략 코멘트와 AI 주식 분석 코멘트가 같이 쓴다 — 나머지(예약분)는 재료 분류·종목 상세 AI 분석 몫.
+     */
+    public boolean lowPriorityCallAllowed() {
+        if (!lowPriorityBudgetLeft()) return false;
+        return !shouldYieldLowPriority(quotaResetTime, consecutiveErrors.get(), lastRateLimitAt, LocalDateTime.now());
     }
 
     private boolean lowPriorityBudgetLeft() {

@@ -78,4 +78,24 @@ class GeminiQuotaBudgetTest {
 
         verifyNoInteractions(rest);
     }
+
+    @Test
+    @DisplayName("재현: 창에서 이미 8회를 썼으면 AI 주식 분석 코멘트도 Gemini 를 부르지 않는다 — 저녁 매시간 재계산이 아침 재료 분류 몫을 썼다(2026-10-19)")
+    void aiStockAnalysisYieldsWhenLowPriorityBudgetIsUsed() {
+        for (int i = 0; i < 8; i++) service.noteQuotaWindowCall();
+
+        String comment = service.analyzeStockRecommendation("삼성전자 | 외국인 3일 연속 순매수");
+
+        assertThat(comment).startsWith("Rate Limit");
+        verifyNoInteractions(rest);
+    }
+
+    @Test
+    @DisplayName("저우선 호출 가능 여부를 밖에서도 묻는다 — 7회면 가능, 8회면 불가")
+    void lowPriorityCallAllowedFollowsWindow() {
+        for (int i = 0; i < 7; i++) service.noteQuotaWindowCall();
+        assertThat(service.lowPriorityCallAllowed()).isTrue();
+        service.noteQuotaWindowCall();
+        assertThat(service.lowPriorityCallAllowed()).isFalse();
+    }
 }
