@@ -37,18 +37,7 @@ import static org.mockito.Mockito.when;
  */
 class WatchlistRiskAlertDedupTest {
 
-    @Test
-    @DisplayName("새 공시 = 직전 거래일 다음 날부터 오늘까지 접수 — 석 달 전 공시는 새 위험이 아니다")
-    void newDisclosureWindow() {
-        LocalDate today = LocalDate.of(2026, 10, 7), prev = LocalDate.of(2026, 10, 6);
-        assertThat(WatchlistRiskMonitorService.isNewDisclosure("20261007", prev, today)).isTrue();
-        assertThat(WatchlistRiskMonitorService.isNewDisclosure("20261006", prev, today)).isFalse();   // 어제 이미 봤다
-        assertThat(WatchlistRiskMonitorService.isNewDisclosure("20260915", prev, today)).isFalse();
-        // 월요일(10/12) — 직전 거래일 10/8(목, 10/9 한글날 휴장): 토요일 접수는 새 공시
-        assertThat(WatchlistRiskMonitorService.isNewDisclosure("20261010", LocalDate.of(2026, 10, 8), LocalDate.of(2026, 10, 12))).isTrue();
-        assertThat(WatchlistRiskMonitorService.isNewDisclosure(null, prev, today)).isFalse();
-        assertThat(WatchlistRiskMonitorService.isNewDisclosure("bad", prev, today)).isFalse();
-    }
+    // '새 공시' 창은 2026-10-19 에 '최근 7일 + 보낸 공시 기억(10일)'으로 바뀌었다 — WatchlistDisclosureWindowTest.
 
     @Test
     @DisplayName("알림 키 — 공시는 접수번호, 그 밖은 종류·날짜(이력 칸 50자 안)")
@@ -103,7 +92,8 @@ class WatchlistRiskAlertDedupTest {
         TelegramNotificationService telegram = mock(TelegramNotificationService.class);
         MarketCalendarService calendar = new MarketCalendarService();
         WatchlistRiskMonitorService svc = new WatchlistRiskMonitorService(watchlist, history, prices, dart,
-                mock(InvestorDailyTradeRepository.class), telegram, mock(SchedulerLockService.class), calendar);
+                mock(InvestorDailyTradeRepository.class), telegram, mock(SchedulerLockService.class), calendar,
+                mock(RedisCacheService.class));
 
         svc.monitorWatchlistRisks();   // 10:00 — 하락 -3.5% 는 오늘 처음이라 알림(석 달 전 공시는 새 위험 아님)
         svc.monitorWatchlistRisks();   // 10:10
@@ -153,7 +143,8 @@ class WatchlistRiskAlertDedupTest {
         TelegramNotificationService telegram = mock(TelegramNotificationService.class);
 
         WatchlistRiskMonitorService svc = new WatchlistRiskMonitorService(watchlist, history, prices, dart,
-                mock(InvestorDailyTradeRepository.class), telegram, mock(SchedulerLockService.class), new MarketCalendarService());
+                mock(InvestorDailyTradeRepository.class), telegram, mock(SchedulerLockService.class), new MarketCalendarService(),
+                mock(RedisCacheService.class));
         svc.monitorWatchlistRisks();
         sentAt.replaceAll((k, at) -> at.minusMinutes(61));   // 1시간 뒤
         svc.monitorWatchlistRisks();
@@ -170,7 +161,7 @@ class WatchlistRiskAlertDedupTest {
         TelegramNotificationService telegram = mock(TelegramNotificationService.class);
         new WatchlistRiskMonitorService(watchlist, mock(AlertHistoryRepository.class), mock(StockPriceService.class),
                 mock(DartService.class), mock(InvestorDailyTradeRepository.class), telegram,
-                mock(SchedulerLockService.class), new MarketCalendarService()).monitorWatchlistRisks();
+                mock(SchedulerLockService.class), new MarketCalendarService(), mock(RedisCacheService.class)).monitorWatchlistRisks();
         verify(telegram, never()).sendRisk(anyString());
     }
 }

@@ -39,9 +39,9 @@ import java.util.Set;
 @Slf4j
 public class DartDisclosureMonitorService {
 
-    private static final String CACHE_SEEN = "dartSeen";
+    static final String CACHE_SEEN = "dartSeen";   // 관심종목 리스크 감시도 같은 기억을 쓴다(2026-10-19)
     // 보낸 공시 기억 — 알림 창(RECENT_WINDOW_DAYS)보다 길어야 한 공시가 한 번만 나간다(2026-10-19, 예전 3일)
-    private static final Duration SEEN_TTL = Duration.ofDays(10);
+    static final Duration SEEN_TTL = Duration.ofDays(10);
     /** 알림 창 — 최근 이만큼 안에 접수된 공시만 알린다. 꺼져 있던 동안의 공시도 이 안이면 켜진 뒤 한 번 나간다. */
     static final int RECENT_WINDOW_DAYS = 7;
     private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
