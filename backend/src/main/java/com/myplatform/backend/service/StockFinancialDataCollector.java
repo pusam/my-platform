@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 주식 재무 데이터 수집 컴포넌트
@@ -260,6 +261,25 @@ public class StockFinancialDataCollector {
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
+            LocalDate today = LocalDate.now();
+            Optional<StockFinancialData> sameDayRow = stockFinancialDataRepository.findByStockCodeAndReportDate(stockCode, today);
+            StockFinancialData financialData = sameDayRow.orElse(new StockFinancialData());
+
+            // ★ 이번 회차에 손익 TTM 을 하나도 못 받았으면(조회 실패·빈 응답) 같은 날 앞 회차가 받아 둔 TTM 으로 계산한다(2026-10-19).
+            //   예전엔 그 칸을 null 로 덮어 08:30 의 TTM 이 15:38 의 일시 실패 한 번에 지워졌고 PER·EPS·ROE 도 KIS 연간 값으로
+            //   돌아갔다(per_basis CONSOL → KIS) — 다음 수집까지 마법의 공식(영업이익률 > 0)에서 빠지고, PEG 의 이익의 질 판정은
+            //   '모름'으로 통과했다. 아래 재무상태표 칸의 "못 받으면 지우지 않는다"를 계산 입력에도 적용한 것 — 다른 날 행은 쓰지 않는다.
+            //   일부만 받은 회차는 섞지 않는다(셋 다 없을 때만).
+            if (netIncome == null && revenue == null && operatingProfit == null && sameDayRow.isPresent()) {
+                StockFinancialData earlier = sameDayRow.get();
+                netIncome = earlier.getNetIncome();
+                revenue = earlier.getRevenue();
+                operatingProfit = earlier.getOperatingProfit();
+                if (netIncome != null || revenue != null || operatingProfit != null) {
+                    noteState("손익 TTM 못 받음 — 같은 날 앞 회차 값 사용");
+                }
+            }
+
             // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 — ⚠ 정의 주의(2026-09-30 실측): KIS 현재가 API 의 eps 는 '별도'가
             //   아니라 **지배주주 기준 최근 결산 EPS**다(네이버 FY2025 지배주주 EPS 와 16/16 일치). 여기서 덮어쓰는 TTM 연결
             //   순이익(thtr_ntin)은 **비지배지분 몫까지 포함**이라 지주사·그룹사 PER 이 2~4배 낮게 나온다(다우기술 0.9 vs
@@ -306,11 +326,6 @@ public class StockFinancialDataCollector {
                         .setScale(2, RoundingMode.HALF_UP);
             }
 
-            LocalDate today = LocalDate.now();
-            StockFinancialData financialData = stockFinancialDataRepository
-                    .findByStockCodeAndReportDate(stockCode, today)
-                    .orElse(new StockFinancialData());
-
             financialData.setStockCode(stockCode);
             financialData.setStockName(stockName);
             financialData.setMarket(market);
@@ -329,6 +344,11 @@ public class StockFinancialDataCollector {
 
             // ★ 재무상태표 데이터 저장
             BigDecimal totalEquity = financialRatios.getOrDefault("totalEquity", null);
+            // 못 받은 회차는 같은 날 앞 회차의 자본총계로 BPS·PBR·ROE 를 만든다(2026-10-19) — 칸은 원래 지우지 않았지만 계산에 쓰지 않아
+            // PBR·BPS 가 KIS 현재가 API 값으로 돌아갔다(손익 TTM 과 같은 규칙)
+            if (totalEquity == null && sameDayRow.isPresent()) {
+                totalEquity = sameDayRow.get().getTotalEquity();
+            }
             BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
             BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
             if (totalEquity != null) financialData.setTotalEquity(totalEquity);
