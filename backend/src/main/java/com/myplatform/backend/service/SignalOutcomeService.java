@@ -493,26 +493,35 @@ public class SignalOutcomeService {
      * <p>스팸 방지: 일 1회 (lastAlphaAlertDate). 표본 부족 (null) 이면 스킵.
      * 텔레그램 미설정 환경에서는 로그만 출력.
      */
-    private void checkStrongBuyAlphaHealth() {
+    void checkStrongBuyAlphaHealth() {
         try {
             LocalDate today = LocalDate.now();
             if (today.equals(lastAlphaAlertDate)) return;
-            BigDecimal avgAlpha = repository.averageAlphaSince("STRONG_BUY", today.minusDays(7));
-            if (avgAlpha == null) return;
-            if (avgAlpha.signum() >= 0) return;
+            // 현재 산식 표본(경계 이후 · 보드 신호 · 교정 D+3 OK · 종목·날짜당 1건)의 최근 7일 — 게이트·화면과 같은 정의(2026-10-19).
+            // 예전엔 레거시 alpha3d(평가 배치 시점 가격)를 경계 없이 평균내 교정 값과 부호가 반대일 수 있었다. 경계가 미정이면 표본이 없다.
+            CurrentSample cs = currentSample(7);
+            if (!cs.available()) return;
+            List<BigDecimal> alphas = cs.rows().stream()
+                    .filter(r -> "STRONG_BUY".equals(r.getSignalType()) && r.getD3Alpha() != null)
+                    .map(SignalOutcome::getD3Alpha)
+                    .collect(Collectors.toList());
+            if (alphas.isEmpty()) return;
+            BigDecimal avgAlpha = com.myplatform.backend.controlroom.TrustGateRules.meanOf(alphas);
+            if (avgAlpha == null || avgAlpha.signum() >= 0) return;
 
             BigDecimal scaled = avgAlpha.setScale(2, RoundingMode.HALF_UP);
-            log.warn("[SignalOutcome] ⚠ STRONG_BUY 최근 7일 평균 alpha 음수: {}% (산식 검토 권장)", scaled);
+            log.warn("[SignalOutcome] ⚠ STRONG_BUY 최근 7일 평균 alpha(교정 D+3, {}건) 음수: {}% (산식 검토 권장)",
+                    alphas.size(), scaled);
 
             TelegramNotificationService telegram = telegramProvider.getIfAvailable();
             if (telegram != null) {
                 try {
                     telegram.sendRisk(String.format(
                             "⚠️ <b>STRONG_BUY 평균 alpha 음수</b>\n\n"
-                                    + "• 최근 7일 평균 alpha: <b>%s%%</b>\n"
-                                    + "• 추천 산식이 시장 대비 underperform 중\n"
-                                    + "• /api/signal-outcomes/compare 로 phase 변경 시점 전후 비교 권장",
-                            scaled.toPlainString()));
+                                    + "• 최근 7일 평균 alpha: <b>%s%%</b> (현재 산식 표본 %d건 · 기록 시점 → D+3 종가, KOSPI 대비)\n"
+                                    + "• 추천 산식이 시장 대비 underperform 중일 수 있다 — 표본이 작으면 우연일 수 있다\n"
+                                    + "• 관제실 '믿고 사도 되나' 게이트에서 대조군 대비와 함께 확인",
+                            scaled.toPlainString(), alphas.size()));
                 } catch (Exception e) {
                     log.debug("[SignalOutcome] alpha 헬스 텔레그램 발송 실패: {}", e.getMessage());
                 }
