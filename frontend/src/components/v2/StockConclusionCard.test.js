@@ -342,3 +342,61 @@ describe('StockConclusionCard — 스냅샷 없음', () => {
     expect(w.text()).not.toContain('과거 스냅샷')
   })
 })
+
+// 2026-10-19: 종목을 바꾸면 이전 종목 결론·재료 요청을 버리지 않아, 그 응답이 늦게 오면 새 종목 카드를 덮었다
+// (이전 종목 결론이 받아들여지면 그 종목 재료까지 다시 요청했다)
+describe('StockConclusionCard — 종목 전환', () => {
+  it('재현: 늦게 온 이전 종목 결론·재료가 새 종목 카드를 덮지 않는다', async () => {
+    const pending = {}
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('accuracy-by-band')) return Promise.resolve(bandResponse)
+      return new Promise((resolve) => { pending[url] = resolve })
+    })
+    const w = mount(StockConclusionCard, { props: { stockCode: '000660' }, global: { stubs: { BuyChecklistModal: true } } })
+    await w.setProps({ stockCode: '005930' })
+
+    pending['/stock/005930/conclusion']({ data: { success: true, data: { ...conclusionData, headline: '새 종목 결론' } } })
+    await flushPromises()
+    pending['/stock/005930/catalyst']({ data: { success: true, data: {
+      catalystType: 'CONTRACT', direction: 'POSITIVE', typeLabel: '수주', summary: '새 종목 재료' } } })
+    await flushPromises()
+    pending['/stock/000660/conclusion']({ data: { success: true, data: {
+      ...conclusionData, stockCode: '000660', stockName: 'SK하이닉스', headline: '이전 종목 결론' } } })
+    await flushPromises()
+    pending['/stock/000660/catalyst']?.({ data: { success: true, data: {
+      catalystType: 'RIGHTS_ISSUE', direction: 'NEGATIVE', typeLabel: '유상증자', summary: '이전 종목 재료' } } })
+    await flushPromises()
+
+    expect(w.text()).toContain('새 종목 결론')
+    expect(w.text()).not.toContain('이전 종목 결론')
+    expect(w.text()).toContain('새 종목 재료')
+    expect(w.text()).not.toContain('이전 종목 재료')
+  })
+
+  it('재현: 새 종목을 읽는 동안 이전 종목 결론을 보이지 않는다', async () => {
+    stubApi()
+    const w = await mountCard()
+    expect(w.text()).toContain(conclusionData.headline)
+    apiClient.get.mockImplementation((url) =>
+      url.includes('accuracy-by-band') ? Promise.resolve(bandResponse) : new Promise(() => {}))
+
+    await w.setProps({ stockCode: '000660' })
+    await flushPromises()
+
+    expect(w.text()).not.toContain(conclusionData.headline)
+    expect(w.text()).toContain('결론 분석 중')
+  })
+
+  it('재현: 새 종목 결론 조회가 실패하면 이전 종목 결론 대신 "불러오지 못했습니다"', async () => {
+    stubApi()
+    const w = await mountCard()
+    apiClient.get.mockImplementation((url) =>
+      url.includes('accuracy-by-band') ? Promise.resolve(bandResponse) : Promise.reject(new Error('boom')))
+
+    await w.setProps({ stockCode: '000660' })
+    await flushPromises()
+
+    expect(w.text()).not.toContain(conclusionData.headline)
+    expect(w.text()).toContain('결론을 불러오지 못했습니다')
+  })
+})
