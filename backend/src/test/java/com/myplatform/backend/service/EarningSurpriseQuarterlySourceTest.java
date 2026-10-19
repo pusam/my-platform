@@ -346,4 +346,32 @@ class EarningSurpriseQuarterlySourceTest {
 
         assertThat(service.detectFromQuarterly()).isEmpty();
     }
+
+    // 2026-10-19: 영업이익으로 비교할 수 없으면(결측·직전 정확히 0) 순이익으로 판정하는데, 그 흑자전환은 연속 적자 조건을 건너뛰었다
+    // (8/28 에 영업이익 경로에서 막은 '한 분기 삐끗 = 최고점 20점'이 형제 경로에 남아 있었다)
+
+    @Test
+    @DisplayName("재현: 순이익으로 판정할 때도 한 분기만 적자면 흑자전환이 아니다")
+    void netIncomeTurnaroundNeedsConsecutiveLoss() {
+        List<EarningSurpriseDto> out = runWith(
+                q(3, "9500", null, "25", false),       // 개별 분기로 판정되게 채운다
+                q(2, "10000", null, "30", false),      // prev2 흑자
+                q(1, "11000", null, "-5", false),      // prev 적자(한 분기 삐끗)
+                q(0, "12000", null, "8", false));      // latest 흑자
+
+        assertThat(out).isEmpty();
+    }
+
+    @Test
+    @DisplayName("순이익 기준도 2분기 연속 적자 뒤 흑자면 흑자전환")
+    void netIncomeConsecutiveLossIsTurnaround() {
+        List<EarningSurpriseDto> out = runWith(
+                q(3, "9500", null, "25", false),
+                q(2, "10000", null, "-30", false),     // prev2 적자
+                q(1, "11000", null, "-5", false),      // prev 적자
+                q(0, "12000", null, "8", false));      // latest 흑자
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.TURNAROUND);
+    }
 }
