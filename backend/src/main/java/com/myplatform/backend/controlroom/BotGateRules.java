@@ -60,6 +60,8 @@ public final class BotGateRules {
      * @param dailyMeanPct             거래일별 평균 순수익률의 평균(%). 거래가 없으면 null
      * @param marginOfError            그 평균의 95% 불확실성 폭(±%). 거래일 2일 미만이면 null(0 으로 두지 않는다)
      * @param profitExceedsUncertainty 평균이 (+)이고 불확실성 폭보다 큰가(= 0 과 구분되는가)
+     * @param lossBelowUncertainty     평균이 (−)이고 불확실성 폭 밖인가(= 0 보다 유의하게 나쁜가, 2026-10-19). 예전엔 이 경우도
+     *                                 '0 과 구분 안 됨'으로 말했다(7월 모의 −0.53% ±0.41 이 그랬다)
      * @param maxDrawdownPct           실현손익 누적의 최대 낙폭(자본 대비 %, 음수). 자본을 모르면 null
      * @param excludedTrades           수익률을 계산할 수 없어 뺀 매도 수(§4c — 조용히 빼지 않는다)
      */
@@ -70,6 +72,7 @@ public final class BotGateRules {
             BigDecimal dailyMeanPct,
             BigDecimal marginOfError,
             boolean profitExceedsUncertainty,
+            boolean lossBelowUncertainty,
             BigDecimal winRatePct,
             BigDecimal avgWinPct,
             BigDecimal avgLossPct,
@@ -101,6 +104,7 @@ public final class BotGateRules {
         BigDecimal mean = TrustGateRules.meanOf(dailyMeans);
         BigDecimal moe = TrustGateRules.marginOfError(dailyMeans);
         boolean exceeds = mean != null && moe != null && mean.signum() > 0 && mean.compareTo(moe) > 0;
+        boolean below = mean != null && moe != null && mean.signum() < 0 && mean.abs().compareTo(moe) > 0;
 
         List<BigDecimal> returns = usable.stream().map(TradeOutcome::netReturnPct).toList();
         BigDecimal winRate = winRate(returns);
@@ -118,7 +122,8 @@ public final class BotGateRules {
         // 표본이 차야 비로소 '읽을 수 있다'. 표본 충족 자체는 통과 사유가 아니다(추천 게이트와 같은 규칙).
         if (!sampleShort) {
             if (mean == null || mean.signum() <= 0) {
-                blockers.add("하루 평균 순수익 " + (mean == null ? "계산 불가" : signed(mean) + "%"));
+                blockers.add("하루 평균 순수익 " + (mean == null ? "계산 불가" : signed(mean) + "%")
+                        + (below ? "(불확실성 ±" + scale2(moe).toPlainString() + "% 밖 — 0 보다 유의하게 나쁨)" : ""));
             } else if (!exceeds) {
                 blockers.add("하루 평균 " + signed(mean) + "% 가 불확실성 ±"
                         + (moe == null ? "?" : scale2(moe).toPlainString()) + "% 를 못 넘음");
@@ -139,6 +144,7 @@ public final class BotGateRules {
                 mean == null ? null : scale2(mean),
                 moe == null ? null : scale2(moe),
                 exceeds,
+                below,
                 winRate,
                 avgWin == null ? null : scale2(avgWin),
                 avgLoss == null ? null : scale2(avgLoss),

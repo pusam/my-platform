@@ -87,7 +87,9 @@ public final class TrustGateRules {
      * @param costAdjustedReturn     비용 차감 평균 수익(%, 일 단위 평균). 계산 불가면 null
      * @param edgeVsControl          대조군 대비 우위(%p, 짝지은 일별 차이의 평균). 계산 불가면 null
      * @param edgeMarginOfError      그 우위의 95% 불확실성 폭(±%p). 계산 불가면 null
-     * @param edgeExceedsUncertainty 우위가 불확실성 폭을 넘었는가(= 0 과 구분되는가)
+     * @param edgeExceedsUncertainty 우위가 (+)이고 불확실성 폭을 넘었는가(= 0 과 구분되는가)
+     * @param edgeBelowUncertainty   우위가 (−)이고 불확실성 폭 밖인가(= 무작위보다 유의하게 나쁜가, 2026-10-19). 예전엔 이 경우도
+     *                               '0 과 구분 안 됨(우연일 수 있다)'으로 말했다 — 둘 다 거짓이면 그때가 '구분 안 됨'이다
      * @param blockers               통과를 막고 있는 사유들. 비어 있으면 막는 것 없음
      */
     public record Verdict(
@@ -99,6 +101,7 @@ public final class TrustGateRules {
             BigDecimal edgeVsControl,
             BigDecimal edgeMarginOfError,
             boolean edgeExceedsUncertainty,
+            boolean edgeBelowUncertainty,
             Shape shape,
             int excludedDays,
             List<String> blockers,
@@ -131,9 +134,11 @@ public final class TrustGateRules {
                 .map(p -> p.signalMeanPct().subtract(p.controlMeanPct()))
                 .toList();
         BigDecimal edge = meanOf(diffs);
-        BigDecimal moe = marginOfError(diffs);
+        BigDecimal moe = overlapAdjustedMarginOfError(diffs);
         boolean exceeds = edge != null && moe != null
                 && edge.signum() > 0 && edge.abs().compareTo(moe) > 0;
+        boolean below = edge != null && moe != null
+                && edge.signum() < 0 && edge.abs().compareTo(moe) > 0;
 
         List<String> blockers = new ArrayList<>();
         if (rows < MIN_ROWS) blockers.add("시그널 표본 " + rows + "/" + MIN_ROWS + "건");
@@ -146,7 +151,11 @@ public final class TrustGateRules {
             if (costAdjusted == null || costAdjusted.signum() <= 0) {
                 blockers.add("비용 차감 수익 " + (costAdjusted == null ? "계산 불가" : costAdjusted + "%"));
             }
-            if (!exceeds) {
+            if (below) {
+                // 아래쪽으로 넘었다 — '못 넘음'이 아니다(2026-10-19). 우연이 아니라 무작위보다 나쁜 것이다.
+                blockers.add("대조군보다 유의하게 나쁨 — 우위 " + edge.setScale(2, RoundingMode.HALF_UP)
+                        + "%p(불확실성 ±" + moe.setScale(2, RoundingMode.HALF_UP).toPlainString() + "%p 밖)");
+            } else if (!exceeds) {
                 blockers.add(edge == null ? "대조군 대비 우위 계산 불가"
                         : "우위 " + edge.setScale(2, RoundingMode.HALF_UP) + "%p 가 불확실성 ±"
                           + (moe == null ? "?" : moe.setScale(2, RoundingMode.HALF_UP).toPlainString())
@@ -166,6 +175,7 @@ public final class TrustGateRules {
                 edge == null ? null : edge.setScale(2, RoundingMode.HALF_UP),
                 moe == null ? null : moe.setScale(2, RoundingMode.HALF_UP),
                 exceeds,
+                below,
                 shape == null ? new Shape(null, null, null, null) : shape,
                 excludedDays,
                 List.copyOf(blockers),
@@ -194,7 +204,7 @@ public final class TrustGateRules {
         if (edge != null && moe != null) {
             sb.append("대조군 대비 ").append(edge.setScale(2, RoundingMode.HALF_UP).toPlainString())
               .append("%p ± ").append(moe.setScale(2, RoundingMode.HALF_UP).toPlainString())
-              .append("%p(95%, 같은 날끼리 짝지어 시장 등락 상쇄). ");
+              .append("%p(95%, 같은 날끼리 짝지어 시장 등락 상쇄 · 이웃한 날의 3일 평가 창 겹침 반영). ");
         }
         if (excludedDays > 0) {
             sb.append("⚠ 대조군 짝이 없어 빠진 날 ").append(excludedDays)
@@ -222,6 +232,40 @@ public final class TrustGateRules {
      * <p>2일 미만이면 표준편차가 정의되지 않아 null 이다 — <b>불확실성을 모를 땐 0 으로 두지 않는다</b>
      * (0 이면 어떤 미세한 우위도 "확실"해진다). n 이 작을 때 이 폭은 정규근사라 낙관 쪽으로 좁다.
      */
+    /** 평가 창(D+1~D+3)이 이웃한 시그널일끼리 겹치는 봉 수 — 하루 차이면 2봉, 이틀 차이면 1봉을 같이 쓴다. */
+    static final int EVALUATION_WINDOW_OVERLAP_LAGS = 2;
+
+    /**
+     * 짝지은 일별 차이의 95% 오차 폭 — <b>3거래일 평가 창 겹침</b>을 반영한다(2026-10-19, 리뷰 에이전트 지적).
+     *
+     * <p>t 일과 t+1 일 시그널의 D+1~D+3 창은 봉 2개를 같이 쓰고, 같은 종목이 며칠 연속 추천되는 일도 흔해 이웃한 날의 차이가
+     * 같이 움직인다. 날마다 독립({@link #marginOfError})으로 보면 폭이 좁게 나와(완전히 겹치면 약 √3 배) 표본이 덜 찼는데도 확대
+     * 검토가 켜질 수 있었다. 그래서 Newey–West 장기분산(바틀렛 가중, 시차 = {@link #EVALUATION_WINDOW_OVERLAP_LAGS})으로 잰다.
+     * <b>독립 가정 폭보다 좁게는 하지 않는다</b> — 번갈아 흔들리는(음의 자기상관) 차이에서 폭이 줄어 낙관 쪽으로 가지 않게.
+     * 목록 순서를 시차로 쓴다(짝은 고유 거래일 순 — 사이에 빠진 날이 있으면 겹침을 조금 크게 본다, 보수 쪽).
+     */
+    static BigDecimal overlapAdjustedMarginOfError(List<BigDecimal> diffs) {
+        BigDecimal independent = marginOfError(diffs);
+        if (independent == null) return null;
+        int n = diffs.size();
+        double mean = meanOf(diffs).doubleValue();
+        double[] x = new double[n];
+        for (int i = 0; i < n; i++) x[i] = diffs.get(i).doubleValue() - mean;
+        double variance = 0;
+        for (double v : x) variance += v * v;
+        variance /= (n - 1);   // 독립 가정 폭과 같은 표본분산에서 시작한다
+        double longRun = variance;
+        int lags = Math.min(EVALUATION_WINDOW_OVERLAP_LAGS, n - 1);
+        for (int l = 1; l <= lags; l++) {
+            double cov = 0;
+            for (int i = l; i < n; i++) cov += x[i] * x[i - l];
+            cov /= (n - 1);
+            longRun += 2 * (1 - (double) l / (lags + 1)) * cov;
+        }
+        if (longRun <= variance) return independent;
+        return BigDecimal.valueOf(Z_95 * Math.sqrt(longRun / n)).setScale(6, RoundingMode.HALF_UP);
+    }
+
     static BigDecimal marginOfError(List<BigDecimal> diffs) {
         if (diffs == null || diffs.size() < 2) return null;
         BigDecimal mean = meanOf(diffs);

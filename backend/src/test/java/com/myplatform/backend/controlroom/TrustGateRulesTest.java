@@ -208,4 +208,48 @@ class TrustGateRulesTest {
     void costConstantMatchesRealFees() {
         assertThat(TrustGateRules.ROUND_TRIP_COST_PCT).isEqualByComparingTo("0.18");
     }
+
+    // ==================== 2026-10-19 — 유의하게 나쁨 · 3일 창 겹침 ====================
+
+    @Test
+    @DisplayName("재현: 대조군보다 유의하게 나쁘면 '불확실성을 못 넘음'이라 하지 않는다 — 무작위보다 나쁘다고 말한다")
+    void significantlyWorseIsNotCalledNoise() {
+        // 우위 -3.00%p, 날마다 ±0.5 → 오차 폭이 우위보다 훨씬 작다(아래쪽으로 넘었다)
+        var v = TrustGateRules.judge(wobbly(12, -3.0, 0.5), 40, 40, HEALTHY_SHAPE, 0);
+
+        assertThat(v.state()).isEqualTo(TrustGateRules.State.EVALUABLE);
+        assertThat(v.blockers()).noneMatch(b -> b.contains("못 넘음"));
+        assertThat(v.blockers()).anyMatch(b -> b.contains("대조군보다 유의하게 나쁨"));
+        assertThat(v.headline()).contains("대조군보다 유의하게 나쁨");
+    }
+
+    @Test
+    @DisplayName("재현: 3거래일 평가 창이 겹쳐 이웃한 날이 같이 움직이면 불확실성 폭을 넓힌다 — 날마다 독립이라 보지 않는다")
+    void overlappingWindowsWidenUncertainty() {
+        // 같은 흐름이 사흘씩 이어지는 차이(양의 자기상관) — 연속 추천된 종목이 같은 상승을 탔을 때의 모양
+        String[] runs = {"3.0", "3.0", "3.0", "-1.0", "-1.0", "-1.0", "3.0", "3.0", "3.0", "-1.0", "-1.0", "-1.0"};
+        List<TrustGateRules.DayPair> pairs = new ArrayList<>();
+        List<BigDecimal> diffs = new ArrayList<>();
+        for (int i = 0; i < runs.length; i++) {
+            pairs.add(pair(i, runs[i], "0"));
+            diffs.add(new BigDecimal(runs[i]));
+        }
+
+        var v = TrustGateRules.judge(pairs, 40, 40, HEALTHY_SHAPE, 0);
+
+        BigDecimal independent = TrustGateRules.marginOfError(diffs).setScale(2, java.math.RoundingMode.HALF_UP);
+        assertThat(v.edgeMarginOfError()).as("날마다 독립으로 본 폭 %s 보다 넓어야 한다", independent)
+                .isGreaterThan(independent);
+    }
+
+    @Test
+    @DisplayName("겹침 보정은 폭을 좁히지 않는다 — 날마다 번갈아 흔들리는 차이는 종전 폭 그대로")
+    void overlapAdjustmentNeverNarrows() {
+        var v = TrustGateRules.judge(wobbly(12, 0.68, 8.0), 40, 40, HEALTHY_SHAPE, 0);
+        List<BigDecimal> diffs = new ArrayList<>();
+        for (var p : wobbly(12, 0.68, 8.0)) diffs.add(p.signalMeanPct().subtract(p.controlMeanPct()));
+
+        assertThat(v.edgeMarginOfError())
+                .isEqualByComparingTo(TrustGateRules.marginOfError(diffs).setScale(2, java.math.RoundingMode.HALF_UP));
+    }
 }

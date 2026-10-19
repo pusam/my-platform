@@ -136,7 +136,8 @@
           <span :class="signClass(trust.costAdjustedReturn)">
             비용차감 {{ pct(trust.costAdjustedReturn) }}
           </span>
-          <span :class="{ dead: !trust.edgeExceedsUncertainty }" :title="edgeTitle">
+          <span :class="{ dead: !trust.edgeExceedsUncertainty && !trust.edgeBelowUncertainty, bad: trust.edgeBelowUncertainty }"
+                :title="edgeTitle">
             대조군比 {{ pct(trust.edgeVsControl) }}
             <em v-if="trust.edgeMarginOfError != null">±{{ num(trust.edgeMarginOfError) }}</em>
             <em v-else>±?</em>
@@ -188,7 +189,8 @@
             </div>
             <div class="s trust-nums">
               <span :class="signClass(line.dailyMeanPct)">하루 평균 {{ pct(line.dailyMeanPct) }}</span>
-              <span :class="{ dead: !line.profitExceedsUncertainty }" :title="botMoeTitle(line)">
+              <span :class="{ dead: !line.profitExceedsUncertainty && !line.lossBelowUncertainty, bad: line.lossBelowUncertainty }"
+                    :title="botMoeTitle(line)">
                 <em v-if="line.marginOfError != null">±{{ num(line.marginOfError) }}</em>
                 <em v-else>±?</em>
               </span>
@@ -259,9 +261,10 @@ const edgeTitle = computed(() => {
   const t = trust.value
   if (!t) return ''
   if (t.edgeMarginOfError == null) return '불확실성 폭을 아직 계산할 수 없다(비교 가능한 날이 2일 미만). 0 이 아니라 "모름"이다.'
-  return t.edgeExceedsUncertainty
-    ? '우위가 95% 불확실성 폭을 넘었다 — 0 과 구분된다.'
-    : '우위가 불확실성 폭 안에 있다 — 0 과 구분되지 않는다(우연일 수 있다).'
+  // 아래쪽으로 넘은 경우를 '구분 안 됨'이라 하지 않는다(2026-10-19) — 판정은 백엔드(edgeBelowUncertainty)
+  if (t.edgeExceedsUncertainty) return '우위가 95% 불확실성 폭을 넘었다 — 0 과 구분된다.'
+  if (t.edgeBelowUncertainty) return '우위가 (−)이고 95% 불확실성 폭 밖이다 — 무작위보다 유의하게 나쁘다(산식 점검 필요).'
+  return '우위가 불확실성 폭 안에 있다 — 0 과 구분되지 않는다(우연일 수 있다).'
 })
 
 // ── ⑧ 봇을 믿고 맡겨도 되나 ─────────────────────────────────────────────────
@@ -294,9 +297,9 @@ const botClass = computed(() => {
 
 const botMoeTitle = (line) => {
   if (line.marginOfError == null) return '불확실성 폭을 아직 계산할 수 없다(거래일 2일 미만). 0 이 아니라 "모름"이다.'
-  return line.profitExceedsUncertainty
-    ? '하루 평균 수익이 95% 불확실성 폭을 넘었다 — 0 과 구분된다.'
-    : '하루 평균 수익이 불확실성 폭 안에 있다 — 0 과 구분되지 않는다(우연일 수 있다).'
+  if (line.profitExceedsUncertainty) return '하루 평균 수익이 95% 불확실성 폭을 넘었다 — 0 과 구분된다.'
+  if (line.lossBelowUncertainty) return '하루 평균 손실이 95% 불확실성 폭 밖이다 — 0 보다 유의하게 나쁘다.'
+  return '하루 평균 수익이 불확실성 폭 안에 있다 — 0 과 구분되지 않는다(우연일 수 있다).'
 }
 
 /** 승률은 결측이면 '-'. */
@@ -440,6 +443,7 @@ const headroomText = computed(() => {
 .trust-nums { display: flex; flex-wrap: wrap; gap: 4px 14px; font-family: var(--cr-mono); }
 .trust-nums em { font-style: normal; color: var(--cr-mut); }
 .trust-nums .dead { color: var(--cr-mut); }
+.trust-nums .bad { color: var(--cr-red); }
 .trust-shape { color: var(--cr-mut); font-family: var(--cr-mono); }
 .trust-nums .up { color: var(--cr-grn); }
 .trust-nums .down { color: var(--cr-red); }

@@ -234,7 +234,9 @@ public final class CrewContextBuilder {
           .append(" · 대조군比 ").append(pct(t.edgeVsControl()))
           .append(t.edgeMarginOfError() == null ? " ±미상(비교일 부족)"
                   : " ±" + t.edgeMarginOfError().toPlainString())
-          .append(t.edgeExceedsUncertainty() ? "(불확실성 초과)" : "(불확실성 이내 — 0 과 구분 안 됨)")
+          .append(t.edgeExceedsUncertainty() ? "(불확실성 초과)"
+                  : t.edgeBelowUncertainty() ? "(불확실성 밖 — 무작위보다 유의하게 나쁨)"
+                  : "(불확실성 이내 — 0 과 구분 안 됨)")
           .append('\n');
         sb.append("  이익시 ").append(pct(t.avgWin())).append(" / 손실시 ").append(pct(t.avgLoss()))
           .append(" · 최악 ").append(pct(t.worst()))
@@ -282,7 +284,9 @@ public final class CrewContextBuilder {
             if (l.note() != null) sb.append("  판정: ").append(l.note()).append('\n');
             sb.append("  하루평균(비용차감) ").append(pct(l.dailyMeanPct()))
               .append(l.marginOfError() == null ? " ±미상(거래일 부족)" : " ±" + l.marginOfError().toPlainString())
-              .append(l.profitExceedsUncertainty() ? "(불확실성 초과)" : "(0 과 구분 안 됨)")
+              .append(l.profitExceedsUncertainty() ? "(불확실성 초과)"
+                      : l.lossBelowUncertainty() ? "(불확실성 밖 — 0 보다 유의하게 나쁨)"
+                      : "(0 과 구분 안 됨)")
               .append(" · 승률 ").append(l.winRatePct() == null ? "미상" : l.winRatePct().toPlainString() + "%")
               .append(" · 최악 ").append(pct(l.worstPct()))
               .append(" · 최대낙폭 ").append(pct(l.maxDrawdownPct()))

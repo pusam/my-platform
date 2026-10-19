@@ -491,7 +491,7 @@ public class ControlRoomSnapshotService {
             return new ControlRoomSnapshotDto.TrustGate(
                     true, v.state().name(), v.rows(), v.distinctDays(), v.controlRows(),
                     v.costAdjustedReturn(), v.edgeVsControl(), v.edgeMarginOfError(),
-                    v.edgeExceedsUncertainty(),
+                    v.edgeExceedsUncertainty(), v.edgeBelowUncertainty(),
                     shape.avgWin(), shape.avgLoss(), shape.worst(), shape.avgMaePct(),
                     v.excludedDays(), v.blockers(), v.headline(),
                     TRUST_GATE_MEASUREMENT_CAVEAT + sampleBoundaryCaveat(boundary, legacy) + v.detail(),
@@ -561,13 +561,13 @@ public class ControlRoomSnapshotService {
         var v = l.verdict();
         if (!l.dataAvailable() || v == null) {
             return new ControlRoomSnapshotDto.BotGateLine(l.mode(), false, null, 0, 0,
-                    null, null, false, null, null, null, null, null, null, null, null,
+                    null, null, false, false, null, null, null, null, null, null, null, null,
                     List.of(), 0, List.of(), l.note(),
                     "봇 성적을 집계하지 못했다. 거래가 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.");
         }
         return new ControlRoomSnapshotDto.BotGateLine(l.mode(), true, v.state().name(),
                 v.trades(), v.distinctDays(), v.dailyMeanPct(), v.marginOfError(), v.profitExceedsUncertainty(),
-                v.winRatePct(), v.avgWinPct(), v.avgLossPct(), v.worstPct(), v.maxDrawdownPct(),
+                v.lossBelowUncertainty(), v.winRatePct(), v.avgWinPct(), v.avgLossPct(), v.worstPct(), v.maxDrawdownPct(),
                 l.realizedPnlKrw() == null ? null : l.realizedPnlKrw().longValue(),
                 l.firstTradeDay() == null ? null : l.firstTradeDay().toString(),
                 l.lastTradeDay() == null ? null : l.lastTradeDay().toString(),
@@ -596,7 +596,7 @@ public class ControlRoomSnapshotService {
     /** 집계 실패 — 0 이 아니라 "측정 불가"다(§4c). */
     private static ControlRoomSnapshotDto.TrustGate unavailableTrustGate(String why) {
         return new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
-                null, null, null, false, null, null, null, null, 0, List.of(), why,
+                null, null, null, false, false, null, null, null, null, 0, List.of(), why,
                 "신뢰 게이트를 집계하지 못했다. 표본이 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.",
                 null, null, null);
     }
