@@ -19,9 +19,12 @@ import java.util.List;
  * 그 미확정 봉이 <b>영구 확정</b>됐다. RSI·이동평균·5일 누적·낙폭과대가 전부 이 히스토리를 읽으므로
  * 기술 점수가 조용히 오염된다. 이 배치가 마감 후 확정값으로 덮어써 그 고리를 끊는다.
  *
- * <p><b>대상 범위</b>: 오늘 봉이 있는 종목만({@code findStockCodesByTradeDate}). 장중에 수집된 종목만
- * 당일 행을 갖기 때문에 이 목록이 곧 "미확정 봉 보유 종목"이고, 전체 유니버스를 훑지 않아 KIS 호출이
- * <b>장중 활동량에 비례</b>해 bound 된다. 상한({@value #MAX_STOCKS_PER_RUN})을 두되 초과분은
+ * <p><b>대상 범위</b>: 종합추천 후보 풀(마지막 계산, {@code RecommendationService.categoryScoreSnapshot}) ∪ 오늘 봉이 있는
+ * 종목({@code findStockCodesByTradeDate}). 예전엔 뒤쪽만이었다 — 09:00 종합추천이 후보 풀의 형성 봉을 저장해 두었으므로 그 목록이
+ * 곧 후보 풀이었는데, 2026-10-07 부터 마감 전 봉을 저장하지 않으면서({@code StockAnalysisService.isSettledBar}) 거의 비었다.
+ * 그 뒤로 그날 확정 봉을 다음 날 09:00 까지 아무도 받지 않아 09:00 계산은 후보 대부분이 기술 점수 없이 매겨졌고, 20:05 계산은
+ * 19:45 평가가 봉을 받아 둔 종목만 오늘 기준이라 기준일이 섞였다(2026-10-19 수정). 후보 풀이 없으면(재시작 뒤 계산 전) 종전 대상만.
+ * 전체 유니버스를 훑지 않아 KIS 호출은 후보 풀 크기(600여)로 bound 된다. 상한({@value #MAX_STOCKS_PER_RUN})을 두되 초과분은
  * <b>로그로 반드시 노출</b>한다 — 조용한 절단은 "다 갱신했다"는 착각을 만든다.
  *
  * <p><b>시각</b>: 평일 18:30 KST. KRX 정규장(15:30) + 종가단일가(15:40) 이후라 일봉이 확정돼 있고,
@@ -41,9 +44,9 @@ public class DailyBarRefreshService {
 
     /**
      * 배치 1회 상한 — KIS rate 예산. 초과분은 다음 실행이 아니라 <b>다음 날</b>로 밀리므로 로그로 경고한다.
-     * 400 → 1,200(2026-10-07): 마감 전 봉을 더는 저장하지 않으므로(StockAnalysisService.isSettledBar) 대상은 장 마감 뒤 수집분으로
-     * 줄어든다 — 상한은 남은 형성 봉(전환일 10/7 622종목)을 한 번에 다 확정하려고 올렸다. 예전 상한 400 은 하루 879~1,123종목
-     * 중 일부만 고쳐 나머지가 다음 날 '어제 종가'로 남았다. 최악 1,200 × 450ms ≈ 9분.
+     * 400 → 1,200(2026-10-07): 남은 형성 봉(전환일 10/7 622종목)을 한 번에 다 확정하려고 올렸다. 예전 상한 400 은 하루 879~1,123종목
+     * 중 일부만 고쳐 나머지가 다음 날 '어제 종가'로 남았다. 2026-10-19 부터 대상이 종합추천 후보 풀(600여) ∪ 그날 봉을 가진 종목이라
+     * 평소엔 상한 안이다. 최악 1,200 × 450ms ≈ 9분.
      */
     static final int MAX_STOCKS_PER_RUN = 1200;
 
@@ -54,6 +57,7 @@ public class DailyBarRefreshService {
     private final StockAnalysisService stockAnalysisService;
     private final SchedulerLockService schedulerLockService;
     private final MarketCalendarService marketCalendar;
+    private final org.springframework.beans.factory.ObjectProvider<RecommendationService> recommendationProvider;
 
     @Value("${daily-bar.refresh.enabled:true}")
     private boolean enabled;
@@ -83,13 +87,14 @@ public class DailyBarRefreshService {
      * (관리 수동 트리거에서도 재사용 — 배치 시각을 놓친 날 복구용)
      */
     public int refreshBarsFor(LocalDate tradeDate) {
-        List<String> codes = historyRepository.findStockCodesByTradeDate(tradeDate);
+        List<String> withBar = historyRepository.findStockCodesByTradeDate(tradeDate);
+        java.util.Set<String> pool = candidatePool();
+        List<String> codes = refreshTargets(pool, withBar);
         if (codes.isEmpty()) {
-            // 2026-10-07 부터 마감 전 봉은 저장하지 않으므로(StockAnalysisService.isSettledBar) 장중 수집은 이 목록을 만들지 않는다 —
-            // 비어 있는 게 정상이다(그날 확정 봉은 다음 수집이 받는다)
-            log.info("[일봉갱신] {} 봉을 가진 종목 없음 — 장중엔 확정 전 봉을 저장하지 않는다(다음 수집이 확정 봉을 받는다)", tradeDate);
+            log.info("[일봉갱신] 대상 없음 — 종합추천 후보 풀이 없고(재시작 뒤 계산 전) {} 봉을 가진 종목도 없다", tradeDate);
             return 0;
         }
+        log.info("[일봉갱신] 대상 {}종목 — 종합추천 후보 풀 {} · {} 봉을 가진 종목 {}", codes.size(), pool.size(), tradeDate, withBar.size());
 
         // ★ 공정 선정(AUDIT R6, 2026-08-31): prod 실측 하루 대상 879~1,123종목 — 상한 400 을
         //   매일 2.8배 초과한다. 이전엔 DISTINCT 쿼리의 자연 순서(ORDER BY 없음) 그대로 앞 400개만
@@ -135,6 +140,32 @@ public class DailyBarRefreshService {
      * (항상 같은 순서의 앞부분)은 같은 종목만 반복 갱신하고 나머지를 영구 굶주리게 한다 —
      * 무작위는 며칠에 걸쳐 전 종목이 돌아가며 확정을 받게 한다.
      */
+    /**
+     * 대상 목록 — <b>순수 함수(테스트 대상)</b>. 후보 풀 먼저, 그다음 그날 봉을 가진 종목. 빈 코드·중복은 뺀다.
+     */
+    static List<String> refreshTargets(java.util.Collection<String> pool, java.util.Collection<String> withBar) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (java.util.Collection<String> part : java.util.Arrays.asList(pool, withBar)) {
+            if (part == null) continue;
+            for (String code : part) {
+                if (code != null && !code.isBlank()) out.add(code.trim());
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /** 마지막 종합추천 계산의 후보 풀 — 재시작 뒤 계산 전이면 빈 집합. 조회 실패도 빈 집합(배치는 종전 대상으로 계속). */
+    private java.util.Set<String> candidatePool() {
+        try {
+            RecommendationService rs = recommendationProvider.getIfAvailable();
+            if (rs == null) return java.util.Set.of();
+            return new java.util.LinkedHashSet<>(rs.categoryScoreSnapshot().keySet());
+        } catch (Exception e) {
+            log.warn("[일봉갱신] 종합추천 후보 풀 조회 실패 — 그날 봉을 가진 종목만 갱신: {}", e.getMessage());
+            return java.util.Set.of();
+        }
+    }
+
     static List<String> selectFairly(List<String> codes, int cap, java.util.Random random) {
         if (codes.size() <= cap) return List.copyOf(codes);
         List<String> shuffled = new java.util.ArrayList<>(codes);
