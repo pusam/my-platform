@@ -243,7 +243,7 @@ public class SignalD3EvaluationService {
 
         // ④ 종목별: 봉 수집(상한) → 응답 봉으로만 평가 → 변한 것만 저장. 못 받으면 FETCH_FAILED 기록.
         Map<String, Integer> byStatus = new TreeMap<>();
-        int fetched = 0, fetchFailed = 0, fetchFailedRows = 0, skippedByCap = 0, unchanged = 0;
+        int fetched = 0, fetchFailed = 0, fetchFailedRows = 0, skippedByCap = 0, unchanged = 0, keptOk = 0;
         StockAnalysisService analysis = analysisProvider.getIfAvailable();
         Map<String, String> corporateActions = corporateActions();
 
@@ -285,6 +285,13 @@ public class SignalD3EvaluationService {
                         settled, d.window(), row.getPriceAtSignal(), row.getBmPriceAtSignal(),
                         bars, indexClose.get(d.window().get(2)), caLabel);
                 if (r.status() == SignalD3Evaluator.Status.NOT_DUE) continue;
+                // force 재평가가 OK 행을 OK 아님으로 내리지 않는다(2026-10-19) — 오래된 창은 지수 일봉(오늘 기준 약 100개 상한)·봉 응답
+                // 밖이라 NO_INDEX·MISSING_BARS 가 되는데, 그걸로 덮으면 확정된 표본이 영구히 빠졌다. 다시 잰 OK 값만 쓴다.
+                if (force && SignalD3Evaluator.Status.OK.name().equals(row.getD3Status())
+                        && r.status() != SignalD3Evaluator.Status.OK) {
+                    keptOk++;
+                    continue;
+                }
                 if (!needsWrite(row, r)) {
                     // 값은 같아도 "시도했다"는 남긴다 — 재시도 간격이 여기에 걸린다.
                     if (isRetryStatus(r.status())) { row.setD3EvaluatedAt(now); repository.save(row); }
@@ -295,6 +302,10 @@ public class SignalD3EvaluationService {
                 repository.save(row);
                 byStatus.merge(r.status().name(), 1, Integer::sum);
             }
+        }
+        if (keptOk > 0) {
+            notes.add("force: OK 행 " + keptOk + "건은 재평가가 OK 아님(지수·봉 응답 밖 등)이라 덮지 않았다");
+            log.warn("[D3평가] force 재평가 — OK 행 {}건은 다시 잰 결과가 OK 아님이라 그대로 둔다(덮으면 표본에서 영구히 빠진다)", keptOk);
         }
         Report report = new Report(false, today, settled, candidates.size(), notDue, due.size(), byStock.size(),
                 coverage, fetched, fetchFailed, fetchFailedRows, skippedByCap, unchanged, byStatus, notes);
