@@ -80,14 +80,19 @@ class DailyBarRefreshPoolTargetTest {
     }
 
     @Test
-    @DisplayName("재시작 뒤 계산 전이라 후보 풀이 없으면 종전대로 그날 봉을 가진 종목만")
-    void noPoolFallsBackToSavedBars() {
+    @DisplayName("재현: 재시작 뒤 계산 전이라 후보 풀이 없으면 직전 거래일 봉을 가진 종목(그날 아침 계산이 받아 둔 후보 풀)으로 대신한다")
+    void noPoolFallsBackToPreviousTradingDayBars() {
         StockAnalysisService analysis = mock(StockAnalysisService.class);
-        DailyBarRefreshService svc = service(historyWith(List.of("035420")), analysis, poolOf());
+        StockPriceHistoryRepository repo = mock(StockPriceHistoryRepository.class);
+        when(repo.findStockCodesByTradeDate(LocalDate.of(2026, 10, 19))).thenReturn(List.of("035420"));
+        when(repo.findStockCodesByTradeDate(LocalDate.of(2026, 10, 16))).thenReturn(List.of("005930", "000660"));   // 직전 거래일(금)
+        DailyBarRefreshService svc = service(repo, analysis, poolOf());
 
         int done = svc.refreshBarsFor(LocalDate.of(2026, 10, 19));
 
-        assertThat(done).isEqualTo(1);
+        assertThat(done).isEqualTo(3);
+        verify(analysis).collectPriceHistory("005930");
+        verify(analysis).collectPriceHistory("000660");
         verify(analysis).collectPriceHistory("035420");
     }
 

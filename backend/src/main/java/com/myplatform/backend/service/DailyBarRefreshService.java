@@ -23,7 +23,7 @@ import java.util.List;
  * 종목({@code findStockCodesByTradeDate}). 예전엔 뒤쪽만이었다 — 09:00 종합추천이 후보 풀의 형성 봉을 저장해 두었으므로 그 목록이
  * 곧 후보 풀이었는데, 2026-10-07 부터 마감 전 봉을 저장하지 않으면서({@code StockAnalysisService.isSettledBar}) 거의 비었다.
  * 그 뒤로 그날 확정 봉을 다음 날 09:00 까지 아무도 받지 않아 09:00 계산은 후보 대부분이 기술 점수 없이 매겨졌고, 20:05 계산은
- * 19:45 평가가 봉을 받아 둔 종목만 오늘 기준이라 기준일이 섞였다(2026-10-19 수정). 후보 풀이 없으면(재시작 뒤 계산 전) 종전 대상만.
+ * 19:45 평가가 봉을 받아 둔 종목만 오늘 기준이라 기준일이 섞였다(2026-10-19 수정). 후보 풀이 없으면(재시작 뒤 계산 전) 직전 거래일 봉을 가진 종목으로 대신한다.
  * 전체 유니버스를 훑지 않아 KIS 호출은 후보 풀 크기(600여)로 bound 된다. 상한({@value #MAX_STOCKS_PER_RUN})을 두되 초과분은
  * <b>로그로 반드시 노출</b>한다 — 조용한 절단은 "다 갱신했다"는 착각을 만든다.
  *
@@ -89,12 +89,22 @@ public class DailyBarRefreshService {
     public int refreshBarsFor(LocalDate tradeDate) {
         List<String> withBar = historyRepository.findStockCodesByTradeDate(tradeDate);
         java.util.Set<String> pool = candidatePool();
+        String poolLabel = "종합추천 후보 풀";
+        if (pool.isEmpty()) {
+            // 재시작 뒤 계산 전 — 직전 거래일 봉을 가진 종목(그날 아침 계산이 받아 둔 후보 풀)으로 대신한다(2026-10-19).
+            // 예전엔 그날 봉을 가진 종목만이라, 17:00~18:30 사이 재시작이면 다음 날 09:00 계산이 다시 기술 점수 없이 돌았다.
+            LocalDate prev = previousTradingDay(tradeDate);
+            if (prev != null) {
+                pool = new java.util.LinkedHashSet<>(historyRepository.findStockCodesByTradeDate(prev));
+                poolLabel = prev + " 봉을 가진 종목(후보 풀 대신)";
+            }
+        }
         List<String> codes = refreshTargets(pool, withBar);
         if (codes.isEmpty()) {
-            log.info("[일봉갱신] 대상 없음 — 종합추천 후보 풀이 없고(재시작 뒤 계산 전) {} 봉을 가진 종목도 없다", tradeDate);
+            log.info("[일봉갱신] 대상 없음 — 종합추천 후보 풀도, {} 봉을 가진 종목도 없다", tradeDate);
             return 0;
         }
-        log.info("[일봉갱신] 대상 {}종목 — 종합추천 후보 풀 {} · {} 봉을 가진 종목 {}", codes.size(), pool.size(), tradeDate, withBar.size());
+        log.info("[일봉갱신] 대상 {}종목 — {} {} · {} 봉을 가진 종목 {}", codes.size(), poolLabel, pool.size(), tradeDate, withBar.size());
 
         // ★ 공정 선정(AUDIT R6, 2026-08-31): prod 실측 하루 대상 879~1,123종목 — 상한 400 을
         //   매일 2.8배 초과한다. 이전엔 DISTINCT 쿼리의 자연 순서(ORDER BY 없음) 그대로 앞 400개만
@@ -154,7 +164,17 @@ public class DailyBarRefreshService {
         return List.copyOf(out);
     }
 
-    /** 마지막 종합추천 계산의 후보 풀 — 재시작 뒤 계산 전이면 빈 집합. 조회 실패도 빈 집합(배치는 종전 대상으로 계속). */
+    /** 직전 거래일 — 달력 조회 실패면 null(대신할 목록 없이 계속). */
+    private LocalDate previousTradingDay(LocalDate day) {
+        try {
+            return marketCalendar.minusTradingDays(day, 1);
+        } catch (Exception e) {
+            log.warn("[일봉갱신] 거래일 달력 조회 실패 — 후보 풀 대신 목록 없이 진행: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 마지막 종합추천 계산의 후보 풀 — 재시작 뒤 계산 전이면 빈 집합. 조회 실패도 빈 집합(배치는 대신 목록으로 계속). */
     private java.util.Set<String> candidatePool() {
         try {
             RecommendationService rs = recommendationProvider.getIfAvailable();
