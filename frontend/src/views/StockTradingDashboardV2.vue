@@ -642,6 +642,7 @@ import {
 } from '../utils/api'
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
 import { topNetSum, supplyBasisLabel, consecutiveThroughLabel, VALUE_LIST_BASIS } from '../utils/marketDataLabels'
+import { kstDateOf, closedTodayFromStatus, closedOn } from '../utils/marketPhase'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
 function withTimeout(promise, ms = 3000) {
@@ -762,6 +763,8 @@ export default {
       watchlistItems: [],
       watchlistRisks: {},
       phaseNow: Date.now(),   // 시간대 국면(currentPhaseKey) 반응성용 1분 틱
+      // 오늘 휴장 판정 { date: 'YYYY-MM-DD'(KST), closed } — 시장 데이터 객체와 따로 기억한다(조회 실패·빈 진단에도 지워지지 않게, 2026-10-19)
+      closedTodayInfo: null,
 
       watchlistExpanded: false,   // 오늘 탭 관심종목 — 기본 접힘(가끔 봄, 2026-07-01 이동)
       editingWatchId: null,       // 목표가 인라인 편집 중인 관심종목 id (null=편집 안 함)
@@ -822,6 +825,16 @@ export default {
   },
   inject: { toast: { default: () => ({ success(){}, error(){}, warning(){}, info(){} }) } },
   watch: {
+    // 국면이 바뀌면 국면 데이터(장 전·장 후 신호, 오늘 결산의 봇 성과 줄)를 다시 읽는다(2026-10-19) — 예전엔 마운트 때 한 번만 읽어,
+    // 평일 공휴일 판정이 늦게 오거나 08:00·20:00 경계를 넘어도 처음 국면의 데이터가 남았다.
+    async currentPhaseKey(nv, ov) {
+      if (!ov || nv === ov) return
+      this.phaseLoading = true
+      try {
+        await this.loadPhaseData()
+      } catch { /* ignore */ }
+      this.phaseLoading = false
+    },
     activeGnbTab(tab) {
       // P-IA: 글로벌은 시장 탭의 서브섹션으로 임베드됨 — 더 이상 별도 라우팅하지 않음.
       // 첫 진입이면 loadTabData 가 시장 지도를 읽고 그 Promise 를 돌려준다(아니면 null). 예전엔 loadTabData 가 dataLoaded 를
@@ -846,6 +859,11 @@ export default {
     discoverSubTab() {
       // 종합판단 ↔ 백테스트 — 보드는 다시 마운트되며 스스로 읽고 @loaded 로 알린다. 그 전엔 이전 화면의 시각을 보이지 않는다(2026-10-07)
       this.lastUpdated = null
+    },
+    discoverGroup() {
+      // 목록 ↔ 심화 — 💎저평가에서 종합판단으로 돌아오면 서브탭은 그대로 'board' 라 위 감시가 안 돈다. 새 보드가 읽기 전엔(또는
+      // 읽기에 실패하면) 이전 보드의 시각을 보이지 않는다(2026-10-19)
+      this.lastUpdated = null
     }
   },
   mounted() {
@@ -864,7 +882,11 @@ export default {
     this._startPolling()
     this._startCountdown()
     // 시간대 국면 1분 틱 — currentPhaseKey 가 08:00/20:00 경계를 실시간 반영하게
-    this._phaseTimer = setInterval(() => { this.phaseNow = Date.now() }, 60_000)
+    this._phaseTimer = setInterval(() => {
+      this.phaseNow = Date.now()
+      this._refreshClosedTodayIfStale()   // 날짜가 바뀌었으면 오늘 휴장 여부를 한 번 묻는다(2026-10-19)
+    }, 60_000)
+    this._refreshClosedTodayIfStale()
     this._onVisibilityChange = () => {
       if (document.hidden) {
         this._stopPolling()
@@ -925,7 +947,10 @@ export default {
       const wd = d.toLocaleDateString('en-US', { timeZone: 'Asia/Seoul', weekday: 'short' })
       // 주말·휴장일 → 장 후. 평일 공휴일(10/9 한글날 등)은 백엔드 달력이 시장 상태 응답에 실어 준다(2026-10-07) — 예전엔 주말만 알아서
       // 공휴일 08~20시 내내 '장 진행 중 · 실시간 추적 중'이었다. 화면에 두 번째 휴장 달력을 두지 않는다.
-      if (wd === 'Sat' || wd === 'Sun' || this.marketData?.marketClosedToday === true) return 'post'
+      // 판정은 날짜와 함께 따로 기억한다(2026-10-19) — 시장 데이터 객체에만 두면 상태 조회 실패(객체를 비운다)·빈 진단(변환이 null)
+      // 뒤에 사라져 다시 '장 진행 중'이었다. 어제 받은 판정은 쓰지 않는다.
+      const closedByCalendar = closedOn(this.closedTodayInfo, kstDateOf(this.phaseNow))
+      if (wd === 'Sat' || wd === 'Sun' || closedByCalendar || this.marketData?.marketClosedToday === true) return 'post'
       const [h, m] = d.toLocaleTimeString('en-GB', {
         timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit'
       }).split(':').map(Number)
@@ -936,9 +961,11 @@ export default {
     },
     // P-IA: 시각대 강조 배너 — 위젯 교체가 아니라 "같은 탭 내 강조"(장중=실시간 / 장후=결산).
     phaseBanner() {
+      // '60초 자동 갱신'은 실제로 60초마다 다시 읽는 화면(갱신 막대가 뜨는 화면)에서만 — 💎저평가 목록·백테스트는 다시 읽지 않는다(2026-10-19)
+      const duringHint = this.showFreshness ? '실시간 추적 중 · 60초 자동 갱신' : '이 화면은 자동으로 다시 읽지 않습니다'
       const banners = {
         pre:    { icon: '🌅', label: '장 준비',    hint: '개장 전 — 추천·관심종목 점검', cls: 'phase-pre' },
-        during: { icon: '🟢', label: '장 진행 중',  hint: '실시간 추적 중 · 60초 자동 갱신', cls: 'phase-during' },
+        during: { icon: '🟢', label: '장 진행 중',  hint: duringHint, cls: 'phase-during' },
         post:   { icon: '📊', label: '장 마감',    hint: '오늘 결산 · 성과/수급 중심',     cls: 'phase-post' }
       }
       return banners[this.currentPhaseKey] || banners.post
@@ -1677,12 +1704,36 @@ export default {
       } catch { return '' }
     },
 
+    /** 시장 상태 응답의 휴장 판정을 날짜와 함께 기억한다 — 칸이 없으면 기존 판정을 그대로 둔다(실패로 지우지 않는다). */
+    noteClosedToday(raw, nowMs = Date.now()) {
+      const closed = closedTodayFromStatus(raw)
+      if (closed !== null) this.closedTodayInfo = { date: kstDateOf(nowMs), closed }
+    },
+
+    /**
+     * 오늘 휴장 판정이 없으면(날짜가 바뀌었거나 아직 못 받음) 시장 상태를 한 번 묻는다 — 발굴 탭처럼 상태를 다시 읽지 않는 화면을 열어
+     * 둔 채 날짜가 바뀌어도 전날 판정이 남지 않게(2026-10-19). 실패하면 10분 뒤 다시.
+     */
+    async _refreshClosedTodayIfStale() {
+      const today = kstDateOf(Date.now())
+      if (this.closedTodayInfo && this.closedTodayInfo.date === today) return
+      const now = Date.now()
+      if (this._closedTodayAskedAt && now - this._closedTodayAskedAt < 600_000) return
+      this._closedTodayAskedAt = now
+      try {
+        const res = await withTimeout(marketAPI.getStatus(), 10000)
+        this.noteClosedToday(this.extractData(res))
+      } catch { /* 10분 뒤 다시 */ }
+    },
+
     // Section B: 시장 지도 (V2 → Java, changeRate 검증 포함)
     /** 오늘 탭 시장 한 줄만 — 시장 상태 1콜(시장 지도의 5콜 중 하나와 같은 변환). 실패면 줄을 숨긴다(옛 값을 지금 값처럼 두지 않는다). */
     async loadMarketLine() {
       try {
         const res = await withTimeout(marketAPI.getStatus(), 10000)
-        const line = transformMarketData(this.extractData(res))
+        const raw = this.extractData(res)
+        this.noteClosedToday(raw)
+        const line = transformMarketData(raw)
         this.marketData = line || {}
         return line != null
       } catch {
@@ -1714,6 +1765,7 @@ export default {
         let transformed = null
         if (marketRes.status === 'fulfilled') {
           const d = this.extractData(marketRes.value)
+          this.noteClosedToday(d)
           transformed = transformMarketData(d)
           this.marketData = transformed || {}
         } else {

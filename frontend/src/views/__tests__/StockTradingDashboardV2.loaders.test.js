@@ -22,7 +22,8 @@ const STATUS = {
 const hub = () => ({
   marketData: {}, sectorData: [], globalData: {}, supplyPanelData: null,
   sections: { marketMap: { loading: false, error: false } },
-  extractData: M.extractData, hasSectorData: M.hasSectorData, flattenInvestorMap: M.flattenInvestorMap
+  extractData: M.extractData, hasSectorData: M.hasSectorData, flattenInvestorMap: M.flattenInvestorMap,
+  closedTodayInfo: null, noteClosedToday: M.noteClosedToday
 })
 
 /**

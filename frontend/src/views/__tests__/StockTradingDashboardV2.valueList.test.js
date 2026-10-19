@@ -64,3 +64,27 @@ describe('발굴 탭 💎저평가 목록', () => {
     expect(src).toContain('저평가 목록을 불러오지 못했습니다')
   })
 })
+
+/**
+ * 발굴 탭 갱신 표시가 그 화면과 맞는다(2026-10-19, 리뷰 에이전트 지적).
+ * 재현: ① 💎저평가 목록·백테스트는 60초마다 다시 읽지 않는데(갱신 막대도 숨김) 국면 띠는 "실시간 추적 중 · 60초 자동 갱신"이었다.
+ * ② 💎저평가에서 🧭종합판단으로 돌아오면 서브탭이 그대로 'board' 라 시각을 지우는 감시가 안 돌아, 새 보드가 읽는 동안·실패해도
+ * 예전 보드의 '20분 전'이 남았다.
+ */
+describe('발굴 탭 갱신 표시', () => {
+  it('재현: 60초마다 다시 읽지 않는 화면이면 국면 띠가 "60초 자동 갱신"이라 하지 않는다', () => {
+    const banner = Comp.computed.phaseBanner.call({ currentPhaseKey: 'during', showFreshness: false })
+    expect(banner.hint).not.toContain('60초 자동 갱신')
+    expect(banner.label).toBe('장 진행 중')
+  })
+
+  it('다시 읽는 화면(시장·종합판단)이면 종전대로', () => {
+    expect(Comp.computed.phaseBanner.call({ currentPhaseKey: 'during', showFreshness: true }).hint).toContain('60초 자동 갱신')
+  })
+
+  it('재현: 목록 ↔ 심화를 오가면 이전 화면의 갱신 시각을 지운다', () => {
+    const ctx = { lastUpdated: new Date(2026, 9, 19, 10, 0) }
+    Comp.watch.discoverGroup.call(ctx, 'deep', 'list')
+    expect(ctx.lastUpdated).toBeNull()
+  })
+})
