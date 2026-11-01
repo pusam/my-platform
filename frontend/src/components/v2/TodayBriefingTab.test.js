@@ -617,3 +617,38 @@ describe('TodayBriefingTab — 시장 한 줄의 지수 기준일', () => {
     expect(w.find('.today-market .tm-basis').exists()).toBe(false)
   })
 })
+
+// 2026-10-19: 지수 등락이 전부 간밤 세션 값이 아니면(미국 휴장 다음 날) 서버가 tilt=UNKNOWN 을 준다 — 예전엔 VIX 만으로 '중립'.
+// 화면은 그걸 '판단 보류'로 말하고(영문 코드 그대로 보이지 않게), 판정에 쓴 시세의 기준 시각을 붙인다.
+describe('TodayBriefingTab — 🌙 간밤 미국장', () => {
+  function stubOvernight(overnight) {
+    stubAll()
+    const base = apiClient.get.getMockImplementation()
+    apiClient.get.mockImplementation((url) => (url.includes('/global-futures/overnight-us')
+      ? Promise.resolve({ data: { success: true, data: overnight } })
+      : base(url)))
+  }
+
+  it('재현: tilt UNKNOWN 은 "판단 보류" — 영문 코드를 그대로 보이지 않는다', async () => {
+    stubOvernight({ tilt: 'UNKNOWN', dataAvailable: true, asOf: '10/10 05:15 (토) KST',
+      drivers: ['미국 지수 간밤 세션 값 없음', 'VIX 18.0(보통)'] })
+    const w = await mountTab()
+    expect(w.find('.today-overnight .ov-tilt').text()).toBe('판단 보류')
+    expect(w.find('.today-overnight').text()).toContain('미국 지수 간밤 세션 값 없음')
+  })
+
+  it('재현: 판정에 쓴 시세의 기준 시각을 붙인다 — 월요일 아침의 "간밤"은 금요일 세션이다', async () => {
+    stubOvernight({ tilt: 'BULL', dataAvailable: true, asOf: '10/17 05:00 (토) KST',
+      drivers: ['S&P500 +0.80%', '나스닥 +1.20%', 'SOX +2.00%', 'VIX 14.0(안정)'] })
+    const w = await mountTab()
+    expect(w.find('.today-overnight .ov-tilt').text()).toBe('강세')
+    expect(w.find('.today-overnight .ov-asof').text()).toBe('10/17 05:00 (토) KST 기준')
+  })
+
+  it('기준 시각을 모르면 붙이지 않는다', async () => {
+    stubOvernight({ tilt: 'NEUTRAL', dataAvailable: true, asOf: null, drivers: ['S&P500 +0.10%'] })
+    const w = await mountTab()
+    expect(w.find('.today-overnight .ov-tilt').text()).toBe('중립')
+    expect(w.find('.today-overnight .ov-asof').exists()).toBe(false)
+  })
+})

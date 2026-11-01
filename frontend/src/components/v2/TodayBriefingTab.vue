@@ -19,7 +19,9 @@
     <div v-if="overnightAvailable && overnight" class="today-overnight">
       <span class="ov-label">🌙 간밤 미국장</span>
       <span class="ov-tilt" :class="overnightTiltClass(overnight.tilt)">{{ overnightTiltLabel(overnight.tilt) }}</span>
-      <span v-if="overnight.drivers && overnight.drivers.length" class="ov-drivers">{{ overnight.drivers.join(' · ') }}</span>
+      <!-- 기준 시각(판정에 쓴 시세의 체결 시각, 2026-10-19) — 월요일 아침의 '간밤'은 금요일 세션이다. 근거 줄 안에 둬 좁은 화면에서도 두 줄 -->
+      <span v-if="overnight.drivers && overnight.drivers.length" class="ov-drivers">{{ overnight.drivers.join(' · ') }}<span
+          v-if="overnight.asOf" class="ov-asof">{{ overnight.asOf }} 기준</span></span>
       <span class="badge-unverified ov-beta">미검증 참고</span>
     </div>
 
@@ -217,6 +219,7 @@ import apiClient, { recommendationAPI, paperTradingAPI, youtubeOpinionAPI } from
 import YoutubeOpinionList from './YoutubeOpinionList.vue';
 import { summaryText, formatKst, coverageText } from '../../utils/youtubeOpinion';
 import { closeBasisLabel, todayKstIso } from '../../utils/stockFormat';
+import { overnightTiltLabel } from '../../utils/marketDataLabels';
 
 const props = defineProps({
   marketData: { type: Object, default: null }
@@ -512,7 +515,6 @@ const loadMacroTilt = async () => {
 const gradeLabel = (score) => (Number(score) >= STRONG_BUY_CUT ? '강력 매수' : '매수');
 const gradeClass = (score) => (Number(score) >= STRONG_BUY_CUT ? 'grade-strong' : 'grade-buy');
 const directionLabel = (d) => ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[d] || d);
-const overnightTiltLabel = (t) => ({ BULL: '강세', NEUTRAL: '중립', BEAR: '약세' }[t] || t);
 const overnightTiltClass = (t) => (t === 'BULL' ? 'positive' : t === 'BEAR' ? 'negative' : '');
 const macroTiltLabel = (t) => ({ RISK_ON: '위험선호', NEUTRAL: '중립', RISK_OFF: '위험회피' }[t] || t);
 const macroTiltClass = (t) => (t === 'RISK_ON' ? 'positive' : t === 'RISK_OFF' ? 'negative' : '');
@@ -584,6 +586,8 @@ onMounted(() => {
 .ov-label { font-weight: 600; opacity: 0.8; }
 .ov-tilt { font-weight: 700; }
 .ov-drivers { opacity: 0.7; }
+.ov-asof { white-space: nowrap; }
+.ov-asof::before { content: ' · '; }
 .ov-beta { margin-left: auto; } /* amber 룩은 공용 .badge-unverified */
 
 /* 공통 섹션 */

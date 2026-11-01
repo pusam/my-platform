@@ -82,9 +82,9 @@ class OvernightUsMarketServiceTest {
     }
 
     @Test
-    @DisplayName("전부 null → NEUTRAL (데이터 없음 안전 기본값)")
-    void allNullNeutral() {
-        assertThat(OvernightUsMarketService.classifyOvernight(null, null, null, null)).isEqualTo("NEUTRAL");
+    @DisplayName("전부 null → UNKNOWN(판단 보류) — 모르는 것을 '중립'이라 하지 않는다(2026-10-19)")
+    void allNullUnknown() {
+        assertThat(OvernightUsMarketService.classifyOvernight(null, null, null, null)).isEqualTo("UNKNOWN");
     }
 
     // ==================== toInputs / buildDrivers (순수, V40 스냅샷 재현용) ====================
@@ -237,5 +237,83 @@ class OvernightUsMarketServiceTest {
         FuturesQuote freshSox = FuturesQuote.builder().changeRate(BigDecimal.valueOf(1.59))
                 .currentPrice(BigDecimal.valueOf(5200)).success(true).dataAgeMinutes(180).build();
         assertThat(OvernightUsMarketService.sessionRateOrNull(freshSox, java.time.DayOfWeek.TUESDAY)).isNotNull();
+    }
+
+    // ==================== 지수 등락을 모르면 '중립'이 아니다 (2026-10-19) ====================
+    // 재현: 미국 휴장 다음 날 아침엔 세 지수 등락률이 전부 직전 세션 값이 아니라 입력에서 빠지는데(위 staleIndexSessionIsDropped),
+    // VIX 레벨은 남아 dataAvailable=true · tilt=NEUTRAL 이 됐다 — '오늘' 탭과 종합판단 보드가 "🌙 간밤 미국장 중립 · VIX 18.0(보통)"
+    // 을 보였다. 간밤 미국 세션 값이 하나도 없는데 '중립'(지수가 보합권이었다는 말)이라 했다. 99시간 = 어느 요일이든 창(24·72시간) 밖.
+
+    private static final long STALE = 99 * 60;   // 직전 세션 아님(어느 요일이든)
+    private static final long FRESH = 180;       // 간밤(평일 08:00 의 05:00 종가)
+
+    private static FuturesQuote aged(Double rate, Double price, String tradingTime, long ageMinutes) {
+        return FuturesQuote.builder()
+                .changeRate(rate == null ? null : BigDecimal.valueOf(rate))
+                .currentPrice(price == null ? null : BigDecimal.valueOf(price))
+                .tradingTime(tradingTime).success(true).dataAgeMinutes(ageMinutes).build();
+    }
+
+    private void usHolidayMorning(double vix) {
+        when(futures.getFuturesQuote("SPX")).thenReturn(aged(0.4, 6000.0, "10/10 05:00 (토) KST", STALE));
+        when(futures.getFuturesQuote("NDX")).thenReturn(aged(0.6, 21000.0, "10/10 05:00 (토) KST", STALE));
+        when(futures.getFuturesQuote("SOX")).thenReturn(aged(3.38, 5200.0, "10/10 05:00 (토) KST", STALE));
+        when(futures.getFuturesQuote("VIX")).thenReturn(aged(null, vix, "10/10 05:15 (토) KST", STALE));
+    }
+
+    @Test
+    @DisplayName("재현: 지수 등락이 전부 간밤 세션 값이 아니면(미국 휴장 다음 날) VIX 만으로 '중립'이라 하지 않는다 — 판단 보류")
+    void vixAloneIsNotNeutral() {
+        usHolidayMorning(18.0);
+
+        java.util.Map<String, Object> view = new OvernightUsMarketService(futures, snapshotRepo, regimeProvider).getOvernightView();
+
+        assertThat(view.get("tilt")).isEqualTo("UNKNOWN");
+        assertThat(view.get("dataAvailable")).isEqualTo(true);   // VIX 는 실제 값이라 줄은 남긴다 — 무엇을 모르는지 말한다
+        @SuppressWarnings("unchecked")
+        List<String> drivers = (List<String>) view.get("drivers");
+        assertThat(drivers).containsExactly("미국 지수 간밤 세션 값 없음", "VIX 18.0(보통)");
+    }
+
+    @Test
+    @DisplayName("지수를 몰라도 VIX 규칙(≥25 공포경계·≥30 공포)은 그대로 — VIX 레벨만으로 정한다")
+    void vixRulesStandWithoutIndices() {
+        assertThat(OvernightUsMarketService.classifyOvernight(null, null, null, 18.0)).isEqualTo("UNKNOWN");
+        assertThat(OvernightUsMarketService.classifyOvernight(null, null, null, 26.0)).isEqualTo("BEAR");
+        assertThat(OvernightUsMarketService.classifyOvernight(null, null, null, 31.0)).isEqualTo("BEAR");
+        // 한 지수라도 간밤 값이 있으면 종전대로 그 값으로 판정
+        assertThat(OvernightUsMarketService.classifyOvernight(null, 0.3, null, 18.0)).isEqualTo("NEUTRAL");
+    }
+
+    @Test
+    @DisplayName("스냅샷(측정)도 같은 판정 — 그날 tilt 는 UNKNOWN, 지수 칸은 null(§4c)")
+    void snapshotStoresUnknown() {
+        usHolidayMorning(18.0);
+        when(regimeProvider.getIfAvailable()).thenReturn(null);
+        when(snapshotRepo.findBySnapshotDate(any())).thenReturn(Optional.empty());
+
+        new OvernightUsMarketService(futures, snapshotRepo, regimeProvider).snapshotToday();
+
+        ArgumentCaptor<OvernightUsSnapshot> captor = ArgumentCaptor.forClass(OvernightUsSnapshot.class);
+        verify(snapshotRepo).save(captor.capture());
+        OvernightUsSnapshot saved = captor.getValue();
+        assertThat(saved.getTilt()).isEqualTo("UNKNOWN");
+        assertThat(saved.getEsRate()).isNull();
+        assertThat(saved.getNqRate()).isNull();
+        assertThat(saved.getSoxRate()).isNull();
+        assertThat(saved.getVixLevel()).isEqualByComparingTo("18.00");
+    }
+
+    @Test
+    @DisplayName("재현: 기준 시각(asOf)은 판정에 쓴 시세의 것 — 빠진 지수(오래된 세션)의 시각을 붙이지 않는다")
+    void asOfComesFromUsedQuotes() {
+        when(futures.getFuturesQuote("SPX")).thenReturn(aged(0.8, 6000.0, "10/20 05:00 (화) KST", FRESH));
+        when(futures.getFuturesQuote("NDX")).thenReturn(aged(1.0, 21000.0, "10/16 05:00 (금) KST", STALE));   // 오래된 세션
+        when(futures.getFuturesQuote("SOX")).thenReturn(aged(1.5, 5200.0, "10/20 05:00 (화) KST", FRESH));
+        when(futures.getFuturesQuote("VIX")).thenReturn(aged(null, 15.0, "10/20 05:15 (화) KST", FRESH));
+
+        java.util.Map<String, Object> view = new OvernightUsMarketService(futures, snapshotRepo, regimeProvider).getOvernightView();
+
+        assertThat(view.get("asOf")).isEqualTo("10/20 05:00 (화) KST");
     }
 }

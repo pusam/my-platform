@@ -394,3 +394,16 @@ describe('SectionJudgmentBoard — union "—" 설명(2026-10-07)', () => {
     expect(w.find('.jb-union-note').text()).toContain('순수 발굴주')
   })
 })
+
+// 2026-10-19: 보드 머리줄도 같은 간밤 미국장 판정을 읽는다 — UNKNOWN 은 '판단 보류'(오늘 탭과 같은 이름표, utils/marketDataLabels).
+describe('SectionJudgmentBoard — 간밤 미국장 머리줄', () => {
+  it('재현: overnightTilt UNKNOWN 은 "판단 보류"', async () => {
+    apiClient.get.mockResolvedValue({ data: { success: true, data: {
+      market: { regime: 'BULL', overnightTilt: 'UNKNOWN', overnightDrivers: ['미국 지수 간밤 세션 값 없음', 'VIX 18.0(보통)'] },
+      rows: [row()], timingAvailable: true, sectorStrengthAvailable: true, scope: 'momentum', note: '테스트' } } })
+    const w = mount(SectionJudgmentBoard)
+    await flushPromises()
+    const item = w.findAll('.jbm-item').find(i => i.text().includes('간밤 미국장'))
+    expect(item.find('strong').text()).toBe('판단 보류')
+  })
+})

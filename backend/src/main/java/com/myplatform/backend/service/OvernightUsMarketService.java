@@ -101,8 +101,14 @@ public class OvernightUsMarketService {
         FuturesQuote ndx = futures.getFuturesQuote("NDX");
         FuturesQuote sox = futures.getFuturesQuote("SOX");
         FuturesQuote vix = futures.getFuturesQuote("VIX");
-        return new OvernightInputs(sessionRateOrNull(spx, kstDay), sessionRateOrNull(ndx, kstDay),
-                sessionRateOrNull(sox, kstDay), level(vix), level(sox), firstTradingTime(ndx, spx, sox, vix));
+        Double es = sessionRateOrNull(spx, kstDay);
+        Double nq = sessionRateOrNull(ndx, kstDay);
+        Double sx = sessionRateOrNull(sox, kstDay);
+        Double vixLevel = level(vix);
+        // 기준 시각은 판정에 쓴 시세의 것(2026-10-19) — 오래된 세션이라 빠진 지수의 시각을 붙이면 지난 금요일 시각이 오늘 판정에 붙는다
+        String asOf = firstTradingTime(nq != null ? ndx : null, es != null ? spx : null,
+                sx != null ? sox : null, vixLevel != null ? vix : null);
+        return new OvernightInputs(es, nq, sx, vixLevel, level(sox), asOf);
     }
 
     /**
@@ -136,8 +142,12 @@ public class OvernightUsMarketService {
      *   <li>VIX &ge; 30 → BEAR (공포 강제, 지수 강세여도)
      *   <li>3지수 평균 &ge; +0.6% AND VIX &lt; 20 → BULL
      *   <li>3지수 평균 &le; -0.6% OR VIX &ge; 25 OR SOX &le; -2.0% → BEAR (약세 / 공포경계 / 반도체 급락)
+     *   <li>지수 등락을 하나도 모르면 → UNKNOWN (판단 보류, 2026-10-19)
      *   <li>그 외 → NEUTRAL
      * </ul>
+     *
+     * <p>UNKNOWN: 미국 휴장 다음 날 아침엔 세 지수가 전부 직전 세션 값이 아니라 입력에서 빠지는데({@link #sessionRateOrNull})
+     * VIX 레벨은 남아, 예전엔 VIX 만으로 '중립'(지수가 보합권이었다는 말)이 됐다. VIX 규칙(&ge;25·&ge;30)은 지수 없이도 그대로 쓴다.
      */
     static String classifyOvernight(Double esRate, Double nqRate, Double soxRate, Double vixLevel) {
         Double avg3 = avg(esRate, nqRate, soxRate);
@@ -146,6 +156,7 @@ public class OvernightUsMarketService {
         if ((avg3 != null && avg3 <= -0.6)
                 || (vixLevel != null && vixLevel >= 25.0)
                 || (soxRate != null && soxRate <= -2.0)) return "BEAR";         // 약세 / 공포경계 / 반도체 급락
+        if (avg3 == null) return "UNKNOWN";                                     // 지수 등락을 모른다 — '중립' 아님
         return "NEUTRAL";
     }
 
@@ -167,9 +178,13 @@ public class OvernightUsMarketService {
         return (q != null && q.isSuccess() && q.getCurrentPrice() != null) ? q.getCurrentPrice().doubleValue() : null;
     }
 
+    /** 세 지수 등락이 전부 없을 때(미국 휴장 다음 날·조회 실패) drivers 맨 앞에 붙이는 문구 — 남은 VIX 줄이 '간밤 미국장' 전체처럼 읽히지 않게. */
+    static final String NO_INDEX_SESSION = "미국 지수 간밤 세션 값 없음";
+
     /** drivers — 가용 축만 표시(§4c). 표시/스냅샷 공용(사용자가 본 그대로 저장). */
     static List<String> buildDrivers(OvernightInputs in) {
         List<String> d = new ArrayList<>();
+        if (in.esRate() == null && in.nqRate() == null && in.soxRate() == null) d.add(NO_INDEX_SESSION);
         addRate(d, "S&P500", in.esRate());
         addRate(d, "나스닥", in.nqRate());
         addRate(d, "SOX", in.soxRate());
