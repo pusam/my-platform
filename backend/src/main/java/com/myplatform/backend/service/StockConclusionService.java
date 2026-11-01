@@ -541,7 +541,9 @@ public class StockConclusionService {
                 .dimension("SHORT")
                 .score(s.getSectorMomentum())
                 .verdict(verdictFor(s.getSectorMomentum(), 8, 15))
-                .note(withEvidence("섹터 거래대금 INFLOW/OUTFLOW", tags, "sectorMomentum"))
+                // 실제 산식 그대로(2026-10-19) — 예전 'INFLOW/OUTFLOW' 설명은 섹터 거래대금을 본다고 했지만 점수엔 들어가지 않는다
+                // (RecommendationService.scoreSectorMomentum: 종목 등락률 가점 + BULL +4 + 장중 최소 2, 테마 가산은 10/6 제거).
+                .note(withEvidence(SECTOR_NOTE, tags, "sectorMomentum"))
                 .build());
         // ⚠ valueStability/growth 는 NULL=NA(데이터 없음, P3-3 — 구 -1 sentinel). NA 면 factor 자체를 숨긴다
         //   (결론카드 "데이터 없으면 조용히 숨김" 규약 — NA 를 NEGATIVE 로 오표시하지 않기 위함).
@@ -576,6 +578,9 @@ public class StockConclusionService {
     private static final String[] SUPPLY_KEYWORDS = {"외국인", "기관", "수급"};
     private static final String[] TECHNICAL_KEYWORDS = {"골든크로스", "정배열", "RSI", "볼린저", "MA20", "과열", "기술"};
     private static final String[] SECTOR_KEYWORDS = {"섹터"};
+
+    /** '섹터 흐름' 설명 — 섹터 자금 흐름이 아니라 이 종목의 마지막 확정 봉 등락률과 강세장 가산이다(2026-10-19). */
+    static final String SECTOR_NOTE = "섹터 거래대금이 아니라 이 종목의 마지막 확정 봉 등락률(최대 +4) + 강세장 +4 · 장중 최소 2 — 지금 규칙으로는 최대 8점";
     private static final String[] VALUE_KEYWORDS = {"PBR", "저부채", "흑자+자본", "우량", "STRONG+VALUE"};
     private static final String[] GROWTH_KEYWORDS = {"성장", "이익급증", "PEG"};
 

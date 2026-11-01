@@ -650,4 +650,20 @@ class StockConclusionServiceTest {
 
         assertThat(note).isEqualTo("실적·수급·기술·섹터 4카테고리 정규화 (가치는 미포함 — 75점↑·가치 12↑일 때만 +2)");
     }
+
+    @Test
+    @DisplayName("재현: '섹터 흐름' 설명은 실제 산식 — 섹터 거래대금이 아니라 종목의 마지막 확정 봉 등락률 + 강세장 가산(2026-10-19)")
+    void sectorFactorNoteDescribesTheRealFormula() {
+        // 섹터 점수는 2026-10-07 부터 종목 자신의 마지막 확정 봉 등락률 가점(최대 4) + BULL +4 + 장중 최소 2 다(RecommendationService
+        // .scoreSectorMomentum) — 섹터 거래대금 유입·유출은 점수에 들어가지 않는다. 카드는 'INFLOW/OUTFLOW'라고 설명했다.
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 16, 15, 6, 10)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+        String note = result.getFactors().stream().filter(f -> "sectorMomentum".equals(f.getKey()))
+                .findFirst().orElseThrow().getNote();
+
+        assertThat(note).doesNotContain("INFLOW").doesNotContain("거래대금 유입");
+        assertThat(note).contains("마지막 확정 봉 등락률").contains("강세장 +4").contains("최대 8점");
+    }
 }
