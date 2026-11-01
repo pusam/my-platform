@@ -15,15 +15,18 @@
             <!-- 종합 신호 매칭 뱃지 — 클릭 시 5개 분해 -->
             <span v-if="compositeSignal && compositeSignal.totalCount > 0"
                   class="composite-badge" :class="getCompositeBadgeClass()">
-              신호 {{ compositeSignal.matchedCount }}/{{ compositeSignal.totalCount }}
+              신호 {{ compositeSignal.matchedCount }}/{{ compositeSignal.totalCount }}<template
+                v-if="compositeSignal.unavailableCount > 0"> · 조회 실패 {{ compositeSignal.unavailableCount }}</template>
+              <!-- 조회 실패한 신호는 '안 맞음(○)'이 아니다 — 서버가 따로 센다(2026-10-19) -->
               <InfoTooltip title="5가지 신호 매칭" position="left">
                 <p>의사결정 단순화 — 단일 신호 X, 여러 개 같은 방향이면 적중률 ↑</p>
                 <div v-for="s in compositeSignal.signals" :key="s.id" class="tip-row">
                   <span :style="{ color: s.matched ? '#4ade80' : 'rgba(255,255,255,0.35)' }">
-                    {{ s.matched ? '✓' : '○' }}
+                    {{ s.matched ? '✓' : (s.unavailable ? '–' : '○') }}
                   </span>
                   <b>{{ s.label }}</b>
                   <em v-if="s.matched && s.detail" style="opacity:0.85">{{ s.detail }}</em>
+                  <em v-else-if="s.unavailable" style="opacity:0.85">조회 실패</em>
                 </div>
               </InfoTooltip>
             </span>

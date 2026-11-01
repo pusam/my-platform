@@ -34,6 +34,12 @@ public class CompositeSignalDto {
     /** 평가된 총 신호 수 (보통 5, 데이터 없는 신호는 평가 제외 가능) */
     private int totalCount;
 
+    /**
+     * 조회 실패·데이터 없음으로 판정하지 못한 신호 수(2026-10-19) — matchedCount 에 들어가지 않는다. 예전엔 실패가 '안 맞음'으로
+     * 세어져 체크리스트가 0/5·2/5 를 미충족으로 봤다(§4c). 결과는 30분 캐시라 회복돼도 그동안은 같은 수가 보인다.
+     */
+    private int unavailableCount;
+
     /** 5개 신호 각각의 평가 결과 */
     private List<Signal> signals;
 
@@ -50,5 +56,8 @@ public class CompositeSignalDto {
         private boolean matched;
         /** 매칭 시 상세 설명 (예: "더블바텀 의심", "지지선 67,500원 (-2.1%)") */
         private String detail;
+
+        /** 조회 실패·데이터 없음으로 판정 불가 — matched=false 지만 '안 맞았다'는 뜻이 아니다(2026-10-19). JSON 키 "unavailable". */
+        private boolean unavailable;
     }
 }

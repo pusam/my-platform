@@ -79,6 +79,7 @@ public class CompositeSignalService {
         signals.add(evalAiRecommend(stockCode));
 
         int matched = (int) signals.stream().filter(CompositeSignalDto.Signal::isMatched).count();
+        int unavailable = (int) signals.stream().filter(CompositeSignalDto.Signal::isUnavailable).count();
 
         // 시그널 적중률 추적 — 4+ 매칭 시 COMPOSITE_4PLUS, 5/5 매칭 시 COMPOSITE_5OF5 기록 (phase 16).
         // @Cacheable 가 30분 캐시 — 미스 시점에만 호출되므로 자연스럽게 시그널 발생 지점만 기록됨.
@@ -103,6 +104,7 @@ public class CompositeSignalService {
                 .stockName(stockMasterService.getNameOrDefault(stockCode, stockCode))
                 .matchedCount(matched)
                 .totalCount(signals.size())
+                .unavailableCount(unavailable)
                 .signals(signals)
                 .build();
     }
@@ -279,8 +281,9 @@ public class CompositeSignalService {
     }
 
     private CompositeSignalDto empty(String code) {
+        // 평가 자체를 못 했다 — 다섯 신호 모두 판정 불가(2026-10-19)
         return CompositeSignalDto.builder()
-                .stockCode(code).matchedCount(0).totalCount(5)
+                .stockCode(code).matchedCount(0).totalCount(5).unavailableCount(5)
                 .signals(Collections.emptyList()).build();
     }
 
@@ -298,7 +301,7 @@ public class CompositeSignalService {
                     .detail(bullish != null ? bullish.getLabel() : null)
                     .build();
         } catch (Exception e) {
-            return signalFalse("PATTERN", "차트 패턴 ↑상승");
+            return signalUnavailable("PATTERN", "차트 패턴 ↑상승");
         }
     }
 
@@ -320,20 +323,20 @@ public class CompositeSignalService {
                     .id("SUPPORT").label("강한 지지선 근처")
                     .matched(matched).detail(detail).build();
         } catch (Exception e) {
-            return signalFalse("SUPPORT", "강한 지지선 근처");
+            return signalUnavailable("SUPPORT", "강한 지지선 근처");
         }
     }
 
     private CompositeSignalDto.Signal evalValueArea(String stockCode) {
         try {
             VolumeProfileDto vp = chartPatternService.computeVolumeProfile(stockCode);
-            if (vp == null || vp.getVal() == null) return signalFalse("VALUE_AREA", "저평가 영역");
+            if (vp == null || vp.getVal() == null) return signalUnavailable("VALUE_AREA", "저평가 영역");
 
             // 현재가 — stockPriceService 캐시/DB
             StockPriceDto price = stockPriceService.getStockPrice(stockCode);
             if (price == null || price.getCurrentPrice() == null
                     || price.getCurrentPrice().signum() <= 0) {
-                return signalFalse("VALUE_AREA", "저평가 영역");
+                return signalUnavailable("VALUE_AREA", "저평가 영역");
             }
             boolean matched = price.getCurrentPrice().compareTo(vp.getVal()) <= 0;
             String detail = matched
@@ -344,7 +347,7 @@ public class CompositeSignalService {
                     .id("VALUE_AREA").label("저평가 영역 (≤ VAL)")
                     .matched(matched).detail(detail).build();
         } catch (Exception e) {
-            return signalFalse("VALUE_AREA", "저평가 영역");
+            return signalUnavailable("VALUE_AREA", "저평가 영역");
         }
     }
 
@@ -352,31 +355,38 @@ public class CompositeSignalService {
         try {
             // 외국인 + 기관 연속매수 종목 (3일+) 풀 — 둘 중 하나라도 포함되면 매칭
             Set<String> codes = new HashSet<>();
+            boolean lookupFailed = false;
             try {
                 List<ConsecutiveBuyDto> foreign = investorTradeService
                         .getConsecutiveBuyStocks("FOREIGN", 3);
                 foreign.forEach(d -> codes.add(d.getStockCode()));
-            } catch (Exception ignore) {}
+            } catch (Exception e) {
+                lookupFailed = true;
+            }
             try {
                 List<ConsecutiveBuyDto> inst = investorTradeService
                         .getConsecutiveBuyStocks("INSTITUTION", 3);
                 inst.forEach(d -> codes.add(d.getStockCode()));
-            } catch (Exception ignore) {}
+            } catch (Exception e) {
+                lookupFailed = true;
+            }
 
             boolean matched = codes.contains(stockCode);
+            // 한쪽 조회가 실패했고 다른 쪽에 없으면 모른다 — 실패한 쪽에 있었을 수 있다(2026-10-19)
+            if (!matched && lookupFailed) return signalUnavailable("SUPPLY", "외국인/기관 순매수");
             return CompositeSignalDto.Signal.builder()
                     .id("SUPPLY").label("외국인/기관 순매수")
                     .matched(matched)
                     .detail(matched ? "3일+ 연속 매수 풀" : null).build();
         } catch (Exception e) {
-            return signalFalse("SUPPLY", "외국인/기관 순매수");
+            return signalUnavailable("SUPPLY", "외국인/기관 순매수");
         }
     }
 
     private CompositeSignalDto.Signal evalAiRecommend(String stockCode) {
         try {
             AiAnalysisResponseDto analysis = aiStockAnalysisService.getAnalysis();
-            if (analysis == null) return signalFalse("AI_RECOMMEND", "AI 추천");
+            if (analysis == null) return signalUnavailable("AI_RECOMMEND", "AI 추천");
 
             // 단기 + 중장기 TOP 픽 합쳐서 종목 매칭
             List<AiStockRecommendationDto> all = new ArrayList<>();
@@ -398,12 +408,16 @@ public class CompositeSignalService {
                     .id("AI_RECOMMEND").label("AI 추천")
                     .matched(matched).detail(detail).build();
         } catch (Exception e) {
-            return signalFalse("AI_RECOMMEND", "AI 추천");
+            return signalUnavailable("AI_RECOMMEND", "AI 추천");
         }
     }
 
-    private CompositeSignalDto.Signal signalFalse(String id, String label) {
+    /**
+     * 조회 실패·데이터 없음 — 판정 불가(2026-10-19). 예전 이름은 signalFalse 였고 '평가했는데 안 맞음'과 같은 값이었다.
+     * 체크리스트는 이 수({@link CompositeSignalDto#getUnavailableCount()})로 미충족과 판정 불가를 가른다.
+     */
+    private CompositeSignalDto.Signal signalUnavailable(String id, String label) {
         return CompositeSignalDto.Signal.builder()
-                .id(id).label(label).matched(false).build();
+                .id(id).label(label).matched(false).unavailable(true).build();
     }
 }
