@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import StockConclusionCard from './StockConclusionCard.vue'
 import apiClient from '../../utils/api'
@@ -398,5 +398,54 @@ describe('StockConclusionCard — 종목 전환', () => {
 
     expect(w.text()).not.toContain(conclusionData.headline)
     expect(w.text()).toContain('결론을 불러오지 못했습니다')
+  })
+})
+
+// 2026-10-19: 카드는 종목을 바꿀 때만 읽었고 'N분 전'은 받은 순간 한 번 계산됐다 — 페이지를 열어 둔 채 몇 시간이 지나도
+// '10분 전'이었고, 그 사이 11:30·14:00·17:00 새 스냅샷·유효 판정(currentlyValid)도 다시 받지 않았다.
+describe('StockConclusionCard — 열어 둔 동안', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('재현: 시간이 지나면 "N분 전"이 따라 늘어난다', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    vi.setSystemTime(new Date('2026-10-19T11:40:00+09:00'))
+    stubApi({ ...conclusionData, dataAt: '2026-10-19T11:30:00+09:00' })
+    const w = await mountCard()
+    expect(w.find('.conclusion-meta').text()).toContain('10분 전')
+
+    vi.advanceTimersByTime(60 * 60_000)
+    await flushPromises()
+
+    expect(w.find('.conclusion-meta').text()).toContain('70분 전')
+  })
+
+  it('재현: 열어 둔 동안 결론을 다시 읽는다(5분마다) — 새 스냅샷이 나오면 바뀐다', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    vi.setSystemTime(new Date('2026-10-19T13:58:00+09:00'))
+    stubApi({ ...conclusionData, headline: '11:30 스냅샷 결론', dataAt: '2026-10-19T11:30:00+09:00' })
+    const w = await mountCard()
+    expect(w.text()).toContain('11:30 스냅샷 결론')
+
+    stubApi({ ...conclusionData, headline: '14:00 스냅샷 결론', dataAt: '2026-10-19T14:00:00+09:00' })
+    vi.advanceTimersByTime(5 * 60_000)
+    await flushPromises()
+
+    expect(w.text()).toContain('14:00 스냅샷 결론')
+    expect(w.text()).not.toContain('11:30 스냅샷 결론')
+  })
+
+  it('다시 읽기가 실패해도 받아 둔 결론을 지우지 않는다 — 같은 종목이다', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    vi.setSystemTime(new Date('2026-10-19T13:58:00+09:00'))
+    stubApi({ ...conclusionData, headline: '받아 둔 결론', dataAt: '2026-10-19T11:30:00+09:00' })
+    const w = await mountCard()
+
+    apiClient.get.mockImplementation((url) =>
+      url.includes('accuracy-by-band') ? Promise.resolve(bandResponse) : Promise.reject(new Error('timeout')))
+    vi.advanceTimersByTime(5 * 60_000)
+    await flushPromises()
+
+    expect(w.text()).toContain('받아 둔 결론')
+    expect(w.text()).not.toContain('결론을 불러오지 못했습니다')
   })
 })

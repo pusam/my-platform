@@ -116,7 +116,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import apiClient from '../../utils/api';
 import BuyChecklistModal from './BuyChecklistModal.vue';
 import ManualJournalModal from './ManualJournalModal.vue';
@@ -141,31 +141,58 @@ const catalyst = ref(null);       // 재료 태그 (V31) — NONE/실패 시 nul
 // 요청 순서 토큰 — 종목을 바꾼 뒤 늦게 온 이전 종목 결론·재료가 새 종목 카드를 덮지 않게(2026-10-19, 다른 하위 섹션과 같은 방식)
 let reqSeq = 0;
 
-const fetchConclusion = async (code) => {
+/**
+ * @param refresh 같은 종목을 다시 읽는다(열어 둔 동안 5분마다, 2026-10-19) — 받아 둔 결론을 비우지 않고 로딩도 띄우지 않으며,
+ *                실패해도 받아 둔 결론을 그대로 둔다(같은 종목이다). 재료 배지는 다시 읽지 않는다(하루 캐시).
+ */
+const fetchConclusion = async (code, { refresh = false } = {}) => {
   const seq = ++reqSeq;
   // 이전 종목 결론을 비운다(2026-10-19) — 카드는 결론이 있으면 그것부터 그려서, 남겨 두면 새 종목을 읽는 동안 이전 종목 등급이
   // 보였고 새 종목 조회가 실패하면 '불러오지 못했습니다' 대신 이전 종목 결론(매수 기록 모달의 기준가까지)이 그대로 남았다.
-  conclusion.value = null;
-  catalyst.value = null;
+  if (!refresh) {
+    conclusion.value = null;
+    catalyst.value = null;
+  }
   if (!code) return;
-  loading.value = true;
-  error.value = false;
+  if (!refresh) {
+    loading.value = true;
+    error.value = false;
+  }
   try {
     const { data } = await apiClient.get(`/stock/${code}/conclusion`);
     if (seq !== reqSeq) return;   // 종목 전환됨 — 폐기
     if (data?.success) {
       conclusion.value = data.data;
-      fetchCatalyst(code, data.data?.stockName, seq);
-    } else {
+      if (!refresh) fetchCatalyst(code, data.data?.stockName, seq);
+    } else if (!refresh) {
       error.value = true;
     }
   } catch (e) {
     if (seq !== reqSeq) return;
-    error.value = true;
+    if (!refresh) error.value = true;
   } finally {
-    if (seq === reqSeq) loading.value = false;
+    if (seq === reqSeq && !refresh) loading.value = false;
   }
 };
+
+// 열어 둔 동안 — 'N분 전'은 1분마다 다시 세고, 결론은 5분마다 다시 읽는다(2026-10-19). 예전엔 종목을 바꿀 때만 읽고 경과 분은
+// 받은 순간 한 번 계산돼, 몇 시간 열어 둔 화면이 '10분 전'과 그때의 유효 판정(currentlyValid)을 그대로 보였다 — 그 사이 11:30·
+// 14:00·17:00 새 스냅샷이 나와도 몰랐다. 읽는 중(종목 전환)이거나 화면이 가려져 있으면 다시 읽기를 건너뛴다.
+const CONCLUSION_REFRESH_MS = 5 * 60_000;
+const nowTick = ref(Date.now());
+let tickTimer = null;
+let refreshTimer = null;
+onMounted(() => {
+  tickTimer = setInterval(() => { nowTick.value = Date.now(); }, 60_000);
+  refreshTimer = setInterval(() => {
+    if (loading.value || (typeof document !== 'undefined' && document.hidden)) return;
+    if (props.stockCode) fetchConclusion(props.stockCode, { refresh: true });
+  }, CONCLUSION_REFRESH_MS);
+});
+onUnmounted(() => {
+  if (tickTimer) clearInterval(tickTimer);
+  if (refreshTimer) clearInterval(refreshTimer);
+});
 
 // 재료 태그 (V31) — best-effort: 실패/재료없음(NONE)이면 배지 생략
 const fetchCatalyst = async (code, stockName, seq) => {
@@ -308,7 +335,7 @@ const formatDataAt = (iso) => {
 const minutesAgo = computed(() => {
   if (!conclusion.value?.dataAt) return 0;
   try {
-    const ms = Date.now() - new Date(conclusion.value.dataAt).getTime();
+    const ms = nowTick.value - new Date(conclusion.value.dataAt).getTime();   // 1분 틱으로 다시 센다(2026-10-19)
     return Math.max(0, Math.floor(ms / 60000));
   } catch { return 0; }
 });
