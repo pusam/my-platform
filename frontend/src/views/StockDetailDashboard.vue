@@ -74,7 +74,7 @@
 
     <!-- 핵심 요약 카드 (RSI/20일선/외인/기관/리스크/AI) — 요약존으로 이동 -->
     <QuickSummaryBar :has-data="hasData" :loading="loading"
-                     :diagnosis-data="diagnosisData" :ai-analysis="aiAnalysis" />
+                     :diagnosis-data="diagnosisData" :ai-analysis="aiAnalysis" :risk-info="riskInfo" />
 
     <!-- 데이터 갱신 상태 -->
     <div class="freshness-bar" v-if="hasData">

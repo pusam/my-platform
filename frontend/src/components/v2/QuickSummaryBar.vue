@@ -40,7 +40,8 @@
       <span class="qs-sub">{{ getQsInstAmount() }}</span>
       <span v-if="getQsInstStreak()" class="qs-streak">{{ getQsInstStreak() }}</span>
     </div>
-    <div class="qs-item">
+    <!-- 리스크 = 리스크 점검(공시·재무 위험, 아래 리스크 카드와 같은 값) — 진단 종합점수가 아니다(2026-10-19) -->
+    <div class="qs-item" title="공시·재무 위험 점검 결과 — 아래 리스크 카드와 같은 값">
       <span class="qs-label">리스크</span>
       <span class="qs-badge" :class="getQsRiskClass()">
         {{ getQsRiskLabel() }}
@@ -80,7 +81,8 @@ const props = defineProps({
   hasData: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
   diagnosisData: { type: Object, default: null },
-  aiAnalysis: { type: Object, default: null }
+  aiAnalysis: { type: Object, default: null },
+  riskInfo: { type: Object, default: null }   // 리스크 점검(heavy) — 리스크 칸의 단일 출처
 });
 
 // RSI·20일선은 마감이 확정된 봉까지로 계산한다(장중엔 직전 거래일 종가) — 기준을 칸에 적는다(2026-10-07)
@@ -157,20 +159,15 @@ const getRvolDisplay = () => {
   const v = props.diagnosisData?.rvol;
   return v == null ? null : Number(v).toFixed(1) + 'x';
 };
-const getQsRiskClass = () => {
-  const score = props.diagnosisData?.overallScore;
-  if (score == null) return 'qs-neutral';
-  if (score >= 70) return 'qs-safe';
-  if (score >= 40) return 'qs-warning';
-  return 'qs-danger';
+// 리스크 칸은 리스크 점검 결과(riskInfo.riskStatus) 그대로(2026-10-19). 예전엔 펀더멘털 진단 종합점수(≥70 SAFE)로 만들어,
+// 아래 리스크 카드가 '위험 — 매수 주의'인데 요약 줄은 SAFE 일 수 있었다. 아직 못 받았거나 UNKNOWN 이면 '-'(짐작하지 않는다).
+const RISK_STATUS = { SAFE: 'qs-safe', WARNING: 'qs-warning', DANGER: 'qs-danger' };
+const riskStatus = () => {
+  const s = props.riskInfo?.riskStatus;
+  return RISK_STATUS[s] ? s : null;
 };
-const getQsRiskLabel = () => {
-  const score = props.diagnosisData?.overallScore;
-  if (score == null) return '-';
-  if (score >= 70) return 'SAFE';
-  if (score >= 40) return 'WARNING';
-  return 'DANGER';
-};
+const getQsRiskClass = () => (riskStatus() ? RISK_STATUS[riskStatus()] : 'qs-neutral');
+const getQsRiskLabel = () => riskStatus() || '-';
 </script>
 
 <style scoped>

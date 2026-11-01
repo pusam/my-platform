@@ -83,8 +83,8 @@ describe('QuickSummaryBar (P2-10 분리)', () => {
     expect(mountBar().find('.qs-rvol-line').exists()).toBe(false)
   })
 
-  it('리스크 score 75 → SAFE / AI 80 + Trading Buy', () => {
-    const items = mountBar().findAll('.qs-item')
+  it('리스크는 리스크 점검 결과(riskInfo.riskStatus) 그대로 / AI 80 + Trading Buy', () => {
+    const items = mountBar({ riskInfo: { riskStatus: 'SAFE' } }).findAll('.qs-item')
     expect(items[4].find('.qs-badge').text()).toBe('SAFE')
     expect(items[5].find('.qs-value').text()).toBe('80')
     expect(items[5].find('.qs-badge').text()).toBe('Trading Buy')
@@ -129,5 +129,26 @@ describe('QuickSummaryBar 기준 종가', () => {
     const items = mountBar().findAll('.qs-item')
     expect(items[1].find('.qs-basis').exists()).toBe(false)
     expect(items[1].attributes('title')).toBeUndefined()
+  })
+})
+
+// 2026-10-19: '리스크' 칸이 리스크 점검(공시·재무 위험, riskInfo)이 아니라 펀더멘털 진단 종합점수(overallScore ≥70 SAFE)로
+// 라벨을 만들었다 — 아래 리스크 카드가 '위험 — 매수 주의'인데 요약 줄은 'SAFE'일 수 있었다.
+describe('QuickSummaryBar — 리스크 칸은 리스크 점검 결과', () => {
+  it('재현: 진단 점수가 75 여도 리스크 점검이 DANGER 면 DANGER', () => {
+    const risk = mountBar({ riskInfo: { riskStatus: 'DANGER' } }).findAll('.qs-item')[4]
+    expect(risk.find('.qs-badge').text()).toBe('DANGER')
+    expect(risk.find('.qs-badge').classes()).toContain('qs-danger')
+  })
+
+  it('재현: 리스크 점검을 아직 못 받았으면(또는 UNKNOWN) 진단 점수로 SAFE 를 만들지 않는다 — "-"', () => {
+    expect(mountBar().findAll('.qs-item')[4].find('.qs-badge').text()).toBe('-')
+    expect(mountBar({ riskInfo: { riskStatus: 'UNKNOWN' } }).findAll('.qs-item')[4].find('.qs-badge').text()).toBe('-')
+  })
+
+  it('WARNING 은 WARNING', () => {
+    const risk = mountBar({ riskInfo: { riskStatus: 'WARNING' } }).findAll('.qs-item')[4]
+    expect(risk.find('.qs-badge').text()).toBe('WARNING')
+    expect(risk.find('.qs-badge').classes()).toContain('qs-warning')
   })
 })
