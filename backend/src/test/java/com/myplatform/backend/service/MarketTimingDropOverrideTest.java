@@ -36,6 +36,11 @@ class MarketTimingDropOverrideTest {
         BigDecimal[] fetchIndexFromNaverApi(String marketType) {
             return null;
         }
+
+        @Override
+        java.time.LocalDateTime now() {
+            return LocalDate.of(2026, 10, 6).atTime(16, 40);   // 행 날짜(10/6) 장 마감 뒤 — 그날 세션 값이라 '당일'
+        }
     };
 
     private static MarketDailyStatus row(String market, String indexChange) {

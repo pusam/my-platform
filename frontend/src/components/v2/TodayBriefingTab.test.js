@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import TodayBriefingTab from './TodayBriefingTab.vue'
+import { todayKstIso } from '../../utils/stockFormat'
 import apiClient, { recommendationAPI, paperTradingAPI, youtubeOpinionAPI } from '../../utils/api'
 
 vi.mock('../../utils/api', () => ({
@@ -595,5 +596,24 @@ describe('TodayBriefingTab — 후보 등락률 기준일', () => {
     stubAll()
     const w = await mountTab()
     expect(w.find('.cc-basis').exists()).toBe(false)
+  })
+})
+
+// 2026-10-19: 장 시작 전·휴장일의 지수 등락률은 직전 거래일 세션 값이다 — 시장 한 줄이 그걸 오늘 등락처럼 보였다.
+// 서버가 세션 날짜(indexAsOf)를 싣고, 오늘이 아니면 그 날짜를 붙인다.
+describe('TodayBriefingTab — 시장 한 줄의 지수 기준일', () => {
+  it('재현: 지수가 지난 거래일 값이면 "10/30 종가"를 붙인다', async () => {
+    stubAll()
+    const w = await mountTab({ marketData: { kospiIndex: '2,500.00', kospiChangeRate: -2.8, kosdaqIndex: '850.00',
+      kosdaqChangeRate: -1.1, indexAsOf: '2026-10-30' } })
+    expect(w.find('.today-market .tm-basis').exists()).toBe(true)
+    expect(w.find('.today-market .tm-basis').text()).toBe('10/30 종가')
+  })
+
+  it('오늘 세션 값이면 날짜를 붙이지 않는다', async () => {
+    stubAll()
+    const w = await mountTab({ marketData: { kospiIndex: '2,500.00', kospiChangeRate: -2.8, kosdaqIndex: '850.00',
+      kosdaqChangeRate: -1.1, indexAsOf: todayKstIso() } })
+    expect(w.find('.today-market .tm-basis').exists()).toBe(false)
   })
 })

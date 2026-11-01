@@ -8,6 +8,8 @@
       <span class="tm-item" :class="changeClass(marketData.kosdaqChangeRate)">
         KOSDAQ {{ marketData.kosdaqIndex }} ({{ signed(marketData.kosdaqChangeRate) }}%)
       </span>
+      <!-- 지수가 지난 거래일 세션 값이면(장 전·휴장일) 그 날짜 — 오늘 등락처럼 보이지 않게(2026-10-19) -->
+      <span v-if="indexBasisLabel" class="tm-basis">{{ indexBasisLabel }}</span>
       <!-- 진단 문구(marketStatus)가 이미 "종합 ADR(20일): 84.7 …"을 담으면 숫자를 따로 또 쓰지 않는다(같은 값이 두 번 보였다) -->
       <span v-if="marketData.adr && !statusHasAdr" class="tm-item tm-adr">ADR {{ marketData.adr }}</span>
       <span v-if="marketData.marketStatus" class="tm-status">{{ marketData.marketStatus }}</span>
@@ -214,7 +216,7 @@ import { ref, computed, onMounted } from 'vue';
 import apiClient, { recommendationAPI, paperTradingAPI, youtubeOpinionAPI } from '../../utils/api';
 import YoutubeOpinionList from './YoutubeOpinionList.vue';
 import { summaryText, formatKst, coverageText } from '../../utils/youtubeOpinion';
-import { closeBasisLabel } from '../../utils/stockFormat';
+import { closeBasisLabel, todayKstIso } from '../../utils/stockFormat';
 
 const props = defineProps({
   marketData: { type: Object, default: null }
@@ -256,6 +258,11 @@ const macroAvailable = ref(true);     // dataAvailable=false → 3축 전부 미
 const hasMarketData = computed(() =>
   !!(props.marketData && props.marketData.kospiIndex));
 const statusHasAdr = computed(() => String(props.marketData?.marketStatus || '').includes('ADR'));
+// 지수 값이 오늘 세션이 아니면 '10/30 종가'(2026-10-19) — 장 전·휴장일에 지난 거래일 등락이 오늘 등락처럼 보였다
+const indexBasisLabel = computed(() => {
+  const asOf = props.marketData?.indexAsOf;
+  return asOf && asOf !== todayKstIso() ? closeBasisLabel(asOf) : null;
+});
 
 const totalProfitLoss = computed(() =>
   portfolio.value.reduce((sum, p) => sum + Number(p.profitLoss || 0), 0));
@@ -550,6 +557,7 @@ onMounted(() => {
   font-size: 13px;
 }
 .tm-item { font-weight: 600; }
+.tm-basis { font-size: 11px; color: var(--text-muted); }
 .tm-adr { opacity: 0.7; font-weight: 400; }
 .tm-status { margin-left: auto; font-size: 12px; opacity: 0.6; }
 

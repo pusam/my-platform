@@ -101,6 +101,12 @@ public class MarketTimingDto {
         /** 지수 등락률 */
         private BigDecimal indexChangeRate;
 
+        /**
+         * 지수 종가·등락률이 <b>어느 거래일 세션</b>의 값인지(2026-10-19). 장 시작 전·휴장일에 받는 값은 직전 거래일 세션이다 —
+         * 그걸 '당일 급락'·오늘 등락처럼 말하지 않으려고 싣는다. null = 지수 값이 없다.
+         */
+        private LocalDate indexAsOf;
+
         /** 거래대금 (억원) */
         private BigDecimal tradingValue;
     }

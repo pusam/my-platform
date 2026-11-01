@@ -125,6 +125,8 @@
             <span class="msb-label">KOSDAQ</span>
             <span class="msb-value">{{ formatChange(marketData.kosdaqChangeRate) }}%</span>
           </div>
+          <!-- 지수가 지난 거래일 세션 값이면(장 전·휴장일) 그 날짜 — 오늘 등락처럼 보이지 않게(2026-10-19) -->
+          <span v-if="indexBasisLabel" class="msb-basis">{{ indexBasisLabel }}</span>
           <div class="msb-divider"></div>
           <div class="msb-item">
             <span class="msb-label">ADR</span>
@@ -643,6 +645,7 @@ import {
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
 import { topNetSum, supplyBasisLabel, consecutiveThroughLabel, VALUE_LIST_BASIS } from '../utils/marketDataLabels'
 import { kstDateOf, closedTodayFromStatus, closedOn } from '../utils/marketPhase'
+import { closeBasisLabel, todayKstIso } from '../utils/stockFormat'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
 function withTimeout(promise, ms = 3000) {
@@ -664,9 +667,12 @@ function transformMarketData(d) {
                        (kospiDaily || kosdaqDaily || null)
     return {
       kospiIndex: Number(d.kospi.indexClose).toLocaleString('ko-KR', { minimumFractionDigits: 2 }),
-      kospiChangeRate: Number(d.kospi.indexChangeRate) || 0,
+      // 등락률을 모르면 null 그대로 — 0 으로 바꾸면 '+0.00%'(보합)로 읽힌다(2026-10-19, §4c)
+      kospiChangeRate: d.kospi.indexChangeRate != null ? Number(d.kospi.indexChangeRate) : null,
       kosdaqIndex: d.kosdaq ? Number(d.kosdaq.indexClose).toLocaleString('ko-KR', { minimumFractionDigits: 2 }) : '-',
-      kosdaqChangeRate: d.kosdaq ? Number(d.kosdaq.indexChangeRate) || 0 : 0,
+      kosdaqChangeRate: d.kosdaq && d.kosdaq.indexChangeRate != null ? Number(d.kosdaq.indexChangeRate) : null,
+      // 지수 값의 세션 날짜 — 장 전·휴장일은 직전 거래일(2026-10-19). 오늘이 아니면 화면이 그 날짜를 붙인다
+      indexAsOf: (d.kospi && d.kospi.indexAsOf) || (d.kosdaq && d.kosdaq.indexAsOf) || null,
       // ADR 판단 보류(시장 폭 데이터 부족, 2026-10-02)는 null 그대로 — 0 으로 바꾸면 "ADR 0"(극심한 공포)으로 읽힌다(§4c)
       adr: d.combinedAdr != null ? Number(d.combinedAdr) : null,
       dailyRatio: dailyRatio,
@@ -960,6 +966,11 @@ export default {
       return 'post'                       // 20:00~
     },
     // P-IA: 시각대 강조 배너 — 위젯 교체가 아니라 "같은 탭 내 강조"(장중=실시간 / 장후=결산).
+    /** 지수 값이 오늘 세션이 아니면 '10/30 종가' — 오늘 탭 시장 한 줄과 같은 규칙(2026-10-19). */
+    indexBasisLabel() {
+      const asOf = this.marketData && this.marketData.indexAsOf
+      return asOf && asOf !== todayKstIso() ? closeBasisLabel(asOf) : null
+    },
     phaseBanner() {
       // '60초 자동 갱신'은 실제로 60초마다 다시 읽는 화면(갱신 막대가 뜨는 화면)에서만 — 💎저평가 목록·백테스트는 다시 읽지 않는다(2026-10-19)
       const duringHint = this.showFreshness ? '실시간 추적 중 · 60초 자동 갱신' : '이 화면은 자동으로 다시 읽지 않습니다'
@@ -1963,6 +1974,7 @@ export default {
 .msb-item.positive .msb-value { color: #ef4444; }
 .msb-item.negative .msb-value { color: #3b82f6; }
 .msb-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.1); }
+.msb-basis { font-size: 11px; color: var(--text-muted); }
 
 /* ===== 오늘의 신호 ===== */
 .signal-list { display: flex; flex-direction: column; gap: 8px; }
