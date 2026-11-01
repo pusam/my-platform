@@ -150,3 +150,15 @@ describe('FundamentalDiagnosisPanel — 동반 순매수·순매도 요약(실�
     expect(w.find('.supply-summary').text()).toContain('동반 순매도')
   })
 })
+
+// 2026-10-19: 재무 데이터가 없어 '분석 불가'인 진단은 종합점수가 모름(null)이다 — 예전 백엔드는 0 을 줬고('종합 점수: 0점'),
+// null 이 오면 '종합 점수: 점'이 됐다.
+describe('FundamentalDiagnosisPanel — 분석 불가(점수 모름)', () => {
+  it('재현: 종합점수가 없으면 점수 줄을 만들지 않는다 — "점"·"null"·0점 없음', () => {
+    const w = mountPanel({ overallScore: null, verdict: '분석 불가', verdictLevel: 'NEUTRAL',
+      warnings: ['재무 데이터가 없습니다. 먼저 데이터를 수집해주세요.'], positives: [] })
+    expect(w.text()).not.toContain('종합 점수: 점')
+    expect(w.text()).not.toContain('null')
+    expect(w.text()).toContain('분석 불가')
+  })
+})

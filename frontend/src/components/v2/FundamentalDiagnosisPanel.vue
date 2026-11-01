@@ -13,7 +13,8 @@
         <span class="verdict-icon">{{ getAdjustedVerdictIcon(diagnosisData) }}</span>
         <div class="verdict-info">
           <span class="verdict-label">{{ getAdjustedVerdict(diagnosisData) }}</span>
-          <span class="verdict-score">종합 점수: {{ diagnosisData.overallScore }}점</span>
+          <!-- 점수를 모르면(분석 불가) 점수 줄을 만들지 않는다 — '종합 점수: 점'·0점 없음(2026-10-19) -->
+          <span v-if="diagnosisData.overallScore != null" class="verdict-score">종합 점수: {{ diagnosisData.overallScore }}점</span>
           <span v-if="isRsiOverbought(diagnosisData)" class="verdict-caution-tag">
             RSI 과열 - 단기 조정 주의
           </span>

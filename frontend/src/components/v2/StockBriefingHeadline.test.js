@@ -61,3 +61,11 @@ describe('StockBriefingHeadline — 판정 없음, 주의 사항만', () => {
     expect(w.find('.rec-label').text()).toBe('분석 중')
   })
 })
+
+// 2026-10-19: 점수가 없으면(null) 0점으로 읽지 않는다 — Number(null) 은 0 이라 '모름'이 '0점'이 됐다.
+describe('StockBriefingHeadline — 점수 모름', () => {
+  it('재현: 진단 점수가 null 이고 다른 근거도 없으면 "분석 중" — 0점으로 읽어 "참고"로 넘어가지 않는다', () => {
+    const w = mount(StockBriefingHeadline, { props: { diagnosisData: { overallScore: null }, aiAnalysis: null } })
+    expect(w.find('.rec-label').text()).toBe('분석 중')
+  })
+})

@@ -1060,8 +1060,8 @@ const safetyScore = computed(() => {
     return Math.max(0, Math.min(100, diagScore - riskPenalty));
   }
 
-  // 진단 데이터 없으면 리스크 반전으로 폴백
-  if (risk !== null && risk !== undefined) return 100 - risk;
+  // 진단 점수를 모르면(분석 불가·조회 실패) 모른다 — 예전엔 '100 − 리스크 점수'를 진단 점수라며 보였다(리스크 20 → 80 · 안전,
+  // 2026-10-19). 게이지 색은 아래 safetyStatusClass 가 리스크 상태로 폴백한다.
   return null;
 });
 

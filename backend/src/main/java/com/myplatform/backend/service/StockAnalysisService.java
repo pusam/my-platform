@@ -77,7 +77,7 @@ public class StockAnalysisService {
                         // 단기 점수 = 기술(60%) + 수급(40%)
                         int tradingScore = (int) Math.round(techScore * 0.6 + supplyScore * 0.4);
                         // 중장기 점수 = overallScore (재무30 + 수급35 + 기술35)
-                        int fundamentalScore = diagnosis.getOverallScore();
+                        Integer fundamentalScore = diagnosis.getOverallScore();   // null = 모름(분석 불가)
 
                         boolean foreignBuying = diagnosis.getSupplyDemand() != null
                                 && diagnosis.getSupplyDemand().isForeignBuying();
@@ -1226,7 +1226,7 @@ public class StockAnalysisService {
                 .diagnosisDate(LocalDate.now())
                 .verdict("분석 불가")
                 .verdictLevel(VerdictLevel.NEUTRAL)
-                .overallScore(0)
+                .overallScore(null)   // 모름 — 예전 0 은 화면에 '진단 점수 0 · 위험'·'종합 점수: 0점'으로 보였다(2026-10-19)
                 .warnings(List.of("재무 데이터가 없습니다. 먼저 데이터를 수집해주세요."))
                 .positives(new ArrayList<>())
                 .build();

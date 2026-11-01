@@ -38,7 +38,8 @@ public class StockDiagnosisDto {
     // ========== 종합 의견 (Verdict) ==========
     private String verdict;           // "매수 적기", "주의 요망", "관망 권고" 등
     private VerdictLevel verdictLevel;
-    private int overallScore;         // 0~100 종합 점수
+    // 0~100 종합 점수. null = 모름(재무 데이터가 없어 '분석 불가') — 0 은 '아주 나쁘다'지 '모른다'가 아니다(2026-10-19, §4c)
+    private Integer overallScore;
     private List<String> warnings;    // 주의 사항 목록
     private List<String> positives;   // 긍정적 요소 목록
 

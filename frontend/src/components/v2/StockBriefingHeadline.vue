@@ -19,13 +19,14 @@ export default {
     aiAnalysis: { type: Object, default: null }
   },
   computed: {
+    // 점수가 없으면(null) 모름 — Number(null) 은 0 이라 '모름'이 '0점'이 됐다(2026-10-19)
     fundScore() {
       const s = this.diagnosisData?.overallScore
-      return Number.isFinite(Number(s)) ? Number(s) : null
+      return s != null && Number.isFinite(Number(s)) ? Number(s) : null
     },
     aiScore() {
       const s = this.aiAnalysis?.overallScore
-      return Number.isFinite(Number(s)) ? Number(s) : null
+      return s != null && Number.isFinite(Number(s)) ? Number(s) : null
     },
     aiRec() {
       // BUY / TRADING_BUY / HOLD / WAIT_AND_BUY / SELL
