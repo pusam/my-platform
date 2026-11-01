@@ -46,6 +46,14 @@ public class MorningBriefingService {
     /** 워밍 상한 — 종목당 네이버+Gemini 1회씩이라 Gemini quota 보호 위해 제한. */
     static final int CATALYST_WARM_MAX = 5;
 
+    /** 연속 매수 집계일 판정용 달력(2026-10-19) — 필드 주입, 없으면(단위 테스트) 날짜만 적고 노후 판정은 하지 않는다. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    MarketCalendarService marketCalendar;
+
+    private static final DateTimeFormatter MONTH_DAY = DateTimeFormatter.ofPattern("MM/dd");
+
+    java.time.LocalDateTime now() { return java.time.LocalDateTime.now(); }
+
     /**
      * 모닝 브리핑 발송
      */
@@ -151,12 +159,21 @@ public class MorningBriefingService {
     }
 
     /**
-     * 연속 매수 종목 섹션
+     * 연속 매수 종목 섹션 — 머리줄에 집계가 끝난 장 마감일을 적는다(2026-10-19). 연속 매수는 투자자 일별 표의 마지막 거래일에서
+     * 끝나서, 전날 장 마감 수집이 빠지면 며칠 전 연속 매수가 날짜 없이 "오늘 아침의 TOP 5"로 나갔다. 그 날이 07:30 기준 마지막
+     * 장 마감 거래일이 아니면 한 줄로 말한다(07:30 크론만 보낸다 — 그 시각엔 전 거래일 장 마감 집계가 있어야 한다).
      */
-    private void appendConsecutiveBuys(StringBuilder sb, String investorType, String investorLabel, String emoji) {
+    void appendConsecutiveBuys(StringBuilder sb, String investorType, String investorLabel, String emoji) {
         try {
             List<ConsecutiveBuyDto> stocks = investorTradeService.getConsecutiveBuyStocks(investorType, 3);
-            sb.append(String.format("%s <b>%s 연속 매수 TOP 5</b>\n", emoji, investorLabel));
+            LocalDate through = latestEndDate(stocks);
+            sb.append(String.format("%s <b>%s 연속 매수 TOP 5</b>%s\n", emoji, investorLabel,
+                    through == null ? "" : " (" + through.format(MONTH_DAY) + " 장 마감까지)"));
+            if (through != null && marketCalendar != null && !marketCalendar.isFreshWithin(through, now(), 0)) {
+                LocalDate expected = marketCalendar.lastClosedTradingDay(now());
+                sb.append(String.format("⚠ 최신 수집분이 아닙니다 — %s 장 마감 집계가 없습니다(수집 정체 의심)\n",
+                        expected.format(MONTH_DAY)));
+            }
 
             if (stocks != null && !stocks.isEmpty()) {
                 int count = Math.min(stocks.size(), 5);
@@ -179,6 +196,17 @@ public class MorningBriefingService {
             sb.append(String.format("%s <b>%s 연속 매수 TOP 5</b>\n", emoji, investorLabel));
             sb.append("조회 실패\n\n");
         }
+    }
+
+    /** 목록의 연속 매수 종료일 중 가장 늦은 날 — 모르면 null. */
+    private static LocalDate latestEndDate(List<ConsecutiveBuyDto> stocks) {
+        if (stocks == null) return null;
+        LocalDate latest = null;
+        for (ConsecutiveBuyDto s : stocks) {
+            LocalDate end = s == null ? null : s.getEndDate();
+            if (end != null && (latest == null || end.isAfter(latest))) latest = end;
+        }
+        return latest;
     }
 
     /**
