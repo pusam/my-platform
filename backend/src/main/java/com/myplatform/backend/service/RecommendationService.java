@@ -370,16 +370,24 @@ public class RecommendationService {
         // 기록이 쌓인다(8/17 광복절 대체휴일에 실발생, 시세는 멎어 있는데 시그널·대조군 행이 생겼다).
         if (marketCalendar.isMarketClosed()) { log.debug("[종합추천] 휴장일 — 스냅샷 스킵"); return; }
         log.info("[종합추천] 장중 스냅샷 저장");
-        saveSnapshotInternal();
+        saveSnapshotInternal(true);
     }
 
-    /** 마감 스냅샷 (20:05 — 애프터마켓 종료 후) */
+    /**
+     * 마감 스냅샷 (20:05 — 애프터마켓 종료 후). 저장만 하고 시그널은 기록하지 않는다(2026-11-03, 사용자 결정).
+     *
+     * <p>이 계산과 다음 거래일 장중 계산은 같은 일봉(그날 확정 봉)을 쓴다 — 장중엔 확정 전 봉을 저장하지 않는다.
+     * 그래서 이 목록은 다음 거래일 장중 스냅샷에서 다시 채점되고(그때도 55점을 넘으면 기록), 여기서도 기록하면 같은
+     * 신호가 이틀 치 표본으로 잡힌다. 20:05 의 가격(20:00 마감가)은 이 목록을 보고 살 수 있는 가격도 아니고, 장이 닫혀 대조군도
+     * 거의 뽑히지 않는다. 예전엔 시세 캐시가 비어 있어 기록되지 않았을 뿐이라, 20:00~20:05 에 누가 종목 화면을
+     * 열어 두면 그 종목만 기록됐다.
+     */
     @Scheduled(scheduler = "batchScheduler", cron = "0 5 20 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveClosingSnapshot() {
         if (marketCalendar.isMarketClosed()) { log.debug("[종합추천] 휴장일 — 마감 스냅샷 스킵"); return; }
         log.info("[종합추천] 마감 스냅샷 저장 시작");
-        saveSnapshotInternal();
+        saveSnapshotInternal(false);
         snapshotRepository.deleteOlderThan(LocalDateTime.now().minusDays(7));
     }
 
@@ -651,7 +659,8 @@ public class RecommendationService {
         }
     }
 
-    private void saveSnapshotInternal() {
+    /** @param recordSignals 컷 통과 종목을 signal_outcome 에 기록하는가 — 장중 스냅샷만(마감 스냅샷은 false). */
+    private void saveSnapshotInternal(boolean recordSignals) {
         try {
             List<RecommendationDto> result = calculate();
             // 입력 부족도 과거 추천을 오늘 시그널로 재발행할 근거가 아니다.
@@ -699,7 +708,7 @@ public class RecommendationService {
 
             // 시그널 적중률 추적 — STRONG_BUY (75+) / BUY (55~74) 종목 발생 기록.
             // 3일 후 batch 가 평가. record() 실패해도 스냅샷 저장은 영향 없음 (try/catch 격리).
-            SignalOutcomeService outcomeService = signalOutcomeProvider.getIfAvailable();
+            SignalOutcomeService outcomeService = recordSignals ? signalOutcomeProvider.getIfAvailable() : null;
             if (outcomeService != null) {
                 int priceSkipped = 0;   // 컷 통과 종목이 시세 캐시 콜드로 record 안 된 수 — 아래 warn 로 가시화
                 for (RecommendationDto dto : result) {
@@ -732,7 +741,8 @@ public class RecommendationService {
                 }
             }
 
-            log.info("[종합추천] 스냅샷 {}건 저장 ({})", result.size(), snapTime.format(TIME_FMT));
+            log.info("[종합추천] 스냅샷 {}건 저장 ({}){}", result.size(), snapTime.format(TIME_FMT),
+                    recordSignals ? "" : " — 마감 스냅샷이라 시그널 기록 안 함(다음 거래일 장중 스냅샷이 같은 일봉으로 다시 채점·기록)");
         } catch (Exception e) {
             log.error("[종합추천] 스냅샷 실패: {}", e.getMessage());
         }
@@ -1551,7 +1561,8 @@ public class RecommendationService {
 
     // ==================== Core Calculation ====================
 
-    private List<RecommendationDto> calculate() {
+    // package-private — 스냅샷 기록 경로 테스트가 결과를 고정한다(RecommendationClosingSnapshotRecordTest).
+    List<RecommendationDto> calculate() {
         Map<String, StockScore> scoreMap = new HashMap<>();
 
         // 정렬 tie-break 용 — 어제(또는 20시간 전) 스냅샷 점수. delta = 오늘 - 어제 desc 로
