@@ -104,11 +104,71 @@ class RecommendationStaleTechnicalTest {
     void freshCountReflectsSavedBars() {
         LocalDate cutoff = LocalDate.of(2026, 10, 16);
         Map<String, LocalDate> latest = Map.of("A", LocalDate.of(2026, 10, 16), "B", LocalDate.of(2026, 10, 14));
-        assertThat(RecommendationService.countFresh(List.of("A", "B", "C"), latest, cutoff)).isEqualTo(1);
-        assertThat(RecommendationService.countFresh(List.of("A", "B"), latest, null)).as("달력 실패 — 봉이 있으면 센다").isEqualTo(2);
+        assertThat(RecommendationService.notFreshAfterCollect(List.of("A", "B", "C"), latest, cutoff))
+                .as("최신 봉이 생긴 건 A 하나").containsExactly("B", "C");
+        assertThat(RecommendationService.notFreshAfterCollect(List.of("A", "B"), latest, null))
+                .as("달력 실패 — 봉이 있으면 센다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("재현: 봉을 못 받는 같은 종목이 계산마다 'KIS 응답 확인 필요' 경고를 다시 내지 않는다 — 같은 날 같은 목록이면 한 번, 경고에 종목 코드")
+    void sameStaleCodesWarnOncePerDayWithCodes() {
+        StockAnalysisService analysis = mock(StockAnalysisService.class);   // KIS 가 봉을 주지 않는 종목 — 받아도 저장되는 게 없다
+        RecommendationService service = service(analysis);
+        when(repo(service).findByStockCodesSince(anyList(), any())).thenReturn(List.of());
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(RecommendationService.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            for (int run = 1; run <= 3; run++) {   // 운영: 계산마다(약 35분) 같은 3종목 → 11/2~11/3 WARN 13줄
+                ReflectionTestUtils.invokeMethod(service, "scoreTechnical",
+                        new LinkedHashMap<>(Map.of("900120", new StockScore("900120", "씨엑스아이"))));
+                waitForSummaries(appender, run);
+                waitUntilIdle(service);
+            }
+            List<String> warns = logged(appender).stream()
+                    .filter(e -> e.getLevel() == ch.qos.logback.classic.Level.WARN)
+                    .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .filter(m -> m.contains("가격히스토리 비동기 수집 끝"))
+                    .toList();
+            assertThat(warns).hasSize(1);
+            assertThat(warns.get(0)).as("어느 종목인지 적는다").contains("900120");
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    @DisplayName("봉 안 생긴 종목 목록은 정렬된다(같은 목록 비교) · 경고에는 앞 10개만")
+    void notFreshCodesAreSortedAndPreviewed() {
+        LocalDate cutoff = LocalDate.of(2026, 11, 2);
+        Map<String, LocalDate> latest = Map.of("A", LocalDate.of(2026, 11, 2), "B", LocalDate.of(2026, 10, 30));
+        assertThat(RecommendationService.notFreshAfterCollect(List.of("C", "B", "A"), latest, cutoff)).containsExactly("B", "C");
+        assertThat(RecommendationService.codesPreview(List.of("1", "2", "3"), 2)).isEqualTo("1, 2 외 1");
+        assertThat(RecommendationService.codesPreview(List.of("1", "2"), 2)).isEqualTo("1, 2");
     }
 
     // ---------------------------------------------------------------- helpers
+
+    private static void waitForSummaries(ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender,
+                                         int expected) {
+        long until = System.currentTimeMillis() + 3000;
+        while (System.currentTimeMillis() < until
+                && logged(appender).stream().filter(e -> e.getFormattedMessage().contains("가격히스토리 비동기 수집 끝")).count() < expected) {
+            Thread.onSpinWait();
+        }
+    }
+
+    /** 수집 스레드가 덧붙이는 중에도 읽을 수 있게 — AppenderBase.doAppend 와 같은 잠금으로 복사한다. */
+    private static List<ch.qos.logback.classic.spi.ILoggingEvent> logged(
+            ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender) {
+        synchronized (appender) {
+            return new java.util.ArrayList<>(appender.list);
+        }
+    }
 
     private static StockPriceHistory bar(String code, LocalDate date) {
         return StockPriceHistory.builder().stockCode(code).tradeDate(date).closePrice(new BigDecimal("1000"))
@@ -121,6 +181,7 @@ class RecommendationStaleTechnicalTest {
         ReflectionTestUtils.setField(service, "stockAnalysisService", analysis);
         ReflectionTestUtils.setField(service, "marketCalendar", CALENDAR);
         ReflectionTestUtils.setField(service, "priceHistoryCollecting", java.util.concurrent.ConcurrentHashMap.newKeySet());
+        ReflectionTestUtils.setField(service, "lastStaleCollectKey", new java.util.concurrent.atomic.AtomicReference<>(""));
         return service;
     }
 

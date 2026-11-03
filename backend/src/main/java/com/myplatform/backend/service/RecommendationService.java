@@ -118,6 +118,9 @@ public class RecommendationService {
     // 비동기 일봉 수집에 예약된 종목 — 수집이 끝나기 전 다음 계산이 같은 종목을 또 예약하지 않게(2026-10-19).
     // StockAnalysisService 의 중복 방지는 '지금 받는 중인 한 종목'만 막아, 수집 스레드 둘이 같은 목록을 돌면 대부분을 두 번 받았다.
     private final java.util.Set<String> priceHistoryCollecting = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** 수집 뒤에도 최신 봉이 안 생긴 종목 목록(날짜 포함) — 같은 날 같은 목록이면 경고를 다시 내지 않는다(2026-11-03). */
+    private final java.util.concurrent.atomic.AtomicReference<String> lastStaleCollectKey =
+            new java.util.concurrent.atomic.AtomicReference<>("");
     private static final long CACHE_MINUTES = 30;
     private static final int NA = -1;
 
@@ -283,15 +286,25 @@ public class RecommendationService {
         return scoredStockCount > 0 && staleTechnicalCount * 2 >= scoredStockCount;
     }
 
-    /** 수집 대상 중 최신 봉(기준일 이상)이 생긴 종목 수 — 순수 함수. 기준일을 모르면(달력 실패) 봉이 있기만 하면 센다. */
-    static int countFresh(java.util.Collection<String> codes, Map<String, java.time.LocalDate> latestByCode,
-                          java.time.LocalDate cutoff) {
-        int n = 0;
+    /**
+     * 수집 대상 중 최신 봉(기준일 이상)이 안 생긴 종목 — 정렬, 순수 함수. 기준일을 모르면(달력 실패) 봉이 없는 종목만.
+     * 나머지가 최신 봉이 생긴 종목이다(수집기는 실패를 삼키므로 결과는 저장된 봉으로 센다, 2026-10-19).
+     */
+    static List<String> notFreshAfterCollect(java.util.Collection<String> codes, Map<String, java.time.LocalDate> latestByCode,
+                                             java.time.LocalDate cutoff) {
+        List<String> out = new ArrayList<>();
         for (String code : codes) {
             java.time.LocalDate d = latestByCode.get(code);
-            if (d != null && (cutoff == null || !d.isBefore(cutoff))) n++;
+            if (d == null || (cutoff != null && d.isBefore(cutoff))) out.add(code);
         }
-        return n;
+        java.util.Collections.sort(out);
+        return out;
+    }
+
+    /** 종목 코드 앞 max 개 — 나머지는 '외 N'. */
+    static String codesPreview(List<String> codes, int max) {
+        return codes.size() <= max ? String.join(", ", codes)
+                : String.join(", ", codes.subList(0, max)) + " 외 " + (codes.size() - max);
     }
 
     /**
@@ -2485,18 +2498,27 @@ public class RecommendationService {
                 // 끝났다는 요약 한 줄 — 종목별 저장 로그는 DEBUG(§5, 2026-10-07). 수집기는 실패(예외·빈 응답)를 삼키므로
                 // 결과는 저장된 봉으로 센다(2026-10-19) — 예전 '(예외 N)' 은 늘 0 이라 KIS 장애에도 성공처럼 보였다.
                 long secs = (System.currentTimeMillis() - started) / 1000;
-                int fresh;
+                List<String> missing;
                 try {
-                    fresh = countFresh(toCollect, latestBarDates(toCollect), summaryCutoff);
+                    missing = notFreshAfterCollect(toCollect, latestBarDates(toCollect), summaryCutoff);
                 } catch (Exception e) {
                     log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 · {}초 (결과 확인 실패: {})", toCollect.size(), secs, e.getMessage());
                     return;
                 }
-                if (fresh * 2 < toCollect.size()) {
-                    log.warn("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 중 최신 봉 {}종목뿐 · {}초 (KIS 응답 확인 필요)",
-                            toCollect.size(), fresh, secs);
+                int fresh = toCollect.size() - missing.size();
+                // 같은 날 같은 목록이면 경고는 한 번(§5) — 거래정지 등으로 KIS 가 일봉을 주지 않는 종목이 후보에 남으면 계산마다(약 35분)
+                // 같은 경고가 나서 'KIS 응답 이상'으로 읽혔다(11/2~11/3 같은 3종목으로 13줄, 2026-11-03). 목록이 바뀌면 다시 알린다.
+                String key = java.time.LocalDate.now() + "|" + String.join(",", missing);
+                boolean newList = !key.equals(lastStaleCollectKey.getAndSet(key));
+                String missingNote = missing.isEmpty() ? ""
+                        : newList ? " · 봉 안 생긴 종목: " + codesPreview(missing, 10)
+                        : " · 봉 안 생긴 " + missing.size() + "종목(오늘 앞 수집과 같은 목록)";
+                if (fresh * 2 < toCollect.size() && newList) {
+                    log.warn("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 중 최신 봉 {}종목뿐 · {}초{} (같은 목록이면 오늘은 다시 경고하지 않는다 — "
+                                    + "계속 남는 종목은 거래정지 등으로 KIS 가 일봉을 주지 않는 종목일 수 있고, 목록이 바뀌거나 커지면 KIS 응답부터 확인)",
+                            toCollect.size(), fresh, secs, missingNote);
                 } else {
-                    log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 중 최신 봉 {}종목 · {}초", toCollect.size(), fresh, secs);
+                    log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 중 최신 봉 {}종목 · {}초{}", toCollect.size(), fresh, secs, missingNote);
                 }
             };
             try {
