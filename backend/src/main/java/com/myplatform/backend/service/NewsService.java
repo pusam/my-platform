@@ -208,13 +208,15 @@ public class NewsService {
 
         // 최대 maxArticles개 뉴스만 요약 (AI 부하 고려)
         int count = 0;
+        int duplicates = 0;
 
         for (RssItem item : filteredItems) {
             if (count >= maxArticles) break;
 
             // URL 기준 중복 체크 (제목 수정에도 동일 뉴스 거름)
             if (item.link != null && newsSummaryRepository.existsBySourceUrl(item.link)) {
-                log.info("중복 뉴스 건너뜀 (URL): {}", item.title);
+                log.debug("중복 뉴스 건너뜀 (URL): {}", item.title);
+                duplicates++;
                 continue;
             }
 
@@ -244,7 +246,7 @@ public class NewsService {
             }
         }
 
-        log.info("=== 경제 뉴스 수집 및 요약 완료 ({}건) ===", count);
+        log.info("=== 경제 뉴스 수집 및 요약 완료 ({}건, 중복 {}건 건너뜀) ===", count, duplicates);
     }
 
     /**
