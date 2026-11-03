@@ -15,7 +15,14 @@ import java.util.Optional;
 @Repository
 public interface StockPriceRepository extends JpaRepository<StockPrice, Long> {
 
-    // 특정 종목의 가장 최근 시세 조회
+    /**
+     * 특정 종목의 가장 최근 시세 조회.
+     * 자기 짧은 read-only 트랜잭션으로 돈다(2026-11-03) — 트랜잭션 설정이 없는 조회 메서드는 일괄 시세 조회의
+     * NOT_SUPPORTED 범위(동기화만 켜진 빈 범위)에 EntityManager 가 묶여, 처음 잡은 연결을 그 범위가 끝날 때까지
+     * (KIS 호출 종목 수만큼) 쥐고 있었다 — 섹터 3분 수집의 Hikari 누수 경고가 전부 이 조회 자리였다
+     * (StockPriceRepositoryConnectionHoldTest).
+     */
+    @Transactional(readOnly = true)
     Optional<StockPrice> findTopByStockCodeOrderByFetchedAtDesc(String stockCode);
 
     /**
