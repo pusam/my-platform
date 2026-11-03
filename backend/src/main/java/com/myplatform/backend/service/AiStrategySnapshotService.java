@@ -1223,14 +1223,14 @@ public class AiStrategySnapshotService {
                 log.warn("[AiStrategy] {} 전략 DB 데이터 없음 — 스케줄러가 수집할 때까지 대기", type.name());
             }
 
-            // ★ Freshness check: 장중에 오래된 스냅샷이면 경고 (하지만 데이터는 반환)
+            // ★ Freshness check: 마지막으로 마감된 거래일 스냅샷도 없으면 경고 (하지만 데이터는 반환).
+            // 경과 분으로 재면 정상 운영에서 울린다(2026-11-04) — 전략별 갱신은 세 시간마다이고 19시 뒤로는 다음 날까지 없다.
             if (!snapshots.isEmpty()) {
                 LocalDateTime latestCreatedAt = snapshots.get(0).getCreatedAt();
                 LocalDateTime now = DateTimeUtil.kstNow();
-                long staleMinutes = Duration.between(latestCreatedAt, now).toMinutes();
-                if (staleMinutes > 120) {
+                if (!marketCalendarService.isFreshWithin(latestCreatedAt.toLocalDate(), now, 0)) {
                     log.warn("[AiStrategy] ⚠ {} 스냅샷 {}분 전 데이터 — stale이지만 반환 (빈 응답 방지)",
-                            type.name(), staleMinutes);
+                            type.name(), Duration.between(latestCreatedAt, now).toMinutes());
                     // 기존: 빈 리스트 반환 → 종합추천 연쇄 실패
                     // 변경: stale이라도 데이터 반환 (없는 것보다 나음)
                 }

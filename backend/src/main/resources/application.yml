@@ -385,6 +385,11 @@ management:
       access: read-only
     prometheus:
       access: unrestricted
+  health:
+    mail:
+      # 컨테이너 헬스체크(30초)마다 Gmail SMTP 에 접속·로그인하지 않게 — 메일이 늦거나 막혀도 앱은 멀쩡하다.
+      # 2026-11-03 23:56 22초, 11-04 06:52 11초로 헬스체크 시한(10초)을 넘겼다.
+      enabled: false
   metrics:
     tags:
       application: ${spring.application.name}

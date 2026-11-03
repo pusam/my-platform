@@ -183,9 +183,9 @@ public class SseEmitterService {
     private void broadcastToTask(String taskType, String eventName, String data) {
         CopyOnWriteArrayList<String> subscribers = taskSubscribers.get(taskType);
         if (subscribers == null || subscribers.isEmpty()) {
-            // 구독자가 없을 때 첫 번째 이벤트만 로그 (스팸 방지)
+            // 크론이 시작한 작업은 화면을 보는 사람이 없는 게 정상이다 — 경고가 아니다(2026-11-04)
             if ("START".equals(eventName) || "COMPLETE".equals(eventName) || "ERROR".equals(eventName)) {
-                log.warn("SSE 구독자 없음 - taskType: {}, event: {} (이벤트 무시됨)", taskType, eventName);
+                log.debug("SSE 구독자 없음 - taskType: {}, event: {} (이벤트 무시됨)", taskType, eventName);
             }
             return;
         }
