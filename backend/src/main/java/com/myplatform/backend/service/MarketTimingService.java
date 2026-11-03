@@ -269,16 +269,21 @@ public class MarketTimingService {
         boolean crashOverride = false;
         boolean dropOverride = false;
         StringBuilder overrideReasons = new StringBuilder();
+        // 로그 억제용 상태 — 걸린 시장만 적고 숫자는 넣지 않는다. 장중엔 등락률이 분마다 바뀌어 숫자를 넣으면 매 분 '새 상태'가
+        // 되어 같은 WARN 이 1분마다 찍혔다(2026-11-03 코스피 −3%대 출발 날).
+        StringBuilder overrideMarkets = new StringBuilder();
 
         // -3% 이하: 폭락/패닉
         if (kospiRate != null && kospiRate.compareTo(new BigDecimal("-3.0")) <= 0) {
             crashOverride = true;
             overrideReasons.append(String.format("KOSPI %+.2f%% 폭락", kospiRate));
+            overrideMarkets.append("KOSPI ");
         }
         if (kosdaqRate != null && kosdaqRate.compareTo(new BigDecimal("-3.0")) <= 0) {
             if (crashOverride) overrideReasons.append(" + ");
             crashOverride = true;
             overrideReasons.append(String.format("KOSDAQ %+.2f%% 폭락", kosdaqRate));
+            overrideMarkets.append("KOSDAQ ");
         }
 
         // -2% 이하 (양쪽 모두 또는 한쪽 -2.5% 이하): 급락 → 침체 이상으로 보정
@@ -292,10 +297,12 @@ public class MarketTimingService {
                 dropOverride = true;
                 if (kospiRate != null && kospiRate.compareTo(new BigDecimal("-2.0")) <= 0) {
                     overrideReasons.append(String.format("KOSPI %+.2f%%", kospiRate));
+                    overrideMarkets.append("KOSPI ");
                 }
                 if (kosdaqRate != null && kosdaqRate.compareTo(new BigDecimal("-2.0")) <= 0) {
                     if (overrideReasons.length() > 0) overrideReasons.append(" + ");
                     overrideReasons.append(String.format("KOSDAQ %+.2f%%", kosdaqRate));
+                    overrideMarkets.append("KOSDAQ ");
                 }
             }
         }
@@ -304,13 +311,15 @@ public class MarketTimingService {
         // '당일 급락'이라 했다(2026-10-19). 상태 보정 자체는 그대로 — ADR 도 마지막 마감 기준이라 같은 시점이다.
         String sessionPrefix = sessionPrefix(kospiStatus, kosdaqStatus, now().toLocalDate());
         String dropWord = sessionPrefix == null ? "당일 급락" : sessionPrefix + "급락";
+        // 장 전·휴장일엔 직전 거래일 세션 값이다 — 로그에도 그 날짜를 붙이고, 개장 뒤 오늘 세션은 새 상태로 본다.
+        String sessionLabel = sessionPrefix == null ? "" : "(" + sessionPrefix.trim() + " 세션)";
         if (crashOverride) {
             overallCondition = MarketCondition.CRASH;
             diagnosis = String.format("%s폭락/패닉 — %s. 관망 및 하방 리스크 관리 필수.",
                     sessionPrefix == null ? "" : sessionPrefix, overrideReasons);
             strategy = MarketCondition.CRASH.getSuggestion();
-            if (changedSinceLast(lastOverrideKey, "CRASH|" + overrideReasons)) {
-                log.warn("[시장 타이밍] 폭락 오버라이드 발동: {}", overrideReasons);
+            if (changedSinceLast(lastOverrideKey, "CRASH|" + overrideMarkets + "|" + sessionPrefix)) {
+                log.warn("[시장 타이밍] 폭락 오버라이드 발동{}: {}", sessionLabel, overrideReasons);
             }
         } else if (dropOverride) {
             if (overallCondition == null) {
@@ -325,8 +334,9 @@ public class MarketTimingService {
                 diagnosis = String.format("%s — %s. %s", dropWord, overrideReasons, overallCondition.getSuggestion());
                 strategy = overallCondition.getSuggestion();
             }
-            if (changedSinceLast(lastOverrideKey, "DROP|" + overrideReasons + "|" + overallCondition)) {
-                log.warn("[시장 타이밍] 급락 보정 발동: {} → {}", overrideReasons, overallCondition);
+            if (changedSinceLast(lastOverrideKey, "DROP|" + overrideMarkets + "|" + overallCondition + "|" + sessionPrefix)) {
+                log.warn("[시장 타이밍] 급락 보정 발동{}: {} → {}", sessionLabel, overrideReasons,
+                        overallCondition != null ? overallCondition : "상태 판단 보류(ADR)");
             }
         } else {
             lastOverrideKey.set("");    // 오버라이드 해제 — 다음 발동은 다시 알린다
