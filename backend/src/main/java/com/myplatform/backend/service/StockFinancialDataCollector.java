@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 주식 재무 데이터 수집 컴포넌트
@@ -260,6 +261,25 @@ public class StockFinancialDataCollector {
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
+            LocalDate today = LocalDate.now();
+            Optional<StockFinancialData> sameDayRow = stockFinancialDataRepository.findByStockCodeAndReportDate(stockCode, today);
+            StockFinancialData financialData = sameDayRow.orElse(new StockFinancialData());
+
+            // ★ 이번 회차에 손익 TTM 을 하나도 못 받았으면(조회 실패·빈 응답) 같은 날 앞 회차가 받아 둔 TTM 으로 계산한다(2026-10-19).
+            //   예전엔 그 칸을 null 로 덮어 08:30 의 TTM 이 15:38 의 일시 실패 한 번에 지워졌고 PER·EPS·ROE 도 KIS 연간 값으로
+            //   돌아갔다(per_basis CONSOL → KIS) — 다음 수집까지 마법의 공식(영업이익률 > 0)에서 빠지고, PEG 의 이익의 질 판정은
+            //   '모름'으로 통과했다. 아래 재무상태표 칸의 "못 받으면 지우지 않는다"를 계산 입력에도 적용한 것 — 다른 날 행은 쓰지 않는다.
+            //   일부만 받은 회차는 섞지 않는다(셋 다 없을 때만).
+            if (netIncome == null && revenue == null && operatingProfit == null && sameDayRow.isPresent()) {
+                StockFinancialData earlier = sameDayRow.get();
+                netIncome = earlier.getNetIncome();
+                revenue = earlier.getRevenue();
+                operatingProfit = earlier.getOperatingProfit();
+                if (netIncome != null || revenue != null || operatingProfit != null) {
+                    noteState("손익 TTM 못 받음 — 같은 날 앞 회차 값 사용");
+                }
+            }
+
             // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 — ⚠ 정의 주의(2026-09-30 실측): KIS 현재가 API 의 eps 는 '별도'가
             //   아니라 **지배주주 기준 최근 결산 EPS**다(네이버 FY2025 지배주주 EPS 와 16/16 일치). 여기서 덮어쓰는 TTM 연결
             //   순이익(thtr_ntin)은 **비지배지분 몫까지 포함**이라 지주사·그룹사 PER 이 2~4배 낮게 나온다(다우기술 0.9 vs
@@ -276,18 +296,12 @@ public class StockFinancialDataCollector {
                     per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
                 }
 
-                // TTM EPS 기반 ROE 재계산
-                // BPS가 음수(자본잠식)인 경우에도 계산하되, 부호가 순이익과 일관되도록 보정
-                if (bps != null && bps.compareTo(BigDecimal.ZERO) != 0) {
+                // TTM EPS 기반 ROE 재계산 — BPS 가 양수일 때만(2026-10-19). 예전엔 BPS 가 음수(자본잠식)여도 계산하고 부호를 순이익에
+                // 맞춰 뒤집어 EPS 2,000 ÷ BPS −50 = +4,000% 가 마법의 공식 ROE 1위가 될 수 있었다 — 자본잠식 판정은 아래에서 한다.
+                if (bps != null && bps.signum() > 0) {
                     roe = eps.divide(bps, 6, RoundingMode.HALF_UP)
                             .multiply(new BigDecimal("100"))
                             .setScale(2, RoundingMode.HALF_UP);
-                    // 부호 보정: 순이익 양수 → ROE 양수, 순이익 음수 → ROE 음수
-                    if (netIncome.compareTo(BigDecimal.ZERO) > 0 && roe.compareTo(BigDecimal.ZERO) < 0) {
-                        roe = roe.abs();
-                    } else if (netIncome.compareTo(BigDecimal.ZERO) < 0 && roe.compareTo(BigDecimal.ZERO) > 0) {
-                        roe = roe.negate();
-                    }
                 }
             }
 
@@ -305,11 +319,6 @@ public class StockFinancialDataCollector {
                         .multiply(new BigDecimal("100"))
                         .setScale(2, RoundingMode.HALF_UP);
             }
-
-            LocalDate today = LocalDate.now();
-            StockFinancialData financialData = stockFinancialDataRepository
-                    .findByStockCodeAndReportDate(stockCode, today)
-                    .orElse(new StockFinancialData());
 
             financialData.setStockCode(stockCode);
             financialData.setStockName(stockName);
@@ -329,6 +338,11 @@ public class StockFinancialDataCollector {
 
             // ★ 재무상태표 데이터 저장
             BigDecimal totalEquity = financialRatios.getOrDefault("totalEquity", null);
+            // 못 받은 회차는 같은 날 앞 회차의 자본총계로 BPS·PBR·ROE 를 만든다(2026-10-19) — 칸은 원래 지우지 않았지만 계산에 쓰지 않아
+            // PBR·BPS 가 KIS 현재가 API 값으로 돌아갔다(손익 TTM 과 같은 규칙)
+            if (totalEquity == null && sameDayRow.isPresent()) {
+                totalEquity = sameDayRow.get().getTotalEquity();
+            }
             BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
             BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
             if (totalEquity != null) financialData.setTotalEquity(totalEquity);
@@ -363,6 +377,23 @@ public class StockFinancialDataCollector {
                             .setScale(2, RoundingMode.HALF_UP);
                     financialData.setRoe(roe);
                 }
+            }
+
+            // ★ 자본잠식(최신 자본총계 음수 — 재무상태표, 못 받았으면 KIS BPS 부호)이면 PBR·ROE 는 의미가 없다 — 모른다(2026-10-19).
+            //   예전엔 분기 자본이 음수면 '없음'으로 보고 작년 연간 자본(양수)을 썼고, 그것도 없으면 PBR 은 KIS 현재가 API 값(작년 결산
+            //   BPS 기준)으로 남았다. 적자 + 자본잠식의 ROE 는 (−)÷(−) 라 양수가 되기도 한다. BPS 는 음수 그대로(자본잠식이라는 사실).
+            //   아래 DART 지배지분 자본이 양수면 그것이 PBR 을 다시 만든다(지배주주 기준이 우선).
+            boolean capitalImpaired = totalEquity != null ? totalEquity.signum() < 0 : (bps != null && bps.signum() < 0);
+            if (capitalImpaired) {
+                if (totalEquity != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                    bps = totalEquity.multiply(new BigDecimal("100000000")).divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                    financialData.setBps(bps);
+                }
+                pbr = null;
+                roe = null;
+                financialData.setPbr(null);
+                financialData.setRoe(null);
+                noteState("자본잠식(자본총계 음수) — PBR·ROE 모름");
             }
 
             // ★ 지배주주 기준(2026-09-30): DART 지배주주 순이익 최근 4분기·지배지분 자본이 있으면 PER·EPS·BPS·PBR·ROE 를
@@ -553,8 +584,12 @@ public class StockFinancialDataCollector {
                                 QuarterlyFinancials.withDetectedCumulative(rawFigures);
                         boolean isCumulative = !figures.isEmpty() && figures.get(0).cumulative();
 
+                        // 누적 여부를 판정 못 하면(인접 분기 부족·매출 공란) 개별 분기로 쓰지 않는다 — TTM 도 모른다(2026-10-19)
                         List<QuarterlyFinancials.Figures> individuals =
-                                QuarterlyFinancials.toIndividualQuarters(figures);
+                                QuarterlyFinancials.usableIndividualQuarters(figures);
+                        // 4분기 이상 받았는데 판정이 안 된 경우(매출 공란 등)만 따로 센다 — 4분기 미만은 '연속 4분기 부족'과 같다
+                        boolean cumulativeUndecided = rawFigures.size() >= QuarterlyFinancials.TTM_QUARTERS
+                                && QuarterlyFinancials.judgeCumulative(rawFigures) == null;
                         BigDecimal[] ttm = QuarterlyFinancials.ttmSum(individuals);
 
                         // ★ 분기 원본 보존 (R1) — 이미 받아서 버리던 배열을 적재만 한다. 새 API 호출 없음.
@@ -573,7 +608,8 @@ public class StockFinancialDataCollector {
                             // 아래 !=0 가드가 걸러 ratios 에 안 담기고, 그게 의도된 동작이다.
                             log.debug("[손익계산서 TTM] {} - 연속 4분기 확보 실패(원본 {} / 개별 {}) — TTM 미산출",
                                     stockCode, rawFigures.size(), individuals.size());
-                            noteState("TTM 미산출(연속 4분기 부족)");
+                            noteState(cumulativeUndecided ? "TTM 미산출(누적 여부 판정 불가 — 인접 분기 부족·매출 공란)"
+                                    : "TTM 미산출(연속 4분기 부족)");
                         }
 
                         // ★ 단위: KIS 원본이 이미 **억원**이다 — /100 하지 않는다(2026-08-28 실측 정정).
@@ -594,15 +630,21 @@ public class StockFinancialDataCollector {
                         }
 
                         // ★ TTM 기준 영업이익률/순이익률 덮어쓰기 (연간 ratio API 값 대체)
+                        //   이익 TTM 을 모르면(한 분기라도 공란) 그 이익률도 모른다(2026-10-19) — 예전엔 모르는 이익을 0 으로 두고 나눠
+                        //   영업이익 칸은 NULL 인데 영업이익률은 0.00% 인 행이 저장됐다(0% 는 실재할 수 있는 값이라 결측과 구분이 안 된다).
                         if (ttmRevenueRaw.compareTo(BigDecimal.ZERO) > 0) {
-                            ratios.put("operatingMargin", ttmOperatingProfitRaw
-                                    .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
-                                    .multiply(new BigDecimal("100"))
-                                    .setScale(2, RoundingMode.HALF_UP));
-                            ratios.put("netMargin", ttmNetIncomeRaw
-                                    .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
-                                    .multiply(new BigDecimal("100"))
-                                    .setScale(2, RoundingMode.HALF_UP));
+                            if (ttm[1] != null) {
+                                ratios.put("operatingMargin", ttmOperatingProfitRaw
+                                        .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100"))
+                                        .setScale(2, RoundingMode.HALF_UP));
+                            }
+                            if (ttm[2] != null) {
+                                ratios.put("netMargin", ttmNetIncomeRaw
+                                        .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100"))
+                                        .setScale(2, RoundingMode.HALF_UP));
+                            }
                         }
 
                         // ROE 는 여기서 '보정'하지 않는다 — 예전 보정(연간 ROE × TTM 순이익률 ÷ 연간 순이익률)의 '연간 순이익률'이
@@ -648,7 +690,19 @@ public class StockFinancialDataCollector {
                                 BigDecimal totalCptl = parseBigDecimal(latestBs.path("total_cptl").asText());
                                 BigDecimal totalLblt = parseBigDecimal(latestBs.path("total_lblt").asText());
 
-                                if (totalCptl.compareTo(BigDecimal.ZERO) <= 0) {
+                                if (totalCptl.signum() < 0) {
+                                    // ★ 자본잠식(자본총계 음수)은 실재하는 값이다(2026-10-19) — 0·공란(파싱 실패)처럼 다음 시도(연간)로 넘어가
+                                    //   작년 자본(양수)을 쓰지 않는다. 음수 자본으로 만든 부채비율·ROE 는 의미가 없어 만들지 않고, 재무비율
+                                    //   API 의 부채비율(연간 결산 기준)도 지운다 — PBR·ROE 는 호출부가 '모름'으로 둔다.
+                                    bsDataFound = true;
+                                    ratios.put("totalEquity", totalCptl);
+                                    if (totalAset.compareTo(BigDecimal.ZERO) > 0) ratios.put("totalAssets", totalAset);
+                                    if (totalLblt.compareTo(BigDecimal.ZERO) > 0) ratios.put("totalDebt", totalLblt);
+                                    ratios.remove("debtRatio");
+                                    log.debug("[재무상태표] {} - FID_DIV_CLS_CODE={} 자본잠식(자본총계 {}억)", stockCode, divClsCode, totalCptl);
+                                    continue;
+                                }
+                                if (totalCptl.compareTo(BigDecimal.ZERO) == 0) {
                                     log.debug("[재무상태표] {} - FID_DIV_CLS_CODE={} 자본총계 0 또는 없음, 다음 시도", stockCode, divClsCode);
                                     if ("1".equals(divClsCode)) {
                                         Thread.sleep(100);
@@ -974,7 +1028,7 @@ public class StockFinancialDataCollector {
                     .map(q -> new QuarterlyFinancials.Figures(q.getFiscalPeriod(), q.getPeriodEnd(),
                             q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
                     .collect(java.util.stream.Collectors.toList());
-            out.put(e.getKey(), QuarterlyFinancials.toIndividualQuarters(raw));
+            out.put(e.getKey(), QuarterlyFinancials.usableIndividualQuarters(raw));
         }
         return out;
     }

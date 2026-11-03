@@ -13,7 +13,8 @@
         <span class="verdict-icon">{{ getAdjustedVerdictIcon(diagnosisData) }}</span>
         <div class="verdict-info">
           <span class="verdict-label">{{ getAdjustedVerdict(diagnosisData) }}</span>
-          <span class="verdict-score">종합 점수: {{ diagnosisData.overallScore }}점</span>
+          <!-- 점수를 모르면(분석 불가) 점수 줄을 만들지 않는다 — '종합 점수: 점'·0점 없음(2026-10-19) -->
+          <span v-if="diagnosisData.overallScore != null" class="verdict-score">종합 점수: {{ diagnosisData.overallScore }}점</span>
           <span v-if="isRsiOverbought(diagnosisData)" class="verdict-caution-tag">
             RSI 과열 - 단기 조정 주의
           </span>
@@ -139,8 +140,8 @@
             </span>
           </div>
           <div class="supply-summary">
-            <span v-if="diagnosisData.supplyDemand.isBothBuying" class="both-buying">외국인+기관 5일 누적 동반 순매수</span>
-            <span v-else-if="diagnosisData.supplyDemand.isBothSelling" class="both-selling">외국인+기관 5일 누적 동반 순매도 — 주의</span>
+            <span v-if="diagnosisData.supplyDemand.bothBuying" class="both-buying">외국인+기관 5일 누적 동반 순매수</span>
+            <span v-else-if="diagnosisData.supplyDemand.bothSelling" class="both-selling">외국인+기관 5일 누적 동반 순매도 — 주의</span>
           </div>
           <div class="card-assessment">{{ diagnosisData.supplyDemand.assessment }}</div>
         </div>

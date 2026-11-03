@@ -41,6 +41,9 @@ public class WatchlistRiskMonitorService {
     private final TelegramNotificationService telegramService;
     private final SchedulerLockService schedulerLockService;
     private final MarketCalendarService marketCalendar;   // 휴장일 게이트(2026-10-07)
+    // 보낸 공시 기억 — DART 공시 감시와 같은 집합(dartSeen, 10일)을 쓴다(2026-10-19). 알림 이력은 24시간만 봐서 7일 창을 못 덮고,
+    // 두 감시가 같은 리스크 채널로 같은 공시를 따로 보내던 것도 이걸로 없앤다. Redis 장애면 이력(24시간)만 남는다(놓치는 쪽보다 낫다).
+    private final RedisCacheService redisCacheService;
 
     private static final String ALERT_TYPE_RISK = "WATCHLIST_RISK";
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
@@ -57,7 +60,7 @@ public class WatchlistRiskMonitorService {
     @Scheduled(scheduler = "cacheScheduler", cron = "0 0/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledRiskMonitor() {
         // 휴장일엔 돌지 않는다(2026-10-07) — 급락 판정은 시세 등락률을 보는데 휴장일 시세는 직전 거래일 값이라, 직전 거래일에 −3% 였던
-        // 관심종목이면 쿨다운(1시간)마다 '장중 급락' 알림이 다시 나갈 수 있었다. 공시 위험은 최근 3개월을 보므로 다음 거래일 첫 감시가 잡는다.
+        // 관심종목이면 쿨다운(1시간)마다 '장중 급락' 알림이 다시 나갈 수 있었다. 공시 위험은 최근 7일 접수분을 보므로 다음 거래일 첫 감시가 잡는다.
         if (marketCalendar.isMarketClosed()) { log.debug("관심종목 리스크 감시 — 휴장일 스킵"); return; }
         // 10분 cron — TTL 8분 으로 다음 cron 까지 락 풀림. monitorWatchlistRisks 는 public 이라 직접 호출도 가능 — 락은 cron 만 보호.
         if (!schedulerLockService.tryLock("watchlist-risk.monitor", Duration.ofMinutes(8))) {
@@ -182,20 +185,20 @@ public class WatchlistRiskMonitorService {
             List<RiskAnalysisDto.DartDisclosure> disclosures = dartService.searchDisclosuresByStockCode(stockCode, stockName);
             List<RiskAnalysisDto.DartDisclosure> dangerous = dartService.filterDangerousDisclosures(disclosures);
 
-            // 새 공시만(직전 거래일 이후 접수) — 3개월 창을 매번 다시 보면 한 번 나온 위험 공시가 석 달 동안 매 감시마다 알림이었다
-            // (SK하이닉스 유상증자 공시 — 10/6 8번, 10/7 매시간, 2026-10-07)
+            // 새 공시만 — 최근 7일 접수분 중 아직 안 보낸 것 전부(2026-10-19). 3개월 창을 매번 다시 보면 한 번 나온 위험 공시가 석 달 동안
+            // 매 감시마다 알림이었고(10/6 SK하이닉스 8번), 10/7 에 좁힌 '직전 거래일 다음 날부터' 창은 마지막 감시(19:50) 뒤 접수분·조회 실패한
+            // 날의 공시를 영영 놓쳤고 둘째 공시는 첫째에 밀려 끝내 안 나갔다. 7일 창 + 10일 기억(공시 감시와 공용)이면 한 번씩 나간다.
             LocalDate today = DateTimeUtil.kstNow().toLocalDate();
-            LocalDate previousTradingDay = marketCalendar.minusTradingDays(today, 1);
-            RiskAnalysisDto.DartDisclosure first = dangerous.stream()
-                    .filter(d -> isNewDisclosure(d.getRceptDt(), previousTradingDay, today))
-                    .findFirst().orElse(null);
-            if (first != null) {
+            for (RiskAnalysisDto.DartDisclosure d : dangerous) {
+                if (d == null) continue;
+                if (!DartDisclosureMonitorService.isRecentReceipt(d.getRceptDt(), d.getRceptNo(), today)) continue;
+                if (alreadySentDisclosure(d.getRceptNo())) continue;
                 risks.add(RiskDetail.builder()
                         .type("DART_DANGER")
                         .level(RiskLevel.DANGER)
-                        .message("부정적 공시: " + first.getReportNm())
-                        .detail(first.getMatchedKeyword() != null ? "키워드: " + first.getMatchedKeyword() : null)
-                        .sourceId(first.getRceptNo())
+                        .message("부정적 공시: " + d.getReportNm())
+                        .detail(d.getMatchedKeyword() != null ? "키워드: " + d.getMatchedKeyword() : null)
+                        .sourceId(d.getRceptNo())
                         .build());
             }
         } catch (Exception e) {
@@ -333,6 +336,10 @@ public class WatchlistRiskMonitorService {
         sb.append("━━━━━━━━━━━━━━━━\n🤖 MyPlatform 리스크 알리미");
 
         telegramService.sendRisk(sb.toString());
+        // 보낸 공시는 공용 기억에 — 7일 창 안에서 다음 날(이력 24시간 뒤) 다시 나가지 않게, 공시 감시도 다시 보내지 않게
+        for (RiskDetail risk : fresh) {
+            if ("DART_DANGER".equals(risk.getType()) && risk.getSourceId() != null) rememberSentDisclosure(risk.getSourceId());
+        }
 
         // 알림 이력 저장 — 항목마다 그 키로(다음 감시가 같은 항목을 다시 보내지 않게)
         for (RiskDetail risk : fresh) {
@@ -377,18 +384,21 @@ public class WatchlistRiskMonitorService {
         private String sourceId;  // DART 접수번호 — 같은 공시를 다시 알리지 않는 키(2026-10-07). 그 밖은 null
     }
 
-    /**
-     * 새 공시인가 — 직전 거래일 다음 날부터 오늘까지 접수(2026-10-07). 순수.
-     * 감시는 거래일 08~19시 10분마다라 그 사이 접수분은 그날 잡힌다. 석 달 전 공시를 매 감시마다 '위험'으로 다시 알리던 것을 막는다.
-     * 접수일을 못 읽으면 새 공시로 보지 않는다(알림만 — 종목 상세 공시 목록·추천 위험 감점은 3개월 창 그대로).
-     */
-    static boolean isNewDisclosure(String rceptDt, LocalDate previousTradingDay, LocalDate today) {
-        if (rceptDt == null || !rceptDt.matches("\\d{8}")) return false;
+    /** 이미 보낸 공시인가 — 공시 감시와 공용 기억(dartSeen). 조회 실패면 모른다 → 보낸다(이력 24시간이 하루 안 반복은 막는다). */
+    private boolean alreadySentDisclosure(String rceptNo) {
+        if (rceptNo == null || rceptNo.isBlank()) return false;
         try {
-            LocalDate d = LocalDate.parse(rceptDt, java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
-            return d.isAfter(previousTradingDay) && !d.isAfter(today);
+            return redisCacheService.get(DartDisclosureMonitorService.CACHE_SEEN, rceptNo, String.class) != null;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    private void rememberSentDisclosure(String rceptNo) {
+        try {
+            redisCacheService.put(DartDisclosureMonitorService.CACHE_SEEN, rceptNo, "1", DartDisclosureMonitorService.SEEN_TTL);
+        } catch (Exception e) {
+            log.debug("[리스크모니터] 보낸 공시 기억 실패 {}: {}", rceptNo, e.getMessage());
         }
     }
 

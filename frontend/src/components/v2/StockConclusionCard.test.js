@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import StockConclusionCard from './StockConclusionCard.vue'
 import apiClient from '../../utils/api'
@@ -340,5 +340,112 @@ describe('StockConclusionCard — 스냅샷 없음', () => {
     expect(w.text()).toContain('스냅샷에 포함되지 않은')
     expect(w.find('.stale-banner').exists()).toBe(false)
     expect(w.text()).not.toContain('과거 스냅샷')
+  })
+})
+
+// 2026-10-19: 종목을 바꾸면 이전 종목 결론·재료 요청을 버리지 않아, 그 응답이 늦게 오면 새 종목 카드를 덮었다
+// (이전 종목 결론이 받아들여지면 그 종목 재료까지 다시 요청했다)
+describe('StockConclusionCard — 종목 전환', () => {
+  it('재현: 늦게 온 이전 종목 결론·재료가 새 종목 카드를 덮지 않는다', async () => {
+    const pending = {}
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('accuracy-by-band')) return Promise.resolve(bandResponse)
+      return new Promise((resolve) => { pending[url] = resolve })
+    })
+    const w = mount(StockConclusionCard, { props: { stockCode: '000660' }, global: { stubs: { BuyChecklistModal: true } } })
+    await w.setProps({ stockCode: '005930' })
+
+    pending['/stock/005930/conclusion']({ data: { success: true, data: { ...conclusionData, headline: '새 종목 결론' } } })
+    await flushPromises()
+    pending['/stock/005930/catalyst']({ data: { success: true, data: {
+      catalystType: 'CONTRACT', direction: 'POSITIVE', typeLabel: '수주', summary: '새 종목 재료' } } })
+    await flushPromises()
+    pending['/stock/000660/conclusion']({ data: { success: true, data: {
+      ...conclusionData, stockCode: '000660', stockName: 'SK하이닉스', headline: '이전 종목 결론' } } })
+    await flushPromises()
+    pending['/stock/000660/catalyst']?.({ data: { success: true, data: {
+      catalystType: 'RIGHTS_ISSUE', direction: 'NEGATIVE', typeLabel: '유상증자', summary: '이전 종목 재료' } } })
+    await flushPromises()
+
+    expect(w.text()).toContain('새 종목 결론')
+    expect(w.text()).not.toContain('이전 종목 결론')
+    expect(w.text()).toContain('새 종목 재료')
+    expect(w.text()).not.toContain('이전 종목 재료')
+  })
+
+  it('재현: 새 종목을 읽는 동안 이전 종목 결론을 보이지 않는다', async () => {
+    stubApi()
+    const w = await mountCard()
+    expect(w.text()).toContain(conclusionData.headline)
+    apiClient.get.mockImplementation((url) =>
+      url.includes('accuracy-by-band') ? Promise.resolve(bandResponse) : new Promise(() => {}))
+
+    await w.setProps({ stockCode: '000660' })
+    await flushPromises()
+
+    expect(w.text()).not.toContain(conclusionData.headline)
+    expect(w.text()).toContain('결론 분석 중')
+  })
+
+  it('재현: 새 종목 결론 조회가 실패하면 이전 종목 결론 대신 "불러오지 못했습니다"', async () => {
+    stubApi()
+    const w = await mountCard()
+    apiClient.get.mockImplementation((url) =>
+      url.includes('accuracy-by-band') ? Promise.resolve(bandResponse) : Promise.reject(new Error('boom')))
+
+    await w.setProps({ stockCode: '000660' })
+    await flushPromises()
+
+    expect(w.text()).not.toContain(conclusionData.headline)
+    expect(w.text()).toContain('결론을 불러오지 못했습니다')
+  })
+})
+
+// 2026-10-19: 카드는 종목을 바꿀 때만 읽었고 'N분 전'은 받은 순간 한 번 계산됐다 — 페이지를 열어 둔 채 몇 시간이 지나도
+// '10분 전'이었고, 그 사이 11:30·14:00·17:00 새 스냅샷·유효 판정(currentlyValid)도 다시 받지 않았다.
+describe('StockConclusionCard — 열어 둔 동안', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('재현: 시간이 지나면 "N분 전"이 따라 늘어난다', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    vi.setSystemTime(new Date('2026-10-19T11:40:00+09:00'))
+    stubApi({ ...conclusionData, dataAt: '2026-10-19T11:30:00+09:00' })
+    const w = await mountCard()
+    expect(w.find('.conclusion-meta').text()).toContain('10분 전')
+
+    vi.advanceTimersByTime(60 * 60_000)
+    await flushPromises()
+
+    expect(w.find('.conclusion-meta').text()).toContain('70분 전')
+  })
+
+  it('재현: 열어 둔 동안 결론을 다시 읽는다(5분마다) — 새 스냅샷이 나오면 바뀐다', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    vi.setSystemTime(new Date('2026-10-19T13:58:00+09:00'))
+    stubApi({ ...conclusionData, headline: '11:30 스냅샷 결론', dataAt: '2026-10-19T11:30:00+09:00' })
+    const w = await mountCard()
+    expect(w.text()).toContain('11:30 스냅샷 결론')
+
+    stubApi({ ...conclusionData, headline: '14:00 스냅샷 결론', dataAt: '2026-10-19T14:00:00+09:00' })
+    vi.advanceTimersByTime(5 * 60_000)
+    await flushPromises()
+
+    expect(w.text()).toContain('14:00 스냅샷 결론')
+    expect(w.text()).not.toContain('11:30 스냅샷 결론')
+  })
+
+  it('다시 읽기가 실패해도 받아 둔 결론을 지우지 않는다 — 같은 종목이다', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    vi.setSystemTime(new Date('2026-10-19T13:58:00+09:00'))
+    stubApi({ ...conclusionData, headline: '받아 둔 결론', dataAt: '2026-10-19T11:30:00+09:00' })
+    const w = await mountCard()
+
+    apiClient.get.mockImplementation((url) =>
+      url.includes('accuracy-by-band') ? Promise.resolve(bandResponse) : Promise.reject(new Error('timeout')))
+    vi.advanceTimersByTime(5 * 60_000)
+    await flushPromises()
+
+    expect(w.text()).toContain('받아 둔 결론')
+    expect(w.text()).not.toContain('결론을 불러오지 못했습니다')
   })
 })

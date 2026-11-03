@@ -8,6 +8,8 @@
       <span class="tm-item" :class="changeClass(marketData.kosdaqChangeRate)">
         KOSDAQ {{ marketData.kosdaqIndex }} ({{ signed(marketData.kosdaqChangeRate) }}%)
       </span>
+      <!-- 지수가 지난 거래일 세션 값이면(장 전·휴장일) 그 날짜 — 오늘 등락처럼 보이지 않게(2026-10-19) -->
+      <span v-if="indexBasisLabel" class="tm-basis">{{ indexBasisLabel }}</span>
       <!-- 진단 문구(marketStatus)가 이미 "종합 ADR(20일): 84.7 …"을 담으면 숫자를 따로 또 쓰지 않는다(같은 값이 두 번 보였다) -->
       <span v-if="marketData.adr && !statusHasAdr" class="tm-item tm-adr">ADR {{ marketData.adr }}</span>
       <span v-if="marketData.marketStatus" class="tm-status">{{ marketData.marketStatus }}</span>
@@ -17,7 +19,9 @@
     <div v-if="overnightAvailable && overnight" class="today-overnight">
       <span class="ov-label">🌙 간밤 미국장</span>
       <span class="ov-tilt" :class="overnightTiltClass(overnight.tilt)">{{ overnightTiltLabel(overnight.tilt) }}</span>
-      <span v-if="overnight.drivers && overnight.drivers.length" class="ov-drivers">{{ overnight.drivers.join(' · ') }}</span>
+      <!-- 기준 시각(판정에 쓴 시세의 체결 시각, 2026-10-19) — 월요일 아침의 '간밤'은 금요일 세션이다. 근거 줄 안에 둬 좁은 화면에서도 두 줄 -->
+      <span v-if="overnight.drivers && overnight.drivers.length" class="ov-drivers">{{ overnight.drivers.join(' · ') }}<span
+          v-if="overnight.asOf" class="ov-asof">{{ overnight.asOf }} 기준</span></span>
       <span class="badge-unverified ov-beta">미검증 참고</span>
     </div>
 
@@ -97,6 +101,8 @@
               <span v-if="c.changeRate != null" class="cc-change" :class="changeClass(c.changeRate)">
                 {{ signed(c.changeRate) }}%
               </span>
+              <!-- 마지막 확정 봉 기준이면 그 날짜(실시간 시세가 없을 때) — 다른 날 등락률을 '오늘'처럼 보이지 않게(2026-10-19) -->
+              <span v-if="c.changeRate != null && c.changeRateBasisDate" class="cc-basis">{{ closeBasisLabel(c.changeRateBasisDate) }}</span>
             </div>
           </div>
           <!-- 📺 유튜브 참고 의견 — 카드(추천 근거·종목 열기) 밖에 따로 둔다: 점수·순위와 무관한 외부 참고라
@@ -212,6 +218,8 @@ import { ref, computed, onMounted } from 'vue';
 import apiClient, { recommendationAPI, paperTradingAPI, youtubeOpinionAPI } from '../../utils/api';
 import YoutubeOpinionList from './YoutubeOpinionList.vue';
 import { summaryText, formatKst, coverageText } from '../../utils/youtubeOpinion';
+import { closeBasisLabel, todayKstIso } from '../../utils/stockFormat';
+import { overnightTiltLabel } from '../../utils/marketDataLabels';
 
 const props = defineProps({
   marketData: { type: Object, default: null }
@@ -253,6 +261,11 @@ const macroAvailable = ref(true);     // dataAvailable=false → 3축 전부 미
 const hasMarketData = computed(() =>
   !!(props.marketData && props.marketData.kospiIndex));
 const statusHasAdr = computed(() => String(props.marketData?.marketStatus || '').includes('ADR'));
+// 지수 값이 오늘 세션이 아니면 '10/30 종가'(2026-10-19) — 장 전·휴장일에 지난 거래일 등락이 오늘 등락처럼 보였다
+const indexBasisLabel = computed(() => {
+  const asOf = props.marketData?.indexAsOf;
+  return asOf && asOf !== todayKstIso() ? closeBasisLabel(asOf) : null;
+});
 
 const totalProfitLoss = computed(() =>
   portfolio.value.reduce((sum, p) => sum + Number(p.profitLoss || 0), 0));
@@ -502,7 +515,6 @@ const loadMacroTilt = async () => {
 const gradeLabel = (score) => (Number(score) >= STRONG_BUY_CUT ? '강력 매수' : '매수');
 const gradeClass = (score) => (Number(score) >= STRONG_BUY_CUT ? 'grade-strong' : 'grade-buy');
 const directionLabel = (d) => ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[d] || d);
-const overnightTiltLabel = (t) => ({ BULL: '강세', NEUTRAL: '중립', BEAR: '약세' }[t] || t);
 const overnightTiltClass = (t) => (t === 'BULL' ? 'positive' : t === 'BEAR' ? 'negative' : '');
 const macroTiltLabel = (t) => ({ RISK_ON: '위험선호', NEUTRAL: '중립', RISK_OFF: '위험회피' }[t] || t);
 const macroTiltClass = (t) => (t === 'RISK_ON' ? 'positive' : t === 'RISK_OFF' ? 'negative' : '');
@@ -547,6 +559,7 @@ onMounted(() => {
   font-size: 13px;
 }
 .tm-item { font-weight: 600; }
+.tm-basis { font-size: 11px; color: var(--text-muted); }
 .tm-adr { opacity: 0.7; font-weight: 400; }
 .tm-status { margin-left: auto; font-size: 12px; opacity: 0.6; }
 
@@ -573,6 +586,8 @@ onMounted(() => {
 .ov-label { font-weight: 600; opacity: 0.8; }
 .ov-tilt { font-weight: 700; }
 .ov-drivers { opacity: 0.7; }
+.ov-asof { white-space: nowrap; }
+.ov-asof::before { content: ' · '; }
 .ov-beta { margin-left: auto; } /* amber 룩은 공용 .badge-unverified */
 
 /* 공통 섹션 */
@@ -716,6 +731,7 @@ onMounted(() => {
 .cc-price { text-align: right; }
 .cc-price-num { display: block; font-size: 13px; font-weight: 600; }
 .cc-change { font-size: 12px; }
+.cc-basis { display: block; font-size: 11px; color: var(--text-muted); }
 
 /* 신뢰도(실측) — 매수 후보 섹션 상단, 후보를 보기 전에 "얼마나 믿을 수 있나"부터 */
 .today-trust {

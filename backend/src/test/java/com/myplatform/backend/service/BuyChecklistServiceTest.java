@@ -263,4 +263,75 @@ class BuyChecklistServiceTest {
         assertThat(result.getRecommendation()).isEqualTo(Recommendation.STRONG);
         assertThat(result.getSummary()).contains("판정 불가 1개 제외");
     }
+
+    // ==================== 복합 신호 — 조회 실패는 '안 맞음'이 아니다 (2026-10-19) ====================
+    // 재현: 복합 신호 5개는 조회가 실패하면(차트 KIS 실패·AI 분석 없음·매물대 없음 등) 각각 matched=false 로 돌아와 '안 맞은 신호'와
+    // 구분되지 않았다 — 체크리스트는 그 0/5·2/5 를 '❌ 매칭 부족'으로 세어 분모에 넣었고(30분 캐시라 회복돼도 30분 그대로).
+
+    private CompositeSignalDto compositeWithFailures(int matched, int unavailable) {
+        return CompositeSignalDto.builder()
+                .stockCode("005930").stockName("삼성전자")
+                .matchedCount(matched).totalCount(5).unavailableCount(unavailable)
+                .signals(Collections.emptyList())
+                .build();
+    }
+
+    private BuyChecklistDto.ChecklistItem compositeItem(BuyChecklistDto result) {
+        return result.getItems().stream().filter(i -> "compositeSignal".equals(i.getKey())).findFirst().orElseThrow();
+    }
+
+    @Test
+    @DisplayName("재현: 매칭 2 · 조회 실패 2 — 실패한 신호가 맞았다면 3 이상이라 '미충족'이 아니라 판정 불가")
+    void compositeFailuresThatCouldReachThresholdAreUndecidable() {
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt())).thenReturn(Collections.emptyList());
+        when(compositeSignalService.evaluate(anyString())).thenReturn(compositeWithFailures(2, 2));
+        when(stockConclusionService.getConclusion(anyString())).thenReturn(conclusion(StockConclusionDto.Level.BUY));
+
+        BuyChecklistDto.ChecklistItem item = compositeItem(service.evaluate("005930"));
+
+        assertThat(item.isPassed()).isFalse();
+        assertThat(item.isDataMissing()).isTrue();
+        assertThat(item.getValue()).isEqualTo("신호 2/5 · 조회 실패 2");
+        assertThat(item.getNote()).contains("판정 불가");
+    }
+
+    @Test
+    @DisplayName("매칭 1 · 조회 실패 1 — 실패한 신호가 맞아도 2 라 진짜 미충족(실패 수는 값에 적는다)")
+    void compositeFailuresThatCannotReachThresholdStayUnmet() {
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt())).thenReturn(Collections.emptyList());
+        when(compositeSignalService.evaluate(anyString())).thenReturn(compositeWithFailures(1, 1));
+        when(stockConclusionService.getConclusion(anyString())).thenReturn(conclusion(StockConclusionDto.Level.BUY));
+
+        BuyChecklistDto.ChecklistItem item = compositeItem(service.evaluate("005930"));
+
+        assertThat(item.isPassed()).isFalse();
+        assertThat(item.isDataMissing()).isFalse();
+        assertThat(item.getValue()).isEqualTo("신호 1/5 · 조회 실패 1");
+    }
+
+    @Test
+    @DisplayName("매칭 3 이면 실패가 있어도 충족")
+    void compositeMatchedEnoughPassesDespiteFailures() {
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt())).thenReturn(Collections.emptyList());
+        when(compositeSignalService.evaluate(anyString())).thenReturn(compositeWithFailures(3, 2));
+        when(stockConclusionService.getConclusion(anyString())).thenReturn(conclusion(StockConclusionDto.Level.BUY));
+
+        BuyChecklistDto.ChecklistItem item = compositeItem(service.evaluate("005930"));
+
+        assertThat(item.isPassed()).isTrue();
+        assertThat(item.isDataMissing()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재현: 평가 결과가 없으면(null) '신호 0/5 미충족'이 아니라 판정 불가")
+    void compositeNullIsUndecidable() {
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt())).thenReturn(Collections.emptyList());
+        when(compositeSignalService.evaluate(anyString())).thenReturn(null);
+        when(stockConclusionService.getConclusion(anyString())).thenReturn(conclusion(StockConclusionDto.Level.BUY));
+
+        BuyChecklistDto.ChecklistItem item = compositeItem(service.evaluate("005930"));
+
+        assertThat(item.isPassed()).isFalse();
+        assertThat(item.isDataMissing()).isTrue();
+    }
 }

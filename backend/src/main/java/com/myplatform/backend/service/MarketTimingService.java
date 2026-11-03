@@ -269,16 +269,21 @@ public class MarketTimingService {
         boolean crashOverride = false;
         boolean dropOverride = false;
         StringBuilder overrideReasons = new StringBuilder();
+        // 로그 억제용 상태 — 걸린 시장만 적고 숫자는 넣지 않는다. 장중엔 등락률이 분마다 바뀌어 숫자를 넣으면 매 분 '새 상태'가
+        // 되어 같은 WARN 이 1분마다 찍혔다(2026-11-03 코스피 −3%대 출발 날).
+        StringBuilder overrideMarkets = new StringBuilder();
 
         // -3% 이하: 폭락/패닉
         if (kospiRate != null && kospiRate.compareTo(new BigDecimal("-3.0")) <= 0) {
             crashOverride = true;
             overrideReasons.append(String.format("KOSPI %+.2f%% 폭락", kospiRate));
+            overrideMarkets.append("KOSPI ");
         }
         if (kosdaqRate != null && kosdaqRate.compareTo(new BigDecimal("-3.0")) <= 0) {
             if (crashOverride) overrideReasons.append(" + ");
             crashOverride = true;
             overrideReasons.append(String.format("KOSDAQ %+.2f%% 폭락", kosdaqRate));
+            overrideMarkets.append("KOSDAQ ");
         }
 
         // -2% 이하 (양쪽 모두 또는 한쪽 -2.5% 이하): 급락 → 침체 이상으로 보정
@@ -292,36 +297,46 @@ public class MarketTimingService {
                 dropOverride = true;
                 if (kospiRate != null && kospiRate.compareTo(new BigDecimal("-2.0")) <= 0) {
                     overrideReasons.append(String.format("KOSPI %+.2f%%", kospiRate));
+                    overrideMarkets.append("KOSPI ");
                 }
                 if (kosdaqRate != null && kosdaqRate.compareTo(new BigDecimal("-2.0")) <= 0) {
                     if (overrideReasons.length() > 0) overrideReasons.append(" + ");
                     overrideReasons.append(String.format("KOSDAQ %+.2f%%", kosdaqRate));
+                    overrideMarkets.append("KOSDAQ ");
                 }
             }
         }
 
+        // 지수 값이 오늘 세션이 아니면(장 전·휴장일) 그 날짜로 말한다 — 예전엔 07:30 모닝브리핑·'오늘' 탭이 지난 거래일 하락을
+        // '당일 급락'이라 했다(2026-10-19). 상태 보정 자체는 그대로 — ADR 도 마지막 마감 기준이라 같은 시점이다.
+        String sessionPrefix = sessionPrefix(kospiStatus, kosdaqStatus, now().toLocalDate());
+        String dropWord = sessionPrefix == null ? "당일 급락" : sessionPrefix + "급락";
+        // 장 전·휴장일엔 직전 거래일 세션 값이다 — 로그에도 그 날짜를 붙이고, 개장 뒤 오늘 세션은 새 상태로 본다.
+        String sessionLabel = sessionPrefix == null ? "" : "(" + sessionPrefix.trim() + " 세션)";
         if (crashOverride) {
             overallCondition = MarketCondition.CRASH;
-            diagnosis = String.format("폭락/패닉 — %s. 관망 및 하방 리스크 관리 필수.", overrideReasons);
+            diagnosis = String.format("%s폭락/패닉 — %s. 관망 및 하방 리스크 관리 필수.",
+                    sessionPrefix == null ? "" : sessionPrefix, overrideReasons);
             strategy = MarketCondition.CRASH.getSuggestion();
-            if (changedSinceLast(lastOverrideKey, "CRASH|" + overrideReasons)) {
-                log.warn("[시장 타이밍] 폭락 오버라이드 발동: {}", overrideReasons);
+            if (changedSinceLast(lastOverrideKey, "CRASH|" + overrideMarkets + "|" + sessionPrefix)) {
+                log.warn("[시장 타이밍] 폭락 오버라이드 발동{}: {}", sessionLabel, overrideReasons);
             }
         } else if (dropOverride) {
             if (overallCondition == null) {
                 // ADR 판단 보류 중 — 보정할 ADR 이 없다. 상태는 모름 그대로 두고 사실(당일 낙폭)만 말한다.
                 // 예전엔 아래 getSuggestion() 이 null 에서 NPE → /market/status 500·모닝브리핑 '조회 실패'(2026-10-03).
-                diagnosis = String.format("당일 급락 — %s. 시장 폭(ADR)은 판단 보류.", overrideReasons);
+                diagnosis = String.format("%s — %s. 시장 폭(ADR)은 판단 보류.", dropWord, overrideReasons);
             } else {
                 // ADR이 정상이더라도 당일 급락 시 최소 OVERSOLD로 보정
                 if (overallCondition == MarketCondition.NORMAL || overallCondition == MarketCondition.OVERHEATED) {
                     overallCondition = MarketCondition.OVERSOLD;
                 }
-                diagnosis = String.format("당일 급락 — %s. %s", overrideReasons, overallCondition.getSuggestion());
+                diagnosis = String.format("%s — %s. %s", dropWord, overrideReasons, overallCondition.getSuggestion());
                 strategy = overallCondition.getSuggestion();
             }
-            if (changedSinceLast(lastOverrideKey, "DROP|" + overrideReasons + "|" + overallCondition)) {
-                log.warn("[시장 타이밍] 급락 보정 발동: {} → {}", overrideReasons, overallCondition);
+            if (changedSinceLast(lastOverrideKey, "DROP|" + overrideMarkets + "|" + overallCondition + "|" + sessionPrefix)) {
+                log.warn("[시장 타이밍] 급락 보정 발동{}: {} → {}", sessionLabel, overrideReasons,
+                        overallCondition != null ? overallCondition : "상태 판단 보류(ADR)");
             }
         } else {
             lastOverrideKey.set("");    // 오버라이드 해제 — 다음 발동은 다시 알린다
@@ -663,22 +678,50 @@ public class MarketTimingService {
         return null;
     }
 
+    /** 지금 시각 — 단위 테스트가 바꿔 끼운다(지수 세션 날짜·급락 문구). */
+    java.time.LocalDateTime now() {
+        return java.time.LocalDateTime.now();
+    }
+
+    /**
+     * {@code now} 에 받는 지수 값이 속한 거래일 세션 — 거래일 09:00 부터는 오늘, 그 전·휴장일은 직전 거래일(2026-10-19). 순수 함수.
+     * 지수는 KRX 정규장(09:00) 기준이라 NXT 시간대(08:00~)는 아직 오늘 세션이 아니다.
+     */
+    static LocalDate indexSessionDate(java.time.LocalDateTime now, MarketCalendarService cal) {
+        LocalDate d = now.toLocalDate();
+        if (!cal.isMarketClosed(d) && !now.toLocalTime().isBefore(MarketCalendarService.MARKET_OPEN)) return d;
+        return cal.minusTradingDays(d, 1);
+    }
+
+    /** 급락·폭락 문장 앞에 붙일 세션 — 오늘이면 null(종전 문구 그대로), 아니면 "10/30 ". 두 시장 중 오래된 쪽 날짜를 쓴다. */
+    static String sessionPrefix(MarketStatusDto kospi, MarketStatusDto kosdaq, LocalDate today) {
+        LocalDate asOf = null;
+        for (MarketStatusDto s : new MarketStatusDto[]{kospi, kosdaq}) {
+            if (s == null || s.getIndexAsOf() == null) continue;
+            if (asOf == null || s.getIndexAsOf().isBefore(asOf)) asOf = s.getIndexAsOf();
+        }
+        if (asOf == null || asOf.equals(today)) return null;
+        return asOf.format(java.time.format.DateTimeFormatter.ofPattern("MM/dd")) + " ";
+    }
+
     /**
      * DB에서 가져온 지수 데이터에 등락률이 없으면 실시간 네이버 API로 보충
      */
     private MarketStatusDto refreshIndexIfMissing(MarketStatusDto status, String marketType) {
+        java.time.LocalDateTime clock = now();
+        LocalDate today = clock.toLocalDate();
         if (status == null) {
             // status 자체가 없으면 실시간으로 생성
             status = MarketStatusDto.builder()
                     .marketType(marketType)
-                    .tradeDate(LocalDate.now())
+                    .tradeDate(today)
                     .build();
         }
 
         // DB 데이터가 오늘이 아니면 무조건 갱신 (과거 데이터 방지)
-        boolean isOldData = status.getTradeDate() != null && !status.getTradeDate().equals(LocalDate.now());
+        boolean isOldData = status.getTradeDate() != null && !status.getTradeDate().equals(today);
         // ★ 장중(09:00~15:30)에는 항상 실시간 갱신 (DB에 stale 데이터가 저장됐을 수 있음)
-        LocalTime now = LocalTime.now();
+        LocalTime now = clock.toLocalTime();
         boolean isDuringMarketHours = !now.isBefore(LocalTime.of(9, 0)) && !now.isAfter(LocalTime.of(15, 30));
         boolean needsRefresh = isOldData
                 || isDuringMarketHours
@@ -689,14 +732,13 @@ public class MarketTimingService {
         if (needsRefresh) {
             try {
                 BigDecimal[] indexInfo = fetchIndexFromNaverApi(marketType);
-                if (indexInfo[0] != null) {
-                    status.setIndexClose(indexInfo[0]);
-                }
-                if (indexInfo[1] != null) {
+                // 등락률을 받았을 때만 바꾼다 — 종가만 바꾸면 종가(오늘 세션)·등락률(저장값 세션)이 서로 다른 날이 된다(2026-10-19)
+                if (indexInfo != null && indexInfo[1] != null) {
+                    if (indexInfo[0] != null) status.setIndexClose(indexInfo[0]);
                     status.setIndexChangeRate(indexInfo[1]);
-                }
-                if (indexInfo[2] != null) {
-                    status.setTradingValue(indexInfo[2]);
+                    if (indexInfo[2] != null) status.setTradingValue(indexInfo[2]);
+                    // 지금 받는 값이 속한 세션 — 장 전·휴장일은 직전 거래일(2026-10-19)
+                    status.setIndexAsOf(indexSessionDate(clock, marketCalendar));
                 }
                 // 분당 갱신되는 값이라 DEBUG. 결과는 화면·DB 에 그대로 남는다.
                 log.debug("{} 지수 실시간 보충 완료: 종가={}, 등락률={}%", marketType, indexInfo[0], indexInfo[1]);
@@ -879,6 +921,8 @@ public class MarketTimingService {
                 .condition(determineCondition(entity.getAdr20()))
                 .indexClose(entity.getIndexClose())
                 .indexChangeRate(entity.getIndexChangeRate())
+                // 저장값은 그날(16:30 수집) 세션 값이다 — 실시간 보충이 성공하면 그 세션으로 바뀐다(2026-10-19)
+                .indexAsOf(entity.getIndexClose() != null || entity.getIndexChangeRate() != null ? entity.getTradeDate() : null)
                 .tradingValue(entity.getTradingValue())
                 .build();
     }

@@ -33,3 +33,12 @@ describe('EarningsScreenerPage 턴어라운드 카드', () => {
     expect(page).not.toMatch(/\+\{\{ formatPercent\(stock\.netIncomeChangeRate\) \}\}/)
   })
 })
+
+// 2026-10-19: 종목 진단 수급의 동반 순매수·순매도는 JSON 에서 bothBuying/bothSelling 이다(BooleanJsonKeyContractTest).
+describe('EarningsScreenerPage 수급 요약 — 실제 응답 이름', () => {
+  it('재현: isBothBuying/isBothSelling 이 아니라 bothBuying/bothSelling 으로 읽는다', () => {
+    expect(page).toMatch(/supplyDemand\.bothBuying/)
+    expect(page).toMatch(/supplyDemand\.bothSelling/)
+    expect(page).not.toMatch(/isBothBuying|isBothSelling/)
+  })
+})

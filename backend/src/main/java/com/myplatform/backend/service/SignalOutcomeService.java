@@ -137,6 +137,12 @@ public class SignalOutcomeService {
                 || priceAtSignal.signum() <= 0) {
             return;
         }
+        // 장이 닫힌 날엔 기록하지 않는다(2026-10-19) — 휴장일 게이트가 크론 입구에만 있어, 휴장일에 종목 화면을 열면 요청 경로
+        // (AI 분석 재계산·복합 신호)가 직전 거래일 데이터로 휴장일 날짜 행을 남겼다. 9/28 에 지운 가짜 행과 같은 부류라 여기 한 곳에서 막는다.
+        if (marketClosedToday()) {
+            log.debug("[SignalOutcome] 휴장일 — 기록 안 함 ({}/{})", signalType, stockCode);
+            return;
+        }
         LocalDate today = LocalDate.now();
         // 1차 방어: 앱레벨 dedup(findExisting). 2차 방어: DB UNIQUE(uq_so_type_code_date, V36).
         // 멀티 인스턴스/경합으로 findExisting 를 동시 통과해도 아래 INSERT(REQUIRES_NEW)가 UNIQUE 위반 → benign 처리.
@@ -270,6 +276,16 @@ public class SignalOutcomeService {
             log.debug("[SignalOutcome] 중복 record 무시(경합 UNIQUE): {}/{}", signalType, stockCode);
         } catch (Exception e) {
             log.debug("[SignalOutcome] record 실패 ({}/{}): {}", signalType, stockCode, e.getMessage());
+        }
+    }
+
+    /** 오늘 장이 닫혔는가 — 달력을 모르면(미주입·조회 실패) 종전대로 기록한다(fail-open). */
+    private boolean marketClosedToday() {
+        try {
+            MarketCalendarService calendar = calendarProvider != null ? calendarProvider.getIfAvailable() : null;
+            return calendar != null && calendar.isMarketClosed();
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -477,26 +493,35 @@ public class SignalOutcomeService {
      * <p>스팸 방지: 일 1회 (lastAlphaAlertDate). 표본 부족 (null) 이면 스킵.
      * 텔레그램 미설정 환경에서는 로그만 출력.
      */
-    private void checkStrongBuyAlphaHealth() {
+    void checkStrongBuyAlphaHealth() {
         try {
             LocalDate today = LocalDate.now();
             if (today.equals(lastAlphaAlertDate)) return;
-            BigDecimal avgAlpha = repository.averageAlphaSince("STRONG_BUY", today.minusDays(7));
-            if (avgAlpha == null) return;
-            if (avgAlpha.signum() >= 0) return;
+            // 현재 산식 표본(경계 이후 · 보드 신호 · 교정 D+3 OK · 종목·날짜당 1건)의 최근 7일 — 게이트·화면과 같은 정의(2026-10-19).
+            // 예전엔 레거시 alpha3d(평가 배치 시점 가격)를 경계 없이 평균내 교정 값과 부호가 반대일 수 있었다. 경계가 미정이면 표본이 없다.
+            CurrentSample cs = currentSample(7);
+            if (!cs.available()) return;
+            List<BigDecimal> alphas = cs.rows().stream()
+                    .filter(r -> "STRONG_BUY".equals(r.getSignalType()) && r.getD3Alpha() != null)
+                    .map(SignalOutcome::getD3Alpha)
+                    .collect(Collectors.toList());
+            if (alphas.isEmpty()) return;
+            BigDecimal avgAlpha = com.myplatform.backend.controlroom.TrustGateRules.meanOf(alphas);
+            if (avgAlpha == null || avgAlpha.signum() >= 0) return;
 
             BigDecimal scaled = avgAlpha.setScale(2, RoundingMode.HALF_UP);
-            log.warn("[SignalOutcome] ⚠ STRONG_BUY 최근 7일 평균 alpha 음수: {}% (산식 검토 권장)", scaled);
+            log.warn("[SignalOutcome] ⚠ STRONG_BUY 최근 7일 평균 alpha(교정 D+3, {}건) 음수: {}% (산식 검토 권장)",
+                    alphas.size(), scaled);
 
             TelegramNotificationService telegram = telegramProvider.getIfAvailable();
             if (telegram != null) {
                 try {
                     telegram.sendRisk(String.format(
                             "⚠️ <b>STRONG_BUY 평균 alpha 음수</b>\n\n"
-                                    + "• 최근 7일 평균 alpha: <b>%s%%</b>\n"
-                                    + "• 추천 산식이 시장 대비 underperform 중\n"
-                                    + "• /api/signal-outcomes/compare 로 phase 변경 시점 전후 비교 권장",
-                            scaled.toPlainString()));
+                                    + "• 최근 7일 평균 alpha: <b>%s%%</b> (현재 산식 표본 %d건 · 기록 시점 → D+3 종가, KOSPI 대비)\n"
+                                    + "• 추천 산식이 시장 대비 underperform 중일 수 있다 — 표본이 작으면 우연일 수 있다\n"
+                                    + "• 관제실 '믿고 사도 되나' 게이트에서 대조군 대비와 함께 확인",
+                            scaled.toPlainString(), alphas.size()));
                 } catch (Exception e) {
                     log.debug("[SignalOutcome] alpha 헬스 텔레그램 발송 실패: {}", e.getMessage());
                 }
@@ -713,10 +738,29 @@ public class SignalOutcomeService {
      */
     public com.myplatform.backend.controlroom.TrustGateRules.Verdict trustGate(LocalDate from) {
         // 2026-09-21 전환 — 교정 평가(V59, d3_*) OK 행만. 구값(pct_change_3d)은 컬럼에 남아 있지만 여기서 읽지 않는다.
-        List<SignalOutcome> all = repository.findD3OkSince(
-                from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from),
-                SignalD3Evaluator.Status.OK.name());
-        return aggregateTrustGate(all);
+        LocalDate start = from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from);
+        List<SignalOutcome> all = repository.findD3OkSince(start, SignalD3Evaluator.Status.OK.name());
+        // 평가에서 빠진 시그널(거래정지·봉 없음 등)도 센다 — 표본에서 조용히 사라지지 않게(2026-10-19, §4c)
+        List<SignalOutcome> notOk = repository.findD3NotOkSince(start, SignalD3Evaluator.Status.OK.name());
+        return aggregateTrustGate(all, notEvaluatedBreakdown(notOk, all));
+    }
+
+    /**
+     * 표본에서 빠진 시그널 수(교정 평가 상태별) — 순수 함수. 게이트와 같은 측정 위생: 보드 시그널만(대조군 제외), 종목·날짜당
+     * 최초 기록 1건, 그 종목·날짜에 OK 행이 있으면 빠진 것이 아니다(승격 2행 중 한 행만 OK 인 경우).
+     */
+    static Map<String, Integer> notEvaluatedBreakdown(List<SignalOutcome> notOk, List<SignalOutcome> ok) {
+        if (notOk == null || notOk.isEmpty()) return Map.of();
+        java.util.Set<String> okKeys = new java.util.HashSet<>();
+        for (SignalOutcome s : filterBoardSignals(ok == null ? List.of() : ok)) {
+            okKeys.add(s.getStockCode() + "|" + s.getSignalDate());
+        }
+        Map<String, Integer> out = new java.util.TreeMap<>();
+        for (SignalOutcome s : dedupPerStockDay(filterBoardSignals(notOk))) {
+            if (s.getD3Status() == null || okKeys.contains(s.getStockCode() + "|" + s.getSignalDate())) continue;
+            out.merge(s.getD3Status(), 1, Integer::sum);
+        }
+        return out;
     }
 
     /**
@@ -737,6 +781,12 @@ public class SignalOutcomeService {
      * 여기서도 교정 OK 행만 센다 — 구값이 있어도 교정이 OK 가 아니면 표본이 아니다(봉 결측을 구값으로 메우지 않는다).
      */
     static com.myplatform.backend.controlroom.TrustGateRules.Verdict aggregateTrustGate(List<SignalOutcome> rowsIn) {
+        return aggregateTrustGate(rowsIn, Map.of());
+    }
+
+    /** {@link #aggregateTrustGate(List)} + 평가에서 빠진 시그널 수(설명에 드러낸다). */
+    static com.myplatform.backend.controlroom.TrustGateRules.Verdict aggregateTrustGate(
+            List<SignalOutcome> rowsIn, Map<String, Integer> notEvaluated) {
         List<SignalOutcome> all = rowsIn == null ? List.of() : rowsIn;
         List<SignalOutcome> signals = dedupPerStockDay(filterBoardSignals(all));
         // 대조군은 표본 경계(9/1) 이후만 — 그 전 대조군은 유니버스가 달라 base rate 가 낮다(edge 과대 방향).
@@ -765,7 +815,7 @@ public class SignalOutcomeService {
                 .filter(s -> d3Ok(s) && common.contains(s.getSignalDate())).count();
 
         return com.myplatform.backend.controlroom.TrustGateRules.judge(
-                pairs, inWindow.size(), controlRows, shapeOf(inWindow), excludedDays);
+                pairs, inWindow.size(), controlRows, shapeOf(inWindow), excludedDays, notEvaluated);
     }
 
     /** 교정 평가(V59)가 OK 인 행인가 — 게이트가 읽는 유일한 조건. 레거시 evaluatedAt 은 보지 않는다. */

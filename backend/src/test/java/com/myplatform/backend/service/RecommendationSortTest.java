@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 발굴 TOP10 정렬 tie-break — 등락률 약화(추격 인상 완화).
  *
  * <p>점수·delta 동률일 때 기존엔 changeRate desc(많이 오른 종목 우선)라 "이미 많이 올랐다"가
- * 상위 노출 요인이었음. phase 38: changeRate asc(덜 오른 종목 우선)로 약화.
+ * 상위 노출 요인이었음. phase 38: asc(덜 오른 종목 우선)로 약화. 2026-10-19 부터 견주는 값은 마지막 확정 봉
+ * 등락률({@code settledChangeRate}) — 후보가 실어 온 값과 엇갈리는 경우는 {@link RecommendationSettledChangeRateTest}.
  */
 class RecommendationSortTest {
 
@@ -25,12 +26,12 @@ class RecommendationSortTest {
         s.supplyDemand = sd;
         s.technical = tc;
         s.sectorMomentum = sc;
-        s.changeRate = BigDecimal.valueOf(changeRate);
+        s.settledChangeRate = BigDecimal.valueOf(changeRate);   // 동점 순서가 견주는 값(마지막 확정 봉)
         return s;
     }
 
     @Test
-    @DisplayName("tie-break 3순위: 점수·delta 동률이면 덜 오른 종목 우선 (changeRate asc)")
+    @DisplayName("tie-break 3순위: 점수·delta 동률이면 덜 오른 종목 우선 (마지막 확정 봉 등락률 asc)")
     void tieBreakPrefersLessRisen() {
         StockScore risen = score("RISEN", 20, 20, 20, 20, 20.0); // 100, +20%
         StockScore calm = score("CALM", 20, 20, 20, 20, 5.0);    // 100, +5%

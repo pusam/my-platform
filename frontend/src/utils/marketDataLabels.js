@@ -197,16 +197,23 @@ export function recentMultipleLine(financial, kind) {
   if (!Number.isFinite(n) || n <= 0) return null
   const main = Number(isPbr ? financial.pbr : financial.per)
   const prefix = Number.isFinite(main) && main > 0 ? '결산 기준 · ' : ''
-  const consol = financial.recentBasis === 'CONSOL' ? ' · 연결' : ''
+  // recentBasis 는 PER(순이익) 정의다 — PBR 줄엔 붙이지 않는다(BPS 기준은 따로 정해진다, 2026-10-19)
+  const consol = !isPbr && financial.recentBasis === 'CONSOL' ? ' · 연결' : ''
   return `${prefix}${isPbr ? '최근 분기' : '최근 4분기'} ${n.toFixed(isPbr ? 2 : 1)}배${consol}`
 }
 
-/** 위 줄의 설명(툴팁) — 어떤 정의·언제 수집한 재무인지. 줄이 없으면 null. */
-export function recentMultipleTitle(financial) {
-  if (!financial || (recentMultipleLine(financial, 'per') === null && recentMultipleLine(financial, 'pbr') === null)) return null
-  const basis = financial.recentBasis === 'CONSOL' ? 'KIS 연결 — 비지배지분 포함' : 'DART 지배주주'
+/**
+ * 위 줄의 설명(툴팁) — 어떤 정의·언제 수집한 재무인지. 줄이 없으면 null. PER 은 순이익 기준(recentBasis)을 말하고, PBR 은
+ * 자본 규칙을 그대로 말한다 — 그 종목의 자본이 지배지분이었는지 연결이었는지는 행에 남지 않는다(2026-10-19).
+ */
+export function recentMultipleTitle(financial, kind = 'per') {
+  if (!financial || recentMultipleLine(financial, kind) === null) return null
   const asOf = financial.recentAsOf ? ` · ${financial.recentAsOf} 수집 재무` : ''
-  return `점수·목록이 쓰는 값: 최근 4분기 이익·최근 분기 자본(${basis})을 지금 주가로 나눴습니다${asOf}`
+  if (kind === 'pbr') {
+    return `점수·목록이 쓰는 값: 최근 분기 자본을 지금 주가로 나눴습니다 — 지배지분 자본(DART)이 있으면 그것, 없으면 연결 자본총계(비지배지분 포함)${asOf}`
+  }
+  const basis = financial.recentBasis === 'CONSOL' ? 'KIS 연결 — 비지배지분 포함' : 'DART 지배주주'
+  return `점수·목록이 쓰는 값: 최근 4분기 이익(${basis})을 지금 주가로 나눴습니다${asOf}`
 }
 
 /**
@@ -221,6 +228,15 @@ export function quoteNumberText(v, { signed = false } = {}) {
     maximumFractionDigits: Math.abs(n) < 10 ? 4 : 2
   })
   return signed && n > 0 ? '+' + text : text
+}
+
+/**
+ * 간밤 미국장 tilt 이름표 — 오늘 탭·종합판단 보드 공용(2026-10-19, 두 화면에 같은 표가 따로 있었다). UNKNOWN 은 서버가 세 지수
+ * 등락을 하나도 간밤 세션 값으로 받지 못했고(미국 휴장 다음 날·조회 실패) VIX 규칙에도 안 걸릴 때 준다 — 예전엔 그 경우가 '중립'이었다.
+ * 모르는 코드는 그대로.
+ */
+export function overnightTiltLabel(tilt) {
+  return { BULL: '강세', NEUTRAL: '중립', BEAR: '약세', UNKNOWN: '판단 보류' }[tilt] || tilt
 }
 
 /**

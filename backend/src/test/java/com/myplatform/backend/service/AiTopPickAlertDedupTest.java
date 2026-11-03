@@ -44,4 +44,20 @@ class AiTopPickAlertDedupTest {
                 .isEqualTo("💰 현재가: <b>50,000원</b> (-0.50%)");
         assertThat(AiStockAnalysisService.priceLine(null, null)).isEqualTo("💰 현재가: <b>N/A</b>");
     }
+
+    @org.junit.jupiter.api.Test
+    @org.junit.jupiter.api.DisplayName("재현: Gemini 저우선 예산이 없으면 AI 주식 분석 코멘트를 부르지 않는다(2026-10-19)")
+    void enhancementSkipsWhenLowPriorityBudgetIsUsed() {
+        AiStockAnalysisService service = org.mockito.Mockito.mock(AiStockAnalysisService.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        GeminiService gemini = org.mockito.Mockito.mock(GeminiService.class);
+        org.mockito.Mockito.when(gemini.lowPriorityCallAllowed()).thenReturn(false);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "geminiService", gemini);
+        com.myplatform.backend.dto.AiStockRecommendationDto pick = com.myplatform.backend.dto.AiStockRecommendationDto.builder()
+                .stockCode("005930").stockName("삼성전자").type("short").totalScore(85)
+                .scoreDetails(new com.myplatform.backend.dto.AiStockRecommendationDto.ScoreDetails()).build();
+
+        org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "enhanceTopPicksWithAi", java.util.List.of(pick), 3);
+
+        org.mockito.Mockito.verify(gemini, org.mockito.Mockito.never()).analyzeStockRecommendation(org.mockito.ArgumentMatchers.anyString());
+    }
 }

@@ -97,10 +97,19 @@ public final class QuarterlyFinancials {
      * <p>이력 전체를 쓰므로 <b>어느 시점에 조회해도 판정이 흔들리지 않는다</b>.
      *
      * @param rows 순서 무관 — 내부에서 periodEnd 오름차순 정렬. 매출 결측·비양수 행은 제외
-     * @return 인접쌍이 {@link #CUMULATIVE_MIN_PAIRS} 미만이면 false(판정 불가 = 종전 동작)
+     * @return 판정 불가({@link #judgeCumulative} 가 null)도 false — 저장 칸({@code cumulative}, NOT NULL)용이다. 그 false 를
+     *         '개별 분기'로 읽지 않도록 소비처는 {@link #usableIndividualQuarters} 를 쓴다(2026-10-19)
      */
     public static boolean detectCumulative(List<Figures> rows) {
-        if (rows == null) return false;
+        return Boolean.TRUE.equals(judgeCumulative(rows));
+    }
+
+    /**
+     * 누적 여부 판정 — TRUE 누적 · FALSE 개별 · <b>null 판정 불가</b>(인접 분기 쌍이 {@link #CUMULATIVE_MIN_PAIRS} 미만 —
+     * 상장 1년 미만, 매출 공란 분기)(2026-10-19). 판정 규칙은 {@link #detectCumulative} 설명 그대로다.
+     */
+    public static Boolean judgeCumulative(List<Figures> rows) {
+        if (rows == null) return null;
 
         List<Figures> asc = new ArrayList<>(rows);
         asc.removeIf(f -> f == null || f.periodEnd() == null || f.revenue() == null
@@ -118,7 +127,7 @@ public final class QuarterlyFinancials {
                 risingRatios.add(cur.divide(prev, 4, java.math.RoundingMode.HALF_UP));
             }
         }
-        if (pairs < CUMULATIVE_MIN_PAIRS) return false;
+        if (pairs < CUMULATIVE_MIN_PAIRS) return null;   // 판정 불가 — '개별'이 아니다
         if (risingRatios.isEmpty()) return false;
         if ((double) risingRatios.size() / pairs < CUMULATIVE_RISING_SHARE) return false;
 
@@ -128,6 +137,21 @@ public final class QuarterlyFinancials {
     }
 
     // ==================== 개별 분기 환산 ====================
+
+    /**
+     * 개별 분기로 쓸 수 있는 것만 — 누적 행은 {@link #toIndividualQuarters} 로 환산하고, 개별로 표시된 행은 '누적이 아니다'로
+     * <b>판정될 때만</b> 그대로 쓴다(2026-10-19). 수집기 TTM·성장률 배치·실적 서프라이즈가 모두 이 함수를 거친다.
+     *
+     * <p>KIS 분기 손익은 사실상 전 종목이 누적(YTD)이라, 판정 불가(상장 1년 미만·매출 공란 분기)를 개별로 읽으면 반기 누적이
+     * 'Q2'가 되어 가짜 실적 급증(+110%·최대 20점)이 나오고 누적값 4개를 더한 TTM 이 부푼다(영업이익 1,000 vs 실제 400) —
+     * §4c(판정 못 하면 제외). 저장 칸은 판정 불가도 false 라 이 판정은 읽는 쪽에서 같은 함수({@link #judgeCumulative})로 다시 한다.
+     */
+    public static List<Figures> usableIndividualQuarters(List<Figures> rows) {
+        if (rows == null || rows.isEmpty()) return new ArrayList<>();
+        boolean anyCumulative = rows.stream().anyMatch(f -> f != null && f.cumulative());
+        if (!anyCumulative && !Boolean.FALSE.equals(judgeCumulative(rows))) return new ArrayList<>();
+        return toIndividualQuarters(rows);
+    }
 
     /** 인접 분기로 인정하는 개월 수. */
     private static final int QUARTER_MONTHS = 3;

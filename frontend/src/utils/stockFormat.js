@@ -45,3 +45,23 @@ export function closeBasisLabel(basisDate) {
   if (typeof basisDate !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(basisDate)) return ''
   return `${basisDate.slice(5, 7)}/${basisDate.slice(8, 10)} 종가`
 }
+
+/**
+ * 위 라벨의 설명(툴팁) — 기준일이 오늘이면 그 종가에 오늘 움직임이 이미 들어 있다(2026-10-07). 마감이 확정된 봉만 저장하므로
+ * 오늘 날짜 봉은 장 마감 뒤에 받은 확정 종가다. 예전엔 늘 '오늘 움직임은 들어 있지 않습니다'라 해 저녁에 틀린 말이 됐다.
+ * @param {string|null|undefined} basisDate 'YYYY-MM-DD'
+ * @param {string} todayIso 오늘(KST) 'YYYY-MM-DD'
+ */
+export function closeBasisTitle(basisDate, todayIso) {
+  const label = closeBasisLabel(basisDate)
+  if (!label) return null
+  if (basisDate.slice(0, 10) === todayIso) {
+    return `${label} 기준 — 오늘 장 마감 종가까지 들어 있습니다(차트 해설은 실시간 시세 기준)`
+  }
+  return `${label} 기준 — 오늘 움직임은 들어 있지 않습니다(차트 해설은 오늘 시세 기준)`
+}
+
+/** 오늘 날짜(KST) 'YYYY-MM-DD' — 기기 시간대와 무관하게. */
+export function todayKstIso(now = new Date()) {
+  return now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' })
+}

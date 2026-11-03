@@ -139,7 +139,7 @@ public class EarningSurpriseService {
                             q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
                     .collect(Collectors.toList());
 
-            List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.toIndividualQuarters(raw);
+            List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.usableIndividualQuarters(raw);
             QuarterlyFinancials.Figures[] pair = QuarterlyFinancials.latestAdjacentPair(individuals);
             if (pair == null) { notEnough++; continue; }
 
@@ -148,6 +148,7 @@ public class EarningSurpriseService {
             // 연속 적자 판정용 — 3분기 연속을 못 구하면 null(실측 0건)
             QuarterlyFinancials.Figures[] triple = QuarterlyFinancials.latestAdjacentTriple(individuals);
             BigDecimal prev2Op = (triple == null) ? null : triple[2].operatingProfit();
+            BigDecimal prev2Net = (triple == null) ? null : triple[2].netIncome();
 
             String code = e.getKey();
             String name = stockMasterService.getNameOrDefault(code, code);
@@ -155,7 +156,7 @@ public class EarningSurpriseService {
             EarningSurpriseDto dto = classifyQuarterly(
                     toPeriod(code, name, market, pair[0]),
                     toPeriod(code, name, market, pair[1]),
-                    prev2Op);
+                    prev2Op, prev2Net);
             if (dto == null) continue;
 
             // 점수를 주는 판정은 전년 동기보다도 좋아졌을 때만(2026-09-29) — 직전 분기 대비 급증이 계절성 착시일 수 있다
@@ -322,8 +323,9 @@ public class EarningSurpriseService {
      * 지금 살아 있는 건 레거시라, 이 변경은 <b>플래그를 켤 때만</b> 효과가 생긴다.
      *
      * @param prev2Op 직전의 직전 분기 영업이익. null = 3분기 연속 미확보(실측 0건)
+     * @param prev2Net 직전의 직전 분기 순이익 — 영업이익으로 비교할 수 없어 순이익으로 판정할 때의 같은 조건(2026-10-19)
      */
-    EarningSurpriseDto classifyQuarterly(Period latest, Period previous, BigDecimal prev2Op) {
+    EarningSurpriseDto classifyQuarterly(Period latest, Period previous, BigDecimal prev2Op, BigDecimal prev2Net) {
         BigDecimal latestOp = latest.operatingProfit();
         BigDecimal prevOp = previous.operatingProfit();
 
@@ -331,6 +333,16 @@ public class EarningSurpriseService {
                 && prevOp.signum() < 0 && latestOp.signum() > 0;
         if (lossToProfit && (prev2Op == null || prev2Op.signum() >= 0)) {
             // 한 분기 삐끗이거나 연속성 확인 불가 — 근거 없이 최고점을 주지 않는다(§4c).
+            return null;
+        }
+        // 영업이익으로 비교할 수 없으면(어느 쪽이 없거나 직전이 정확히 0) classify 는 순이익으로 판정한다 — 그 흑자전환에도 같은
+        // 연속 적자 조건을 건다(2026-10-19). 예전엔 이 경로가 조건을 건너뛰어 한 분기만 적자여도 순이익 흑자전환 20점을 받았다.
+        boolean opComparable = latestOp != null && prevOp != null && prevOp.signum() != 0;
+        BigDecimal latestNet = latest.netIncome();
+        BigDecimal prevNet = previous.netIncome();
+        boolean netLossToProfit = !opComparable && latestNet != null && prevNet != null
+                && prevNet.signum() < 0 && latestNet.signum() > 0;
+        if (netLossToProfit && (prev2Net == null || prev2Net.signum() >= 0)) {
             return null;
         }
         return classify(latest, previous);
@@ -643,7 +655,7 @@ public class EarningSurpriseService {
                                 q.getFiscalPeriod(), q.getPeriodEnd(),
                                 q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
                         .collect(Collectors.toList());
-                List<QuarterlyFinancials.Figures> ind = QuarterlyFinancials.toIndividualQuarters(raw);
+                List<QuarterlyFinancials.Figures> ind = QuarterlyFinancials.usableIndividualQuarters(raw);
 
                 QuarterlyFinancials.Figures[] pair = QuarterlyFinancials.latestAdjacentPair(ind);
                 if (pair == null) continue;

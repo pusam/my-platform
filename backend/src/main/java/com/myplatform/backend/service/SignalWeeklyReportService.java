@@ -111,6 +111,16 @@ public class SignalWeeklyReportService {
     @Scheduled(scheduler = "batchScheduler", cron = "0 30 18 * * MON-SAT", zone = "Asia/Seoul")
     public void weeklyReportCatchUp() {
         LocalDate today = LocalDate.now(clock);
+        // 지난 일요일 크론이 만들었어야 할 주가 있으면 놓친 것이 없다(2026-10-19). 예전엔 '오늘 기준 대상 주'만 봐서, 목요일부터는
+        // 다음 일요일 크론 차례인 주(지난 일요일에 끝난 주 — 아직 없는 게 정상)를 '놓친 주'로 보고 매주 목요일 18:30 에 경고와 함께
+        // 돌았다 — 같은 주 리포트가 목·일 두 번 나갔고, 휴장일로 평가가 밀린 주는 목요일 리포트가 덜 찬 집계였다.
+        LocalDate lastSunday = today.getDayOfWeek() == DayOfWeek.SUNDAY ? today
+                : today.with(java.time.temporal.TemporalAdjusters.previous(DayOfWeek.SUNDAY));
+        LocalDate cronWeekStart = resolveTargetWeekEnd(lastSunday).minusDays(6);
+        if (weeklyRepository.findByWeekStart(cronWeekStart).isPresent()) {
+            log.debug("[주간측정] 따라잡기 불필요 — 지난 일요일 크론의 {} 주 스냅샷 존재", cronWeekStart);
+            return;
+        }
         LocalDate weekEnd = resolveTargetWeekEnd(today);
         LocalDate weekStart = weekEnd.minusDays(6);
 
@@ -338,6 +348,8 @@ public class SignalWeeklyReportService {
                 if (!line.dataAvailable() || line.verdict() == null) {
                     sb.append("측정 실패 — ").append(TelegramNotificationService.escapeHtml(line.note()));
                 } else {
+                    // 휴장일 기록 매도를 뺐다는 메모 등 — 관제실 카드처럼 판정 앞에(조용히 빼지 않는다 §4c, 2026-10-19)
+                    if (line.note() != null) sb.append(TelegramNotificationService.escapeHtml(line.note())).append(" — ");
                     sb.append(TelegramNotificationService.escapeHtml(line.verdict().headline()));
                     sb.append(String.format(" (거래 %d건·거래일 %d일)", line.verdict().trades(), line.verdict().distinctDays()));
                 }

@@ -16,7 +16,7 @@ const baseDiag = {
   supplyDemand: {
     score: 70, foreignNet5Days: 120, foreignBuyDays: 3,
     institutionNet5Days: -50, institutionBuyDays: 0,
-    isBothBuying: false, isBothSelling: false, assessment: '외국인 매수 우위'
+    bothBuying: false, bothSelling: false, assessment: '외국인 매수 우위'
   },
   technicalAnalysis: {
     score: 65, rsiStatus: '정상', rsi14: 55,
@@ -121,7 +121,7 @@ describe('FundamentalDiagnosisPanel — 5일 수급 일수', () => {
     const diag = { ...baseDiag, supplyDemand: {
       score: 0, foreignNet5Days: -13980.92, foreignBuyDays: 0, foreignSellDays: 5,
       institutionNet5Days: -1248.9, institutionBuyDays: 3, institutionSellDays: 2,
-      isBothBuying: false, isBothSelling: true, assessment: '⚠️ 매도 우위 (5일 누적, 뇌동매매 주의!)'
+      bothBuying: false, bothSelling: true, assessment: '⚠️ 매도 우위 (5일 누적, 뇌동매매 주의!)'
     } }
     const w = mountPanel(diag)
     await w.findAll('.fund-tab-btn')[1].trigger('click')
@@ -130,5 +130,35 @@ describe('FundamentalDiagnosisPanel — 5일 수급 일수', () => {
     expect(rows[1].text()).toContain('(순매수 3일 · 순매도 2일)')
     expect(w.text()).not.toContain('연속 순매도')
     expect(w.find('.supply-summary').text()).toContain('5일 누적')
+  })
+})
+
+// 2026-10-19: 백엔드 원시 boolean isBothBuying/isBothSelling 은 JSON 에서 bothBuying/bothSelling 이다(Lombok getter isX() — BooleanJsonKeyContractTest).
+// 화면이 isBothSelling 으로 읽어 '동반 순매수·순매도' 문구가 한 번도 보이지 않았다 — 위 테스트들도 실제 응답에 없는 isX 로 통과하고 있었다.
+describe('FundamentalDiagnosisPanel — 동반 순매수·순매도 요약(실제 응답 이름)', () => {
+  it('재현: bothBuying=true 면 동반 순매수 문구', async () => {
+    const diag = { ...baseDiag, supplyDemand: { ...baseDiag.supplyDemand, bothBuying: true, bothSelling: false } }
+    const w = mountPanel(diag)
+    await w.findAll('.fund-tab-btn')[1].trigger('click')
+    expect(w.find('.supply-summary').text()).toContain('동반 순매수')
+  })
+
+  it('재현: bothSelling=true 면 동반 순매도 문구', async () => {
+    const diag = { ...baseDiag, supplyDemand: { ...baseDiag.supplyDemand, bothBuying: false, bothSelling: true } }
+    const w = mountPanel(diag)
+    await w.findAll('.fund-tab-btn')[1].trigger('click')
+    expect(w.find('.supply-summary').text()).toContain('동반 순매도')
+  })
+})
+
+// 2026-10-19: 재무 데이터가 없어 '분석 불가'인 진단은 종합점수가 모름(null)이다 — 예전 백엔드는 0 을 줬고('종합 점수: 0점'),
+// null 이 오면 '종합 점수: 점'이 됐다.
+describe('FundamentalDiagnosisPanel — 분석 불가(점수 모름)', () => {
+  it('재현: 종합점수가 없으면 점수 줄을 만들지 않는다 — "점"·"null"·0점 없음', () => {
+    const w = mountPanel({ overallScore: null, verdict: '분석 불가', verdictLevel: 'NEUTRAL',
+      warnings: ['재무 데이터가 없습니다. 먼저 데이터를 수집해주세요.'], positives: [] })
+    expect(w.text()).not.toContain('종합 점수: 점')
+    expect(w.text()).not.toContain('null')
+    expect(w.text()).toContain('분석 불가')
   })
 })

@@ -135,6 +135,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import apiClient from '../../utils/api';
+import { overnightTiltLabel } from '../../utils/marketDataLabels';
 
 const emit = defineEmits(['open-stock', 'switch-to-list', 'loaded']);
 
@@ -239,7 +240,7 @@ const TECH_STRONG = 13;
 const strongClass = (v, min = 15) => (Number(v) >= min ? 'strong' : '');
 const regimeLabel = (r) => ({ BULL: '상승장', BEAR: '하락장', SIDEWAYS: '횡보장' }[r] || '미수집');
 const regimeClass = (r) => (r === 'BULL' ? 'positive' : r === 'BEAR' ? 'negative' : '');
-const tiltLabel = (t) => ({ BULL: '강세', NEUTRAL: '중립', BEAR: '약세' }[t] || t);
+const tiltLabel = overnightTiltLabel;   // 오늘 탭과 같은 이름표(UNKNOWN = 판단 보류, 2026-10-19)
 const tiltClass = (t) => (t === 'BULL' ? 'positive' : t === 'BEAR' ? 'negative' : '');
 const sourceLabel = (s) => ({
   momentum: '🎯모멘텀', value: '💎저평가', growth: '🚀성장',

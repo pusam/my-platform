@@ -42,12 +42,21 @@ describe('recentMultipleLine', () => {
     expect(recentMultipleTitle(samsung)).toContain('DART 지배주주')
     expect(recentMultipleTitle(samsung)).toContain('2026-10-07')
   })
-  it('비지배 포함 연결이면 그렇게 적고, 결산 값이 없으면 앞말 없이', () => {
-    const consol = { per: null, pbr: 2.08, perRecent: null, pbrRecent: 2.08, recentBasis: 'CONSOL' }
-    expect(recentMultipleLine(consol, 'per')).toBeNull()
-    expect(recentMultipleLine(consol, 'pbr')).toBe('결산 기준 · 최근 분기 2.08배 · 연결')
+  it('PER 이 비지배 포함 연결이면 그렇게 적고, 결산 값이 없으면 앞말 없이', () => {
+    const consol = { per: 18.2, pbr: 2.08, perRecent: 15.1, pbrRecent: 2.08, recentBasis: 'CONSOL' }
+    expect(recentMultipleLine(consol, 'per')).toBe('결산 기준 · 최근 4분기 15.1배 · 연결')
     expect(recentMultipleLine({ per: 0, perRecent: 10.6, recentBasis: 'CTRL' }, 'per')).toBe('최근 4분기 10.6배')
-    expect(recentMultipleTitle(consol)).toContain('비지배지분 포함')
+    expect(recentMultipleTitle(consol, 'per')).toContain('비지배지분 포함')
+  })
+
+  // 2026-10-19: per_basis 는 PER(순이익) 정의다 — BPS 는 지배지분 자본이 있으면 그것, 없으면 연결 자본총계로 따로 정해진다.
+  // 결산월이 12월이 아니라 순이익이 연결(CONSOL)인 회사도 PBR 은 지배지분 기준일 수 있는데 PBR 줄에 '· 연결'·"비지배지분 포함"이 붙었다.
+  it('재현: PBR 줄엔 PER 의 기준(연결)을 붙이지 않고, 툴팁은 자본 규칙을 그대로 말한다', () => {
+    const consol = { per: 18.2, pbr: 2.08, perRecent: 15.1, pbrRecent: 2.08, recentBasis: 'CONSOL' }
+    expect(recentMultipleLine(consol, 'pbr')).toBe('결산 기준 · 최근 분기 2.08배')
+    const title = recentMultipleTitle(consol, 'pbr')
+    expect(title).toContain('지배지분 자본(DART)이 있으면 그것')
+    expect(title).not.toContain('KIS 연결 — 비지배지분 포함')
   })
   it('모르면 줄을 숨긴다 — 0·없음·재무 없음', () => {
     expect(recentMultipleLine(null, 'per')).toBeNull()
@@ -59,6 +68,7 @@ describe('recentMultipleLine', () => {
     const src = readFileSync(join(process.cwd(), 'src/views/StockDetailDashboard.vue'), 'utf8')
     expect(src).toContain("recentMultipleLine(financial, 'per')")
     expect(src).toContain("recentMultipleLine(financial, 'pbr')")
+    expect(src).toContain("recentMultipleTitle(financial, 'pbr')")
     expect(src).not.toContain('PER·PBR 기준은 종목별로 DART 지배주주 TTM · KIS 연결 TTM · KIS 연간 중 하나입니다')
   })
 })

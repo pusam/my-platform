@@ -54,7 +54,8 @@ public record ControlRoomSnapshotDto(
      * @param costAdjustedReturn 왕복 비용 차감 평균 수익(%). 슬리피지 미포함이라 낙관 쪽 하한
      * @param edgeVsControl      대조군 대비 우위(%p, 같은 날끼리 짝지은 차이의 평균)
      * @param edgeMarginOfError  그 우위의 95% 불확실성 폭(±%p). null = 아직 모름(0 아님)
-     * @param edgeExceedsUncertainty 우위가 불확실성 폭을 넘었는가
+     * @param edgeExceedsUncertainty 우위가 (+)이고 불확실성 폭을 넘었는가
+     * @param edgeBelowUncertainty   우위가 (−)이고 불확실성 폭 밖인가 — 무작위보다 유의하게 나쁨(2026-10-19)
      * @param avgWin/avgLoss/worst/avgMaePct 손익 분포 — 평균 하나로 못 보는 비대칭·낙폭
      * @param excludedDays  대조군 짝이 없어 비교에서 빠진 날 수(§4c 조용한 제외 금지)
      * @param blockers      통과를 막는 사유들. 비면 막는 것 없음
@@ -69,6 +70,7 @@ public record ControlRoomSnapshotDto(
             java.math.BigDecimal edgeVsControl,
             java.math.BigDecimal edgeMarginOfError,
             boolean edgeExceedsUncertainty,
+            boolean edgeBelowUncertainty,
             java.math.BigDecimal avgWin,
             java.math.BigDecimal avgLoss,
             java.math.BigDecimal worst,
@@ -79,7 +81,8 @@ public record ControlRoomSnapshotDto(
             String noteDetail,
             String sampleSince,
             String sampleStatus,
-            LegacyReference legacy
+            LegacyReference legacy,
+            String notEvaluatedNote
     ) {}
 
     /**
@@ -144,6 +147,7 @@ public record ControlRoomSnapshotDto(
             java.math.BigDecimal dailyMeanPct,
             java.math.BigDecimal marginOfError,
             boolean profitExceedsUncertainty,
+            boolean lossBelowUncertainty,
             java.math.BigDecimal winRatePct,
             java.math.BigDecimal avgWinPct,
             java.math.BigDecimal avgLossPct,

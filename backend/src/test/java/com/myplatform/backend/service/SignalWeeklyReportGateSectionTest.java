@@ -103,4 +103,21 @@ class SignalWeeklyReportGateSectionTest {
         assertThat(with.indexOf("🚦 블록")).isLessThan(with.indexOf("측정 전용 — 종합점수 산식 무변경"));
         assertThat(without).doesNotContain("🚦");
     }
+
+    @Test
+    @DisplayName("재현: 휴장일 기록 매도를 뺐다는 메모가 주간 텔레그램 봇 줄에도 붙는다 — 관제실 카드에만 있었다(2026-10-19)")
+    void closedDayNoteReachesWeeklyTelegram() {
+        BotPerformanceService.BotGateSummary off = botOff();
+        BotPerformanceService.BotGateLine l = off.lines().get(0);
+        BotPerformanceService.BotGateLine withNote = new BotPerformanceService.BotGateLine(l.mode(), l.dataAvailable(), l.accountId(),
+                l.capitalKrw(), l.realizedPnlKrw(), l.firstTradeDay(), l.lastTradeDay(), l.verdict(),
+                "휴장일 기록 매도 2건 제외(체결될 수 없는 거래)");
+        BotPerformanceService.BotGateSummary summary = new BotPerformanceService.BotGateSummary(off.currentMode(), off.botActive(),
+                off.botStatusChangedAt(), List.of(withNote), off.note());
+
+        String s = SignalWeeklyReportService.gateSection(null,
+                new SignalSampleBoundary.Boundary(null, SignalSampleBoundary.Status.UNSET), null, summary, null);
+
+        assertThat(s).contains("휴장일 기록 매도 2건 제외(체결될 수 없는 거래) — 평가 가능");
+    }
 }

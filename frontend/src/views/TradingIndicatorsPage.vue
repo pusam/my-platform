@@ -39,7 +39,7 @@
                 {{ getSignalText(nasdaqFutures.signal) }}
               </div>
               <p class="interpretation">{{ nasdaqFutures.interpretation }}</p>
-              <div v-if="nasdaqFutures.isTradingHalt" class="halt-warning">
+              <div v-if="nasdaqFutures.tradingHalt" class="halt-warning">
                 🚫 매수 보류 권장
               </div>
             </div>
@@ -245,7 +245,7 @@
             <p>{{ vwapResult.interpretation }}</p>
           </div>
 
-          <div v-if="!vwapResult.isReliable" class="reliability-warning">
+          <div v-if="!vwapResult.reliable" class="reliability-warning">
             ⚠️ 장 초반 데이터로 신뢰도가 낮습니다
           </div>
         </div>

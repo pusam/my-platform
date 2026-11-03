@@ -31,17 +31,22 @@ const props = defineProps({
 });
 
 const narrative = ref(null);
+// 요청 순서 토큰 — 종목을 바꾼 뒤 늦게 온 이전 종목 해설이 새 종목 카드를 덮지 않게(2026-10-19, 다른 하위 섹션과 같은 방식)
+let reqSeq = 0;
 
 // 판단보류(UNKNOWN)는 카드를 띄우지 않는다 — 빈 해설로 자리만 차지하지 않기 위함
 const fetchNarrative = async (code) => {
+  const seq = ++reqSeq;
   narrative.value = null;
   if (!code) return;
   try {
     const { data } = await apiClient.get(`/quant-ta/${code}/narrative`);
+    if (seq !== reqSeq) return;   // 종목 전환됨 — 폐기
     if (data?.success && data.data?.verdict !== 'UNKNOWN') {
       narrative.value = data.data;
     }
   } catch (e) {
+    if (seq !== reqSeq) return;
     narrative.value = null;   // best-effort — 실패하면 조용히 숨김
   }
 };

@@ -61,4 +61,57 @@ class CompositeSignalServiceTest {
         // computeRanking 동기 실행 안 함(= 무거운 평가 deps 미접촉)
         verifyNoInteractions(chartPatternService, stockMasterService);
     }
+
+    // ==================== 조회 실패는 '안 맞음'이 아니다 (2026-10-19) ====================
+    // 재현: 다섯 신호 평가는 예외·데이터 없음을 전부 matched=false 로 돌려줘 '평가했는데 안 맞음'과 같았다.
+
+    @Test
+    @DisplayName("재현: 다섯 신호 조회가 전부 실패하면 matched 0 · unavailableCount 5 — 각 신호는 unavailable")
+    void allLookupsFailingAreUnavailable() {
+        org.mockito.Mockito.when(chartPatternService.detectPatterns("005930")).thenThrow(new RuntimeException("KIS"));
+        org.mockito.Mockito.when(chartPatternService.detectSupportResistance("005930")).thenThrow(new RuntimeException("KIS"));
+        org.mockito.Mockito.when(chartPatternService.computeVolumeProfile("005930")).thenReturn(null);
+        org.mockito.Mockito.when(investorTradeService.getConsecutiveBuyStocks(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt())).thenThrow(new RuntimeException("DB"));
+        org.mockito.Mockito.when(aiStockAnalysisService.getAnalysis()).thenReturn(null);
+
+        com.myplatform.backend.dto.CompositeSignalDto dto = service.evaluate("005930");
+
+        assertThat(dto.getMatchedCount()).isZero();
+        assertThat(dto.getUnavailableCount()).isEqualTo(5);
+        assertThat(dto.getSignals()).allMatch(com.myplatform.backend.dto.CompositeSignalDto.Signal::isUnavailable);
+    }
+
+    @Test
+    @DisplayName("평가했는데 안 맞은 신호는 unavailable 이 아니다 — 패턴 없음·지지선 없음")
+    void evaluatedButUnmatchedIsAvailable() {
+        org.mockito.Mockito.when(chartPatternService.detectPatterns("005930")).thenReturn(java.util.List.of());
+        org.mockito.Mockito.when(chartPatternService.detectSupportResistance("005930"))
+                .thenReturn(new com.myplatform.backend.dto.SupportResistanceDto());
+
+        com.myplatform.backend.dto.CompositeSignalDto dto = service.evaluate("005930");
+
+        assertThat(signal(dto, "PATTERN").isUnavailable()).isFalse();
+        assertThat(signal(dto, "PATTERN").isMatched()).isFalse();
+        assertThat(signal(dto, "SUPPORT").isUnavailable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("수급: 한쪽 조회가 실패하고 다른 쪽에 없으면 판정 불가, 다른 쪽에 있으면 매칭")
+    void supplyPartialFailure() {
+        com.myplatform.backend.dto.ConsecutiveBuyDto inst = new com.myplatform.backend.dto.ConsecutiveBuyDto();
+        inst.setStockCode("000660");
+        org.mockito.Mockito.when(investorTradeService.getConsecutiveBuyStocks("FOREIGN", 3)).thenThrow(new RuntimeException("DB"));
+        org.mockito.Mockito.when(investorTradeService.getConsecutiveBuyStocks("INSTITUTION", 3)).thenReturn(java.util.List.of(inst));
+
+        assertThat(signal(service.evaluate("005930"), "SUPPLY").isUnavailable()).isTrue();
+        com.myplatform.backend.dto.CompositeSignalDto.Signal hit = signal(service.evaluate("000660"), "SUPPLY");
+        assertThat(hit.isMatched()).isTrue();
+        assertThat(hit.isUnavailable()).isFalse();
+    }
+
+    private static com.myplatform.backend.dto.CompositeSignalDto.Signal signal(
+            com.myplatform.backend.dto.CompositeSignalDto dto, String id) {
+        return dto.getSignals().stream().filter(s -> id.equals(s.getId())).findFirst().orElseThrow();
+    }
 }

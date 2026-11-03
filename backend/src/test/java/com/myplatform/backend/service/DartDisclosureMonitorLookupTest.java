@@ -33,7 +33,9 @@ class DartDisclosureMonitorLookupTest {
     @Test
     @DisplayName("재현: 코드로 조회한다 — 이름 단독 경로(KOSPI 한정 폴백)를 쓰지 않는다")
     void looksUpByCode() {
-        DartDisclosure d = DartDisclosure.builder().rceptNo("20261002000123").reportNm("상장적격성 실질심사 대상").build();
+        // 접수번호 앞 8자리 = 접수일 — 오늘 접수분이라야 알림 창(최근 7일) 안이다(2026-10-19, DartDisclosureMonitorRecencyTest)
+        String today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        DartDisclosure d = DartDisclosure.builder().rceptNo(today + "000123").reportNm("상장적격성 실질심사 대상").build();
         d.setDangerous(true);
         when(dart.searchDisclosuresOrNull("086520", "에코프로")).thenReturn(List.of(d));
 

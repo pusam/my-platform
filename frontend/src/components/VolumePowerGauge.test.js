@@ -80,3 +80,24 @@ describe('VolumePowerGauge — 휴장일·장 마감 이름표', () => {
     expect(w.find('.post-market-text').text()).toContain('마지막 거래일')
   })
 })
+
+// 2026-10-19: 화면은 달력을 몰라 평일 공휴일 낮을 장중처럼 말했다(직전 거래일 값을 "매수세가 우위입니다"). 이제 서버가 장이 닫힌 날
+// 출처를 '휴장'으로 보낸다(StockDetailClosedDayTest) — 게이지는 그걸 주말과 같이 본다.
+describe('VolumePowerGauge — 평일 공휴일(서버 휴장)', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('재현: 평일 공휴일 10시에 서버가 휴장이라 하면 실시간처럼 말하지 않는다 — 마지막 거래일 값', () => {
+    vi.setSystemTime(new Date(2026, 9, 9, 10, 0, 0))   // 2026-10-09 금 한글날
+    const w = mount(VolumePowerGauge, { props: { volumePower: 105, signal: 'BUY', dataSource: '휴장' } })
+    expect(w.text()).not.toContain('매수세가 우위입니다')
+    expect(w.find('.post-market-text').text()).toContain('마지막 거래일')
+  })
+
+  it('재현: 평일 공휴일 값이 없으면 수집 중이 아니라 휴장', () => {
+    vi.setSystemTime(new Date(2026, 9, 9, 10, 0, 0))
+    const w = mount(VolumePowerGauge, { props: { volumePower: 0, dataSource: '휴장' } })
+    expect(w.text()).not.toContain('수집하고 있습니다')
+    expect(w.text()).toContain('휴장')
+  })
+})

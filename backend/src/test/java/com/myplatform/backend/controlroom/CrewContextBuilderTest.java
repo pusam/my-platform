@@ -142,17 +142,18 @@ class CrewContextBuilderTest {
         return available
                 ? new ControlRoomSnapshotDto.TrustGate(true, "COLLECTING", 20, 4, 8,
                         new java.math.BigDecimal("-2.03"), new java.math.BigDecimal("-2.64"),
-                        new java.math.BigDecimal("1.90"), false,
+                        new java.math.BigDecimal("1.90"), false, true,   // -2.64 ± 1.90 — 아래쪽으로 넘었다
                         new java.math.BigDecimal("5.12"), new java.math.BigDecimal("-6.50"),
                         new java.math.BigDecimal("-12.41"), new java.math.BigDecimal("-5.42"),
                         0, List.of("고유 거래일 4/10일"),
                         "표본 수집 중 — 고유 거래일 4/10일", "유효 표본은 고유 거래일 수다",
                         "2026-10-02", "PROVISIONAL",
                         new ControlRoomSnapshotDto.LegacyReference("2026-06-25", "2026-10-02", 183, 44, 35,
-                                new java.math.BigDecimal("-4.33"), new java.math.BigDecimal("0.17"), "EVALUABLE"))
+                                new java.math.BigDecimal("-4.33"), new java.math.BigDecimal("0.17"), "EVALUABLE"),
+                        null)
                 : new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
-                        null, null, null, false, null, null, null, null,
-                        0, List.of(), "집계 실패", "측정 자체가 실패했다", null, null, null);
+                        null, null, null, false, false, null, null, null, null,
+                        0, List.of(), "집계 실패", "측정 자체가 실패했다", null, null, null, null);
     }
 
     @Test
@@ -167,9 +168,30 @@ class CrewContextBuilderTest {
         assertThat(text).contains("표본 수집 중(읽을 숫자 없음)");
         assertThat(text).contains("고유 4일");
         assertThat(text).contains("비용차감 -2.03%");
-        // 우위 하나만 주면 확실해 보인다 — 불확실성과 그 해석을 같이
-        assertThat(text).contains("불확실성 이내 — 0 과 구분 안 됨");
+        // 우위 하나만 주면 확실해 보인다 — 불확실성과 그 해석을 같이. -2.64 ± 1.90 은 '구분 안 됨'이 아니라 무작위보다 나쁜 것이다
+        // (2026-10-19 — 예전엔 이 숫자로 '불확실성 이내 — 0 과 구분 안 됨'을 고정하고 있었다)
+        assertThat(text).contains("불확실성 밖 — 무작위보다 유의하게 나쁨");
+        assertThat(text).doesNotContain("0 과 구분 안 됨");
         assertThat(text).contains("평균낙폭 -5.42%");
+    }
+
+    @Test
+    @DisplayName("재현(2026-10-19): 표본에서 빠진 시그널(거래정지·봉 없음)도 크루에 간다 — 최악일 수 있는 결과가 조용히 사라지지 않게")
+    void notEvaluatedSignalsReachCrew() {
+        ControlRoomSnapshotDto.Kpis k = kpis();
+        ControlRoomSnapshotDto.TrustGate base = k.trustGate();
+        ControlRoomSnapshotDto.TrustGate t = new ControlRoomSnapshotDto.TrustGate(base.dataAvailable(), base.state(),
+                base.rows(), base.distinctDays(), base.controlRows(), base.costAdjustedReturn(), base.edgeVsControl(),
+                base.edgeMarginOfError(), base.edgeExceedsUncertainty(), base.edgeBelowUncertainty(),
+                base.avgWin(), base.avgLoss(), base.worst(), base.avgMaePct(), base.excludedDays(), base.blockers(),
+                base.note(), base.noteDetail(), base.sampleSince(), base.sampleStatus(), base.legacy(),
+                "평가에서 빠진 시그널 2건 — 봉 없음 1 · 창 안 거래정지 1");
+        ControlRoomSnapshotDto.Kpis withExcluded = new ControlRoomSnapshotDto.Kpis(k.candidates(), k.gates(),
+                k.lossBreaker(), k.volRegime(), k.undecided(), k.financialInput(), t, k.botGate());
+
+        String text = CrewContextBuilder.build(snapshot(withExcluded), 8192).text();
+
+        assertThat(text).contains("⚠ 평가에서 빠진 시그널 2건 — 봉 없음 1 · 창 안 거래정지 1(최악일 수 있다)");
     }
 
     @Test
@@ -274,7 +296,7 @@ class CrewContextBuilderTest {
     @DisplayName("봇 게이트가 크루에 들어간다 — 추천 게이트와 별개라는 것, 봇이 꺼져 있다는 것, 전략별 성적까지")
     void botGateReachesCrewAsSeparateQuestion() {
         ControlRoomSnapshotDto.BotGateLine line = new ControlRoomSnapshotDto.BotGateLine("VIRTUAL", true, "EVALUABLE",
-                114, 16, new java.math.BigDecimal("-0.53"), new java.math.BigDecimal("0.41"), false,
+                114, 16, new java.math.BigDecimal("-0.53"), new java.math.BigDecimal("0.41"), false, true,
                 new java.math.BigDecimal("38.6"), new java.math.BigDecimal("1.10"), new java.math.BigDecimal("-1.40"),
                 new java.math.BigDecimal("-4.80"), new java.math.BigDecimal("-8.30"), -799_916L,
                 "2026-07-03", "2026-07-27",
@@ -291,7 +313,8 @@ class CrewContextBuilderTest {
         assertThat(text).contains("봇 꺼짐");
         assertThat(text).contains("[모의] 평가 가능(숫자를 읽을 수 있다는 뜻일 뿐, 유리하다는 뜻 아님)");
         assertThat(text).contains("거래 114건/거래일 16일").contains("기간 2026-07-03~2026-07-27");
-        assertThat(text).contains("하루평균(비용차감) -0.53% ±0.41(0 과 구분 안 됨)");
+        // -0.53 ± 0.41 은 0 보다 유의하게 나쁘다(2026-10-19 — 예전엔 '0 과 구분 안 됨'을 고정하고 있었다)
+        assertThat(text).contains("하루평균(비용차감) -0.53% ±0.41(불확실성 밖 — 0 보다 유의하게 나쁨)");
         assertThat(text).contains("실현손익 -799,916원");
         assertThat(text).contains("전략별: SCALPING 86건 -0.61%");
         assertThat(text).contains("시장 대비 비교 없음");
@@ -306,5 +329,43 @@ class CrewContextBuilderTest {
         String text = CrewContextBuilder.build(snapshot(kpisWithBotGate(failed)), 8192).text();
 
         assertThat(text).contains("봇을 믿고 맡겨도 되나: 측정 불가(집계 실패) — 집계 실패 (DataAccessException)");
+    }
+
+    @Test
+    @DisplayName("재현: 휴장일 기록 매도를 뺐다는 메모가 크루 문맥에도 들어간다 — 관제실 카드에만 있었다(2026-10-19)")
+    void closedDayNoteReachesCrew() {
+        ControlRoomSnapshotDto.BotGateLine line = new ControlRoomSnapshotDto.BotGateLine("VIRTUAL", true, "EVALUABLE",
+                112, 16, new java.math.BigDecimal("-0.53"), new java.math.BigDecimal("0.41"), false, true,
+                new java.math.BigDecimal("38.6"), new java.math.BigDecimal("1.10"), new java.math.BigDecimal("-1.40"),
+                new java.math.BigDecimal("-4.80"), new java.math.BigDecimal("-8.30"), -755_241L,
+                "2026-07-03", "2026-07-27", List.of(), 0, List.of(),
+                "휴장일 기록 매도 2건 제외(체결될 수 없는 거래) — 평가 가능 — 아직 근거 없음: 하루 평균 순수익 -0.53%", "설명");
+        ControlRoomSnapshotDto.BotGate bot = new ControlRoomSnapshotDto.BotGate(true, "VIRTUAL", false,
+                "2026-07-27T15:20:15", List.of(line), null, "설명");
+
+        String text = CrewContextBuilder.build(snapshot(kpisWithBotGate(bot)), 8192).text();
+
+        assertThat(text).contains("휴장일 기록 매도 2건 제외(체결될 수 없는 거래)");
+    }
+
+    @Test
+    @DisplayName("우위가 불확실성 폭 안이면(어느 쪽으로도 못 넘음) 그때만 '0 과 구분 안 됨'")
+    void withinUncertaintyIsStillNoise() {
+        ControlRoomSnapshotDto.Kpis k = kpis();
+        ControlRoomSnapshotDto.TrustGate t = new ControlRoomSnapshotDto.TrustGate(true, "EVALUABLE", 40, 12, 40,
+                new java.math.BigDecimal("0.40"), new java.math.BigDecimal("0.30"),
+                new java.math.BigDecimal("1.10"), false, false,
+                new java.math.BigDecimal("4.00"), new java.math.BigDecimal("-2.00"),
+                new java.math.BigDecimal("-6.00"), new java.math.BigDecimal("-3.00"),
+                0, List.of("우위 0.30%p 가 불확실성 ±1.10%p 를 못 넘음"),
+                "평가 가능 — 아직 확대 근거 없음: 우위 0.30%p 가 불확실성 ±1.10%p 를 못 넘음", "설명",
+                "2026-10-12", "PROVISIONAL", null, null);
+        ControlRoomSnapshotDto.Kpis within = new ControlRoomSnapshotDto.Kpis(k.candidates(), k.gates(), k.lossBreaker(),
+                k.volRegime(), k.undecided(), k.financialInput(), t, k.botGate());
+
+        String text = CrewContextBuilder.build(snapshot(within), 8192).text();
+
+        assertThat(text).contains("(불확실성 이내 — 0 과 구분 안 됨)");
+        assertThat(text).doesNotContain("유의하게 나쁨");
     }
 }

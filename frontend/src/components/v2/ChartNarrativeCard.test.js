@@ -75,3 +75,24 @@ describe('ChartNarrativeCard — 📖 차트 해설 (관찰용)', () => {
     expect(w3.find('.nc-verdict').classes()).toContain('v-watch')
   })
 })
+
+// 2026-10-19: 종목을 바꾸면 이전 종목 해설 요청을 버리지 않아, 그 응답이 늦게 오면 새 종목 카드를 덮었다
+// (신호 이력·재료 이력·공시·유튜브 섹션은 이미 요청 순서 토큰으로 막고 있었다)
+describe('ChartNarrativeCard — 종목 전환', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('재현: 늦게 온 이전 종목 해설이 새 종목 카드를 덮지 않는다', async () => {
+    const pending = {}
+    apiClient.get.mockImplementation((url) => new Promise((resolve) => { pending[url] = resolve }))
+    const w = mount(ChartNarrativeCard, { props: { stockCode: '000660' } })
+    await w.setProps({ stockCode: '005930' })
+
+    pending['/quant-ta/005930/narrative']({ data: { success: true, data: { ...waitNarrative, stockCode: '005930', verdictReason: '새 종목 해설' } } })
+    await flushPromises()
+    pending['/quant-ta/000660/narrative']({ data: { success: true, data: { ...waitNarrative, verdictReason: '이전 종목 해설' } } })
+    await flushPromises()
+
+    expect(w.text()).toContain('새 종목 해설')
+    expect(w.text()).not.toContain('이전 종목 해설')
+  })
+})

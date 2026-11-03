@@ -64,6 +64,10 @@ public class StockDetailService {
     @Qualifier("stockDetailExecutor")
     private final Executor stockDetailExecutor;
 
+    // 휴장일 판정 — 수급 출처·AI 분석 세션 이름(2026-10-19). 생성자 순서를 바꾸지 않으려고 필드 주입 — 없으면(단위 테스트) 모른다 = 휴장으로 보지 않는다.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private MarketCalendarService marketCalendar;
+
     // Gemini 차트 해석 캐시 — 종목별 10분. 매 조회마다 LLM 호출하지 않게.
     private static final String GEMINI_CHART_CACHE = "geminiChartAnalysis";
 
@@ -127,7 +131,8 @@ public class StockDetailService {
         // ★★★ 시간대 체크: 장전/장중/장마감 3단계 ★★★
         boolean isAfterMarket = isAfterMarketHours();
         boolean isBeforeMarket = isBeforeMarketHours();
-        String marketPhase = isBeforeMarket ? "장전" : (isAfterMarket ? "장마감" : "장중");
+        boolean closedToday = marketClosedToday();
+        String marketPhase = closedToday ? "휴장" : (isBeforeMarket ? "장전" : (isAfterMarket ? "장마감" : "장중"));
         log.info("[StockDetail] 현재 시간: {}, 시장 상태: {}", LocalTime.now(KST), marketPhase);
 
         // 2. 병렬 조회 (수급, 리스크, 차트) — 전용 Executor 사용 (commonPool 고갈 방지)
@@ -182,14 +187,9 @@ public class StockDetailService {
             }
 
             if (supplyDemand != null) {
-                // ★ 데이터 출처 표시
-                if (isBeforeMarket) {
-                    supplyDemand.setDataSource("장전(초기화)");
-                } else if (isAfterMarket) {
-                    supplyDemand.setDataSource("일별(DB)");
-                } else {
-                    supplyDemand.setDataSource("실시간");
-                }
+                // ★ 데이터 출처 표시 — 장이 닫힌 날은 시각과 무관하게 '휴장'(2026-10-19)
+                supplyDemand.setDataSource(supplySource(closedToday, isBeforeMarket, isAfterMarket));
+                supplyDemand.setInvestorDataExpected(investorDataExpected(closedToday, LocalTime.now(KST)));
                 log.info("[StockDetail] 수급 데이터 - 외국인: {}억, 기관: {}억, 체결강도: {}% [{}]",
                         supplyDemand.getForeignNetBuy(), supplyDemand.getInstNetBuy(),
                         supplyDemand.getVolumePower(), supplyDemand.getDataSource());
@@ -298,6 +298,7 @@ public class StockDetailService {
         // ★ 시세 + 수급 + 차트 + 재무 모두 병렬 실행
         boolean isAfterMarket = isAfterMarketHours();
         boolean isBeforeMarket = isBeforeMarketHours();
+        boolean closedToday = marketClosedToday();
 
         // 1. 시세 (비동기) — 전용 Executor
         // ★ 공용 경로(stockPriceService) 사용 → 목록 화면과 동일 캐시/DB 소스 (가격 불일치 해소)
@@ -354,9 +355,8 @@ public class StockDetailService {
                 } catch (Exception e) { /* skip */ }
             }
             if (supplyDemand != null) {
-                if (isBeforeMarket) supplyDemand.setDataSource("장전(초기화)");
-                else if (isAfterMarket) supplyDemand.setDataSource("일별(DB)");
-                else supplyDemand.setDataSource("실시간");
+                supplyDemand.setDataSource(supplySource(closedToday, isBeforeMarket, isAfterMarket));
+                supplyDemand.setInvestorDataExpected(investorDataExpected(closedToday, LocalTime.now(KST)));
                 builder.supplyDemand(supplyDemand);
             }
 
@@ -810,14 +810,19 @@ public class StockDetailService {
      * <p>점수·목록(저평가·AI 스윙·마법의 공식)이 쓰는 KIS 일별 재무 행의 EPS(최근 4분기 이익)·BPS(최근 분기 자본)를 현재가로 다시
      * 나눈다. 상세의 기본 PER·PBR 은 KIS 최근 결산(연간) EPS·BPS 라 이익이 크게 변한 해엔 몇 배씩 다르다(삼성전자 10/7: 41.4 vs 10.5).
      * 그 행이 연간 값뿐(KIS)이면 같은 값을 '최근' 이름으로 한 번 더 보이지 않도록 null, 적자면 PER 만 비운다(§4c).
+     *
+     * <p>PER 과 PBR 의 '최근' 여부는 따로 판단한다(2026-10-19) — {@code per_basis} 는 순이익 정의(CTRL·CONSOL·KIS)일 뿐이고,
+     * BPS 는 수집기가 그와 별개로 정한다(지배지분 자본이 있으면 그것, 없으면 KIS 최근 분기 자본총계, 둘 다 없으면 연간).
+     * 그래서 PBR 은 최근 분기 자본총계가 있는 행(BPS 가 최근 분기 자본)일 때만 보이고, 그 기준(지배·연결)은 행에 남지 않아 단정하지 않는다.
      */
     static RecentMultiples recentMultiples(StockFinancialData row, BigDecimal currentPrice) {
         if (row == null || row.getMarketCap() == null || currentPrice == null || currentPrice.signum() <= 0) return null;
         String basis = row.getPerBasis();
-        if (!"CTRL".equals(basis) && !"CONSOL".equals(basis)) return null;
-        BigDecimal per = row.getEps() != null && row.getEps().signum() > 0
+        boolean ttmEarnings = "CTRL".equals(basis) || "CONSOL".equals(basis);
+        boolean recentEquity = row.getTotalEquity() != null && row.getTotalEquity().signum() > 0;
+        BigDecimal per = ttmEarnings && row.getEps() != null && row.getEps().signum() > 0
                 ? currentPrice.divide(row.getEps(), 1, RoundingMode.HALF_UP) : null;
-        BigDecimal pbr = row.getBps() != null && row.getBps().signum() > 0
+        BigDecimal pbr = recentEquity && row.getBps() != null && row.getBps().signum() > 0
                 ? currentPrice.divide(row.getBps(), 2, RoundingMode.HALF_UP) : null;
         if (per == null && pbr == null) return null;
         return new RecentMultiples(per, pbr, basis, row.getReportDate());
@@ -1096,6 +1101,34 @@ public class StockDetailService {
     }
 
     // ========== 장 마감 후 일별 데이터 조회 ==========
+
+    /** 오늘 장이 닫혔는가 — 달력을 모르면(미주입·조회 실패) 휴장으로 보지 않는다(종전 동작). */
+    private boolean marketClosedToday() {
+        try {
+            return marketCalendar != null && marketCalendar.isMarketClosed();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 수급 출처 이름 — 순수(2026-10-19). 장이 닫힌 날이 먼저다(시각과 무관하게 '휴장'). 예전엔 시각만 봐서 08:00~20:00 이면
+     * 토요일·평일 공휴일도 '실시간'이었다 — 화면 안내문이 "장 마감(15:40) 뒤 제공"이라 했고 체결강도 게이지는 휴장일을 장중처럼 말했다.
+     */
+    static String supplySource(boolean marketClosedToday, boolean beforeMarket, boolean afterMarket) {
+        if (marketClosedToday) return "휴장";
+        if (beforeMarket) return "장전(초기화)";
+        if (afterMarket) return "일별(DB)";
+        return "실시간";
+    }
+
+    /**
+     * 외국인·기관 당일 집계가 이미 나와 있어야 하는가 — 거래일 15:40 이후({@link ScalpingAnalysisService#INVESTOR_DATA_READY_AFTER}).
+     * 그 뒤에 비어 있으면 '마감 뒤 제공'이 아니라 아직 못 받은 것이다. 순수.
+     */
+    static boolean investorDataExpected(boolean marketClosedToday, LocalTime now) {
+        return !marketClosedToday && now != null && !now.isBefore(ScalpingAnalysisService.INVESTOR_DATA_READY_AFTER);
+    }
 
     /**
      * 장 마감 여부 확인 (15:30 이후)
@@ -2208,7 +2241,9 @@ public class StockDetailService {
         StringBuilder sb = new StringBuilder();
         // ★ 분석 기준일 명시 주입 — LLM 이 날짜를 발명(예: 2년 전)하지 않게 서버 오늘/세션 앵커 제공(§4c).
         boolean preMarket = isBeforeMarketHours();
-        String session = preMarket ? "장전(당일 미거래)" : (isAfterMarketHours() ? "장마감" : "장중");
+        // 장이 닫힌 날은 '휴장' — 예전엔 휴장일 10시를 '장중'으로 넣어 마지막 거래일 데이터를 장중 데이터처럼 분석하게 했다(2026-10-19)
+        String session = marketClosedToday() ? "휴장 — 가격·수급은 마지막 거래일 값"
+                : (preMarket ? "장전(당일 미거래)" : (isAfterMarketHours() ? "장마감" : "장중"));
         sb.append(String.format("분석 기준일: %s (%s)\n", java.time.LocalDate.now(KST), session));
         sb.append(String.format("종목: %s (%s)\n", dto.getStockName(), dto.getStockCode()));
 

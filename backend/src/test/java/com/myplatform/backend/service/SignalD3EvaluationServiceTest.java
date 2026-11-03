@@ -382,4 +382,81 @@ class SignalD3EvaluationServiceTest {
         assertThat(ctl.oldAvgPct()).isNull();
         assertThat(report.caveat()).contains("게이트 전환");
     }
+
+    // ==================== 지수 조회 실패(2026-10-19) ====================
+
+    @Test
+    @DisplayName("재현: 지수 일봉 조회가 실패하면 NO_INDEX(7일 뒤 재시도)가 아니라 FETCH_FAILED(다음 날) — 종목 봉도 받지 않는다")
+    void indexFetchFailureIsFetchFailedNotNoIndex() {
+        Rig g = rig();
+        when(g.kis().getIndexDailyOhlcv(any(), anyInt(), any())).thenThrow(new RuntimeException("EGW00215 초당 거래건수 초과"));
+
+        var report = g.svc().run(false, 120, false);
+
+        assertThat(g.pending().getD3Status()).as("일시 장애를 '지수 없음'으로 7일 묶지 않는다").isEqualTo("FETCH_FAILED");
+        assertThat(g.pending().getD3Note()).contains("지수");
+        assertThat(report.fetchFailedRows()).isEqualTo(1);
+        verify(g.analysis(), never()).collectPriceHistoryRange(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("지수 응답이 비어 있어도 같다 — 일시 장애로 보고 다음 날 다시")
+    void emptyIndexResponseIsFetchFailed() {
+        Rig g = rig();
+        when(g.kis().getIndexDailyOhlcv(any(), anyInt(), any())).thenReturn(List.of());
+
+        g.svc().run(false, 120, false);
+
+        assertThat(g.pending().getD3Status()).isEqualTo("FETCH_FAILED");
+        verify(g.analysis(), never()).collectPriceHistoryRange(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("대기 행이 없으면 지수도 부르지 않는다 — KIS 를 쓰지 않는다")
+    void noDueRowsNoIndexCall() {
+        Rig g = rig();
+        when(g.repo().findD3Pending(any(), any(), any(), any(), any(), any(), any())).thenReturn(List.of());
+
+        g.svc().run(false, 120, false);
+
+        verify(g.kis(), never()).getIndexDailyOhlcv(any(), anyInt(), any());
+    }
+
+    // ==================== force 재평가가 OK 행을 내리지 않는다(2026-10-19) ====================
+
+    @Test
+    @DisplayName("재현: force 재평가에서 지수 응답에 그 D+3 날짜가 없으면(지수 일봉 약 100개 상한 밖 — 오래된 창) OK 행을 NO_INDEX 로 덮지 않는다")
+    void forceDoesNotDowngradeOkToNoIndex() {
+        Rig g = rig();
+        SignalD3EvaluationService.apply(g.pending(), ok("10300", "3.0000", "2.0000", true), LocalDateTime.of(2026, 9, 16, 19, 45));
+        // 지수 응답은 왔지만 창의 D+3(9/10)이 없다 — 오늘 기준 최근 약 100개만 준다
+        when(g.kis().getIndexDailyOhlcv(any(), anyInt(), any())).thenReturn(List.of(
+                new KoreaInvestmentService.IndexOhlcvData("20260916", null, null, null, new BigDecimal("3100"))));
+        var bars = List.of(ohlcv(SIGNAL, "10050"), ohlcv(WINDOW.get(0), "10100"),
+                ohlcv(WINDOW.get(1), "10500"), ohlcv(WINDOW.get(2), "10300"));
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenReturn(new StockAnalysisService.CollectResult(false, bars, 4));
+
+        g.svc().run(false, 120, true);
+
+        assertThat(g.pending().getD3Status()).isEqualTo("OK");
+        assertThat(g.pending().getD3Alpha()).isEqualByComparingTo("2.0000");
+        verify(g.repo(), never()).save(any());
+    }
+
+    @Test
+    @DisplayName("force 재평가가 OK 로 다시 재면 바뀐 값은 쓴다 — 비교표를 다시 만드는 용도는 그대로")
+    void forceStillRewritesOkWithOk() {
+        Rig g = rig();
+        SignalD3EvaluationService.apply(g.pending(), ok("10200", "2.0000", "1.0000", true), LocalDateTime.of(2026, 9, 16, 19, 45));
+        var bars = List.of(ohlcv(SIGNAL, "10050"), ohlcv(WINDOW.get(0), "10100"),
+                ohlcv(WINDOW.get(1), "10500"), ohlcv(WINDOW.get(2), "10300"));
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenReturn(new StockAnalysisService.CollectResult(false, bars, 4));
+
+        g.svc().run(false, 120, true);
+
+        assertThat(g.pending().getD3Close()).isEqualByComparingTo("10300");
+        verify(g.repo()).save(g.pending());
+    }
 }

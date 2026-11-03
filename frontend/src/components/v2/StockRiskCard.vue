@@ -138,7 +138,7 @@ export default {
     },
     dangerousDisclosures() {
       const list = this.detail?.dangerousDisclosures
-      return Array.isArray(list) ? list.filter(d => d.isDangerous !== false) : []
+      return Array.isArray(list) ? list.filter(d => d.dangerous !== false) : []
     }
   },
   watch: {

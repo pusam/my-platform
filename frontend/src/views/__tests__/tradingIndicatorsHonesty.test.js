@@ -20,3 +20,13 @@ describe('TradingIndicatorsPage', () => {
     expect(src).toMatch(/signedPercentOrDash\(sector\.averageChangeRate\)/)
   })
 })
+
+// 2026-10-19: 백엔드 원시 boolean isReliable/isTradingHalt 는 JSON 에서 reliable/tradingHalt 다(BooleanJsonKeyContractTest).
+// 화면이 isReliable 로 읽어 VWAP '신뢰도 낮음' 경고가 늘 떴고, isTradingHalt 로 읽어 나스닥 선물 '매수 보류'는 한 번도 안 떴다.
+describe('TradingIndicatorsPage — 실제 응답 이름', () => {
+  it('재현: VWAP 신뢰도는 reliable, 나스닥 선물 거래 보류는 tradingHalt 로 읽는다', () => {
+    expect(src).toMatch(/v-if="!vwapResult\.reliable"/)
+    expect(src).toMatch(/v-if="nasdaqFutures\.tradingHalt"/)
+    expect(src).not.toMatch(/isReliable|isTradingHalt/)
+  })
+})

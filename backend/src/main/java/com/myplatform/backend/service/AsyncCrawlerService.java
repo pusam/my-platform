@@ -29,6 +29,7 @@ public class AsyncCrawlerService {
     private final StockFinancialDataCollector stockFinancialDataCollector;
     private final SseEmitterService sseEmitterService;
     private final BatchJobMonitorService batchMonitor;
+    private final EarningSurpriseService earningSurpriseService;
 
     // 작업 상태 플래그 — @Async crawlerExecutor 에서 동시 호출 가능하므로 ConcurrentHashMap 필수.
     // 일반 HashMap 이면 computeIfAbsent 동시 호출 시 race condition (resize 도중 쓰기 충돌).
@@ -81,6 +82,7 @@ public class AsyncCrawlerService {
             sseEmitterService.sendStep(taskType, 1, 2, "1️⃣ 기본 재무 데이터 수집 중...");
             Map<String, Object> step1 = stockFinancialDataService.collectAllStocksFinancialData();
             result.put("step1_basicFinancial", step1);
+            refreshEarningSurprises();
             log.info("[Async] 1/2 기본 재무 데이터 완료 - 성공 {}, 실패 {}", step1.get("successCount"), step1.get("failCount"));
             sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 기본 재무 데이터: 성공 %s, 실패 %s",
                     step1.get("successCount"), step1.get("failCount")));
@@ -126,6 +128,19 @@ public class AsyncCrawlerService {
     }
 
     /**
+     * 1단계가 분기 원본(V55)에 새 분기를 적재했다 — 실적 서프라이즈 당일 캐시를 비워 그날 남은 종합추천·실적 TOP10·AI 전략이 새 분기로
+     * 다시 판정하게 한다(2026-10-19). 예전엔 부르는 곳이 없어 08:00 재료 워밍이 만든 캐시를 하루 종일 썼고, 08:30·15:38 에 들어온 새
+     * 실적이 다음 거래일에야 반영됐다. 수집이 일부 실패해도 비운다 — 다음 판정이 그 시각의 V55 를 읽을 뿐이다.
+     */
+    private void refreshEarningSurprises() {
+        try {
+            earningSurpriseService.refreshCache();
+        } catch (Exception e) {
+            log.warn("[재무 수집] 실적 서프라이즈 캐시 비우기 실패 — 다음 거래일 판정까지 이전 판정을 쓴다: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 작업 실행 상태 확인
      */
     public boolean isTaskRunning(String taskType) {
@@ -164,6 +179,7 @@ public class AsyncCrawlerService {
             log.info("[Scheduled] 1/2 기본 재무 데이터 수집 중...");
             Map<String, Object> step1 = stockFinancialDataService.collectAllStocksFinancialData();
             result.put("step1_basicFinancial", step1);
+            refreshEarningSurprises();
 
             // 2단계: 성장률 계산 (PEG 스크리너용)
             log.info("[Scheduled] 2/2 성장률 계산 중...");

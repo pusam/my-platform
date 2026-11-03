@@ -113,6 +113,14 @@ public class RecommendationService {
     // 종합 판단 보드 union(P2-14 Phase2) — 최근 calculate() scoreMap(seed=AI/실적/수급 종목의 4카테고리)
     // 을 보존해 발굴 union 종목의 4-cat lookup 에 재사용(재점수 없이). calculate() 미실행(장외 DB 경로)이면 stale/null.
     private volatile Map<String, StockScore> cachedScoreMap = null;
+    // 마지막 계산의 기술 채점에서 봉 노후로 건너뛴 후보 수 — 빈 결과를 '관망'으로 발행할지·09:00 알림을 낼지 판단에 쓴다(2026-10-19)
+    private volatile int lastTechnicalStale = 0;
+    // 비동기 일봉 수집에 예약된 종목 — 수집이 끝나기 전 다음 계산이 같은 종목을 또 예약하지 않게(2026-10-19).
+    // StockAnalysisService 의 중복 방지는 '지금 받는 중인 한 종목'만 막아, 수집 스레드 둘이 같은 목록을 돌면 대부분을 두 번 받았다.
+    private final java.util.Set<String> priceHistoryCollecting = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** 수집 뒤에도 최신 봉이 안 생긴 종목 목록(날짜 포함) — 같은 날 같은 목록이면 경고를 다시 내지 않는다(2026-11-03). */
+    private final java.util.concurrent.atomic.AtomicReference<String> lastStaleCollectKey =
+            new java.util.concurrent.atomic.AtomicReference<>("");
     private static final long CACHE_MINUTES = 30;
     private static final int NA = -1;
 
@@ -178,7 +186,7 @@ public class RecommendationService {
             try {
                 List<RecommendationDto> result = calculate();
                 if (!result.isEmpty() || shouldPublishEmptyResult(
-                        cachedScoreMap != null ? cachedScoreMap.size() : 0)) {
+                        cachedScoreMap != null ? cachedScoreMap.size() : 0, lastTechnicalStale)) {
                     cachedTop5 = result;
                     cacheTime = now;
                     return buildResponse(result, now.format(TIME_FMT) + " 기준", true);
@@ -234,7 +242,7 @@ public class RecommendationService {
                 cachedTop5 = result;
                 cacheTime = LocalDateTime.now();
                 log.info("[종합추천] 백그라운드 계산 완료 - {}건", result.size());
-            } else if (shouldPublishEmptyResult(cachedScoreMap != null ? cachedScoreMap.size() : 0)) {
+            } else if (shouldPublishEmptyResult(cachedScoreMap != null ? cachedScoreMap.size() : 0, lastTechnicalStale)) {
                 // 정상 계산인데 55컷 통과 0건 = 유효한 '관망' 결론(급락일 등) — 어제 스냅샷을
                 // 계속 노출하는 대신 빈 결과를 발행해 UI 가 "관망" 을 말하게 한다(§4c, 2026-07-28).
                 // scoreMap 이 빈약하면(입력 데이터 몰락 의심) 발행하지 않고 기존 스냅샷 유지(안전).
@@ -242,6 +250,11 @@ public class RecommendationService {
                 cacheTime = LocalDateTime.now();
                 log.info("[종합추천] 백그라운드 계산 완료 - 컷 통과 0건(관망) → 빈 결과 발행(scoreMap {}종목)",
                         cachedScoreMap.size());
+            } else if (cachedScoreMap != null && cachedScoreMap.size() >= 10) {
+                // 후보 대부분이 봉 노후로 기술 미채점 — 기술 없이는 최대 47점이라 컷을 못 넘는 게 당연하다. '관망'이 아니라
+                // '아직 모름'이므로 발행하지 않는다(2026-10-19). 예약한 수집이 끝난 뒤 다음 계산이 정상 결과를 낸다.
+                log.warn("[종합추천] 계산 결과 0건 — 후보 {}종목 중 {}종목이 봉 노후로 기술 미채점, '관망'으로 발행하지 않고 기존 결과 유지(봉 수집 뒤 다음 계산)",
+                        cachedScoreMap.size(), lastTechnicalStale);
             } else {
                 log.warn("[종합추천] 계산 결과 0건 + scoreMap 빈약 — 입력 데이터 이상 의심, 기존 스냅샷 유지");
             }
@@ -257,7 +270,41 @@ public class RecommendationService {
      * 0건(관망)"으로 보고 발행, 그 미만이면 데이터 소스 몰락 의심이라 기존 스냅샷 유지. 테스트 대상.
      */
     static boolean shouldPublishEmptyResult(int scoredStockCount) {
-        return scoredStockCount >= 10;
+        return shouldPublishEmptyResult(scoredStockCount, 0);
+    }
+
+    /**
+     * 빈 결과 발행 — 위 규칙 + 후보 대부분(절반 이상)이 봉 노후로 기술 미채점이면 미발행(2026-10-19). 기술 없이는 원점수가
+     * 최대 38점(100점 환산 47)이라 55점 컷을 아무도 못 넘는다 — 그 빈 결과는 '관망'이 아니라 '아직 모름'이다(§4c).
+     */
+    static boolean shouldPublishEmptyResult(int scoredStockCount, int staleTechnicalCount) {
+        return scoredStockCount >= 10 && !technicalMostlyStale(scoredStockCount, staleTechnicalCount);
+    }
+
+    /** 후보의 절반 이상이 봉 노후로 기술 미채점인가 — 순수 함수. */
+    static boolean technicalMostlyStale(int scoredStockCount, int staleTechnicalCount) {
+        return scoredStockCount > 0 && staleTechnicalCount * 2 >= scoredStockCount;
+    }
+
+    /**
+     * 수집 대상 중 최신 봉(기준일 이상)이 안 생긴 종목 — 정렬, 순수 함수. 기준일을 모르면(달력 실패) 봉이 없는 종목만.
+     * 나머지가 최신 봉이 생긴 종목이다(수집기는 실패를 삼키므로 결과는 저장된 봉으로 센다, 2026-10-19).
+     */
+    static List<String> notFreshAfterCollect(java.util.Collection<String> codes, Map<String, java.time.LocalDate> latestByCode,
+                                             java.time.LocalDate cutoff) {
+        List<String> out = new ArrayList<>();
+        for (String code : codes) {
+            java.time.LocalDate d = latestByCode.get(code);
+            if (d == null || (cutoff != null && d.isBefore(cutoff))) out.add(code);
+        }
+        java.util.Collections.sort(out);
+        return out;
+    }
+
+    /** 종목 코드 앞 max 개 — 나머지는 '외 N'. */
+    static String codesPreview(List<String> codes, int max) {
+        return codes.size() <= max ? String.join(", ", codes)
+                : String.join(", ", codes.subList(0, max)) + " 외 " + (codes.size() - max);
     }
 
     /**
@@ -291,7 +338,10 @@ public class RecommendationService {
             for (RecommendationDto dto : items) {
                 com.myplatform.backend.dto.StockPriceDto p = prices.get(dto.getStockCode());
                 if (p != null) {
-                    if (p.getChangeRate() != null) dto.setChangeRate(p.getChangeRate());
+                    if (p.getChangeRate() != null) {
+                        dto.setChangeRate(p.getChangeRate());
+                        dto.setChangeRateBasisDate(null);   // 실시간 시세 — 확정 봉 기준일을 지운다(2026-10-19)
+                    }
                     if (p.getCurrentPrice() != null) dto.setCurrentPrice(p.getCurrentPrice());
                 }
             }
@@ -333,16 +383,24 @@ public class RecommendationService {
         // 기록이 쌓인다(8/17 광복절 대체휴일에 실발생, 시세는 멎어 있는데 시그널·대조군 행이 생겼다).
         if (marketCalendar.isMarketClosed()) { log.debug("[종합추천] 휴장일 — 스냅샷 스킵"); return; }
         log.info("[종합추천] 장중 스냅샷 저장");
-        saveSnapshotInternal();
+        saveSnapshotInternal(true);
     }
 
-    /** 마감 스냅샷 (20:05 — 애프터마켓 종료 후) */
+    /**
+     * 마감 스냅샷 (20:05 — 애프터마켓 종료 후). 저장만 하고 시그널은 기록하지 않는다(2026-11-03, 사용자 결정).
+     *
+     * <p>이 계산과 다음 거래일 장중 계산은 같은 일봉(그날 확정 봉)을 쓴다 — 장중엔 확정 전 봉을 저장하지 않는다.
+     * 그래서 이 목록은 다음 거래일 장중 스냅샷에서 다시 채점되고(그때도 55점을 넘으면 기록), 여기서도 기록하면 같은
+     * 신호가 이틀 치 표본으로 잡힌다. 20:05 의 가격(20:00 마감가)은 이 목록을 보고 살 수 있는 가격도 아니고, 장이 닫혀 대조군도
+     * 거의 뽑히지 않는다. 예전엔 시세 캐시가 비어 있어 기록되지 않았을 뿐이라, 20:00~20:05 에 누가 종목 화면을
+     * 열어 두면 그 종목만 기록됐다.
+     */
     @Scheduled(scheduler = "batchScheduler", cron = "0 5 20 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveClosingSnapshot() {
         if (marketCalendar.isMarketClosed()) { log.debug("[종합추천] 휴장일 — 마감 스냅샷 스킵"); return; }
         log.info("[종합추천] 마감 스냅샷 저장 시작");
-        saveSnapshotInternal();
+        saveSnapshotInternal(false);
         snapshotRepository.deleteOlderThan(LocalDateTime.now().minusDays(7));
     }
 
@@ -521,6 +579,13 @@ public class RecommendationService {
                         CALC_JOIN_TIMEOUT.toMinutes());
                 return;
             }
+            int scoredToday = cachedScoreMap != null ? cachedScoreMap.size() : 0;
+            if (technicalMostlyStale(scoredToday, lastTechnicalStale)) {
+                // 기술 점수 없이 매긴 점수로 '가속'을 판정하지 않는다(2026-10-19) — 어제 스냅샷보다 낮게 나와 알림이 안 나가거나,
+                // 우연히 봉이 받아져 있던 종목만으로 판정된다.
+                log.info("[상승가속알림] 후보 {}종목 중 {}종목이 봉 노후로 기술 미채점 — 오늘 알림 스킵", scoredToday, lastTechnicalStale);
+                return;
+            }
             if (todayList.isEmpty()) {
                 log.info("[상승가속알림] 오늘 추천 데이터 없음 — 스킵");
                 return;
@@ -607,7 +672,8 @@ public class RecommendationService {
         }
     }
 
-    private void saveSnapshotInternal() {
+    /** @param recordSignals 컷 통과 종목을 signal_outcome 에 기록하는가 — 장중 스냅샷만(마감 스냅샷은 false). */
+    private void saveSnapshotInternal(boolean recordSignals) {
         try {
             List<RecommendationDto> result = calculate();
             // 입력 부족도 과거 추천을 오늘 시그널로 재발행할 근거가 아니다.
@@ -655,7 +721,7 @@ public class RecommendationService {
 
             // 시그널 적중률 추적 — STRONG_BUY (75+) / BUY (55~74) 종목 발생 기록.
             // 3일 후 batch 가 평가. record() 실패해도 스냅샷 저장은 영향 없음 (try/catch 격리).
-            SignalOutcomeService outcomeService = signalOutcomeProvider.getIfAvailable();
+            SignalOutcomeService outcomeService = recordSignals ? signalOutcomeProvider.getIfAvailable() : null;
             if (outcomeService != null) {
                 int priceSkipped = 0;   // 컷 통과 종목이 시세 캐시 콜드로 record 안 된 수 — 아래 warn 로 가시화
                 for (RecommendationDto dto : result) {
@@ -688,7 +754,8 @@ public class RecommendationService {
                 }
             }
 
-            log.info("[종합추천] 스냅샷 {}건 저장 ({})", result.size(), snapTime.format(TIME_FMT));
+            log.info("[종합추천] 스냅샷 {}건 저장 ({}){}", result.size(), snapTime.format(TIME_FMT),
+                    recordSignals ? "" : " — 마감 스냅샷이라 시그널 기록 안 함(다음 거래일 장중 스냅샷이 같은 일봉으로 다시 채점·기록)");
         } catch (Exception e) {
             log.error("[종합추천] 스냅샷 실패: {}", e.getMessage());
         }
@@ -1507,12 +1574,13 @@ public class RecommendationService {
 
     // ==================== Core Calculation ====================
 
-    private List<RecommendationDto> calculate() {
+    // package-private — 스냅샷 기록 경로 테스트가 결과를 고정한다(RecommendationClosingSnapshotRecordTest).
+    List<RecommendationDto> calculate() {
         Map<String, StockScore> scoreMap = new HashMap<>();
 
         // 정렬 tie-break 용 — 어제(또는 20시간 전) 스냅샷 점수. delta = 오늘 - 어제 desc 로
         // "막 올라온 종목"이 "이미 다 올라간 종목" 보다 우선. prevScoreMap 비어있으면 0 으로
-        // 폴백 → 최후 tie-break 인 changeRate desc 로 위임.
+        // 폴백 → 최후 tie-break 인 '마지막 확정 봉 등락률 asc'(덜 오른 종목 우선)로 위임.
         final Map<String, Integer> prevScoreMap = new HashMap<>();
         try {
             LocalDateTime cutoff = LocalDateTime.now().minusHours(20);
@@ -2190,14 +2258,18 @@ public class RecommendationService {
         //   (한국 16시 초기화)라 장중 회차엔 테마가 거의 안 붙고, 같은 종목이 한도 상태에 따라 섹터 축 +10(100점 환산 +12.5)을
         //   받거나 못 받았다. 테마는 AI 전략 화면 표시용으로만 남는다. 10/1 "LLM 은 점수·순위를 바꾸지 않는다"와 같은 원칙 —
         //   되살리지 말 것(RecommendationGeminiThemeTest). 이 날이 종합추천 섹터 축의 표본 경계다.
-        Map<String, BigDecimal> settledChange = settledChangeRates(scoreMap.keySet());
+        Map<String, SettledChange> settledChange = settledChangeRates(scoreMap.keySet());
 
         // 3. 종목별 섹터 점수 — 종목 등락률만 (시장분위기 일괄 가산 제거 P1, Gemini 테마 가산 제거 2026-10-06).
         int scored = 0;
         for (StockScore stock : scoreMap.values()) {
             int ss = 0;
-            // 종목 자체 등락률 보너스 — 마지막 확정 봉 기준(모르면 가점 없음, 후보가 실어 온 값으로 메우지 않는다)
-            BigDecimal cr = settledChange.get(stock.stockCode);
+            // 종목 자체 등락률 보너스 — 마지막 확정 봉 기준(모르면 가점 없음, 후보가 실어 온 값으로 메우지 않는다).
+            // 같은 값을 후보에 실어 둔다 — 동점 순서('덜 오른 종목 우선')도 이 값 하나로 견준다(2026-10-19).
+            SettledChange sc = settledChange.get(stock.stockCode);
+            stock.settledChangeRate = sc != null ? sc.rate() : null;
+            stock.settledChangeDate = sc != null ? sc.date() : null;
+            BigDecimal cr = stock.settledChangeRate;
             if (cr != null) {
                 double v = cr.doubleValue();
                 if (v > 3.0) ss += 4;
@@ -2233,7 +2305,10 @@ public class RecommendationService {
      * <p>기술 채점과 같은 봉을 쓴다: 저장된 최신 봉이고, 직전 거래일보다 오래되면 노후라 모름(null). 마감 전 봉은 저장되지
      * 않으므로({@code StockAnalysisService.isSettledBar}) 장중엔 전 종목이 직전 거래일 등락률이다. 조회 실패는 빈 맵 — 가점 없음(§4c).
      */
-    private Map<String, BigDecimal> settledChangeRates(Collection<String> codes) {
+    /** 마지막 확정 봉의 등락률과 그 날짜. */
+    record SettledChange(BigDecimal rate, java.time.LocalDate date) {}
+
+    private Map<String, SettledChange> settledChangeRates(Collection<String> codes) {
         if (codes == null || codes.isEmpty()) return Map.of();
         java.time.LocalDate today = java.time.LocalDate.now();
         java.time.LocalDate cutoff;
@@ -2253,10 +2328,10 @@ public class RecommendationService {
             log.warn("[종합추천] 섹터 등락률(확정 봉) 조회 실패 — 가점 없음: {}", e.getMessage());
             return Map.of();
         }
-        Map<String, BigDecimal> out = new HashMap<>();
+        Map<String, SettledChange> out = new HashMap<>();
         for (StockPriceHistory b : latest.values()) {
             if (cutoff != null && b.getTradeDate().isBefore(cutoff)) continue;   // 노후 = 모름
-            if (b.getChangeRate() != null) out.put(b.getStockCode(), b.getChangeRate());
+            if (b.getChangeRate() != null) out.put(b.getStockCode(), new SettledChange(b.getChangeRate(), b.getTradeDate()));
         }
         return out;
     }
@@ -2264,7 +2339,7 @@ public class RecommendationService {
     // ==================== ⑤ 기술적 (/20) ====================
 
     private void scoreTechnical(Map<String, StockScore> scoreMap) {
-        int calc = 0, fallback = 0, skip = 0;
+        int calc = 0, fallback = 0, skip = 0, stale = 0;
         // 부족 종목은 모아뒀다가 비동기로 수집 (API 응답 블로킹 방지)
         List<String> needsCollection = new ArrayList<>();
 
@@ -2304,17 +2379,21 @@ public class RecommendationService {
                 if (!isPriceHistoryFresh(history, staleCutoff)) {
                     needsCollection.add(stock.stockCode);
                     skip++;
+                    stale++;
                     continue;
                 }
 
                 if (history == null || history.size() < 5) {
                     needsCollection.add(stock.stockCode);
-                    // 즉시 폴백 점수 부여 (changeRate 없어도 최소 점수)
-                    if (stock.changeRate != null) {
-                        double cr = stock.changeRate.doubleValue();
+                    // 즉시 폴백 점수 부여 — 그 종목의 마지막 확정 봉 등락률로(2026-10-19). 예전엔 후보가 실어 온 등락률
+                    // (수급 행·AI 스냅샷 시점 등 출처마다 시각이 다르다)을 써서, 저장된 확정 봉이 있는데도 다른 시각 값으로 매겼다.
+                    // 노후 가드를 통과했으니 history.get(0) 이 직전 거래일 이후의 확정 봉이다(DESC). 등락률을 모르면 최소 3점(종전).
+                    BigDecimal lastSettled = (history == null || history.isEmpty()) ? null : history.get(0).getChangeRate();
+                    if (lastSettled != null) {
+                        double cr = lastSettled.doubleValue();
                         stock.technical = (cr > 2.0) ? 8 : (cr > 0) ? 5 : (cr > -2.0) ? 3 : 1;
                     } else {
-                        stock.technical = 3; // changeRate 없어도 최소 3점 (validCount에 포함)
+                        stock.technical = 3; // 등락률 없어도 최소 3점 (validCount에 포함)
                     }
                     stock.tags.add("기술(간편)");
                     fallback++;
@@ -2384,24 +2463,81 @@ public class RecommendationService {
                 calc++;
             } catch (Exception e) { skip++; }
         }
-        log.debug("[종합추천] 기술: {}건 계산, {}건 폴백, {}건 스킵", calc, fallback, skip);
+        log.debug("[종합추천] 기술: {}건 계산, {}건 폴백, {}건 스킵(봉 노후 {})", calc, fallback, skip, stale);
+        this.lastTechnicalStale = stale;
 
-        // 부족 종목 비동기 수집 (다음 calculate() 호출 시 사용 가능)
+        // 부족 종목 비동기 수집 (다음 calculate() 호출 시 사용 가능). 앞 계산이 예약해 아직 받는 중인 종목은 다시 예약하지 않는다.
         if (!needsCollection.isEmpty()) {
-            log.info("[종합추천] 가격히스토리 부족 {}종목 → 비동기 수집 예약", needsCollection.size());
-            new Thread(() -> {
+            List<String> toCollect = new ArrayList<>();
+            for (String code : needsCollection) {
+                if (priceHistoryCollecting.add(code)) toCollect.add(code);
+            }
+            int already = needsCollection.size() - toCollect.size();
+            if (toCollect.isEmpty()) {
+                log.info("[종합추천] 가격히스토리 부족 {}종목 — 전부 앞 계산이 수집 중", needsCollection.size());
+                return;
+            }
+            log.info("[종합추천] 가격히스토리 부족 {}종목 → 비동기 수집 예약 {}종목{}", needsCollection.size(), toCollect.size(),
+                    already > 0 ? " (앞 계산이 수집 중 " + already + ")" : "");
+            final java.time.LocalDate summaryCutoff = staleCutoff;
+            Runnable job = () -> {
                 long started = System.currentTimeMillis();
-                int failed = 0;
-                for (String code : needsCollection) {
-                    try {
-                        stockAnalysisService.collectPriceHistory(code);
-                    } catch (Exception e) { failed++; }
+                try {
+                    for (String code : toCollect) {
+                        try {
+                            stockAnalysisService.collectPriceHistory(code);
+                        } catch (Exception e) {
+                            log.debug("[종합추천] 가격히스토리 수집 예외 {}: {}", code, e.getMessage());
+                        } finally {
+                            priceHistoryCollecting.remove(code);
+                        }
+                    }
+                } finally {
+                    priceHistoryCollecting.removeAll(toCollect);   // 중간에 빠져나가도 예약을 남기지 않는다
                 }
-                // 끝났다는 요약 한 줄 — 종목별 저장 로그는 DEBUG 로 내렸다(§5, 2026-10-07)
-                log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 (예외 {}) · {}초",
-                        needsCollection.size(), failed, (System.currentTimeMillis() - started) / 1000);
-            }, "price-history-collector").start();
+                // 끝났다는 요약 한 줄 — 종목별 저장 로그는 DEBUG(§5, 2026-10-07). 수집기는 실패(예외·빈 응답)를 삼키므로
+                // 결과는 저장된 봉으로 센다(2026-10-19) — 예전 '(예외 N)' 은 늘 0 이라 KIS 장애에도 성공처럼 보였다.
+                long secs = (System.currentTimeMillis() - started) / 1000;
+                List<String> missing;
+                try {
+                    missing = notFreshAfterCollect(toCollect, latestBarDates(toCollect), summaryCutoff);
+                } catch (Exception e) {
+                    log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 · {}초 (결과 확인 실패: {})", toCollect.size(), secs, e.getMessage());
+                    return;
+                }
+                int fresh = toCollect.size() - missing.size();
+                // 같은 날 같은 목록이면 경고는 한 번(§5) — 거래정지 등으로 KIS 가 일봉을 주지 않는 종목이 후보에 남으면 계산마다(약 35분)
+                // 같은 경고가 나서 'KIS 응답 이상'으로 읽혔다(11/2~11/3 같은 3종목으로 13줄, 2026-11-03). 목록이 바뀌면 다시 알린다.
+                String key = java.time.LocalDate.now() + "|" + String.join(",", missing);
+                boolean newList = !key.equals(lastStaleCollectKey.getAndSet(key));
+                String missingNote = missing.isEmpty() ? ""
+                        : newList ? " · 봉 안 생긴 종목: " + codesPreview(missing, 10)
+                        : " · 봉 안 생긴 " + missing.size() + "종목(오늘 앞 수집과 같은 목록)";
+                if (fresh * 2 < toCollect.size() && newList) {
+                    log.warn("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 중 최신 봉 {}종목뿐 · {}초{} (같은 목록이면 오늘은 다시 경고하지 않는다 — "
+                                    + "계속 남는 종목은 거래정지 등으로 KIS 가 일봉을 주지 않는 종목일 수 있고, 목록이 바뀌거나 커지면 KIS 응답부터 확인)",
+                            toCollect.size(), fresh, secs, missingNote);
+                } else {
+                    log.info("[종합추천] 가격히스토리 비동기 수집 끝 — {}종목 중 최신 봉 {}종목 · {}초{}", toCollect.size(), fresh, secs, missingNote);
+                }
+            };
+            try {
+                new Thread(job, "price-history-collector").start();
+            } catch (Throwable t) {
+                priceHistoryCollecting.removeAll(toCollect);
+                log.warn("[종합추천] 가격히스토리 수집 스레드 시작 실패 — 다음 계산이 다시 예약: {}", t.getMessage());
+            }
         }
+    }
+
+    /** 종목별 저장된 최신 봉 날짜(최근 2주) — 수집 결과 요약용. */
+    private Map<String, java.time.LocalDate> latestBarDates(List<String> codes) {
+        Map<String, java.time.LocalDate> out = new HashMap<>();
+        for (StockPriceHistory b : priceHistoryRepository.findByStockCodesSince(codes, java.time.LocalDate.now().minusDays(14))) {
+            if (b == null || b.getStockCode() == null || b.getTradeDate() == null) continue;
+            out.merge(b.getStockCode(), b.getTradeDate(), (a, c) -> c.isAfter(a) ? c : a);
+        }
+        return out;
     }
 
     // ==================== ⑥ 실시간 교차검증 (상세페이지 정합성) ====================
@@ -2513,9 +2649,9 @@ public class RecommendationService {
                     }
                 }
 
-                // 3. 수급-가격 괴리: 주가 상승 + 수급 점수 없음 → 개인 주도 의심
-                BigDecimal cr = (livePrice != null && livePrice.getChangeRate() != null)
-                        ? livePrice.getChangeRate() : stock.changeRate;
+                // 3. 수급-가격 괴리: 주가 상승 + 수급 점수 없음 → 개인 주도 의심. 실시간 시세가 있을 때만 판정한다(2026-10-19) —
+                //    예전엔 없으면 후보가 실어 온 등락률(AI 스냅샷 시점·수급 행 등 다른 시각)로 −3 을 매겼다. 모르면 판정하지 않는다(§4c).
+                BigDecimal cr = livePrice != null ? livePrice.getChangeRate() : null;
                 if (cr != null && cr.doubleValue() > 1.0 && stock.supplyDemand <= 0) {
                     stock.technical = Math.max(0, stock.technical - 3);
                     stock.tags.add("⚠수급괴리");
@@ -2724,8 +2860,9 @@ public class RecommendationService {
      * <ol>
      *   <li>normalized total desc</li>
      *   <li>delta(오늘 - 어제) desc — 추천 풀 안에서 막 가속한 종목 우선</li>
-     *   <li>changeRate <b>asc</b> — 점수·delta 동률이면 <b>덜 오른 종목</b> 우선(추격 인상 완화).
-     *       기존엔 desc(많이 오른 종목 우선)라 "이미 많이 올랐다"가 상위 노출 요인이었음(phase 38 약화).</li>
+     *   <li>마지막 확정 봉 등락률({@code settledChangeRate}) <b>asc</b> — 점수·delta 동률이면 <b>덜 오른 종목</b> 우선(추격 인상 완화).
+     *       기존엔 desc(많이 오른 종목 우선)라 "이미 많이 올랐다"가 상위 노출 요인이었음(phase 38 약화). 2026-10-19 부터 섹터
+     *       점수와 같은 확정 봉 값 — 예전엔 후보가 실어 온 등락률이라 종목마다 다른 시각(수급 행·AI 스냅샷 시점)을 견줬다.</li>
      * </ol>
      *
      * <p>⚠ <b>차트 타이밍 승격 시 점검(P2-12, 작업5)</b>: 3차 tie-break(changeRate asc, "덜 오른 종목")는
@@ -2743,12 +2880,12 @@ public class RecommendationService {
                     Integer prev = prevScoreMap.get(s.stockCode);
                     return prev != null ? s.getNormalizedTotal() - prev : 0;
                 }, Comparator.reverseOrder())
-                // changeRate asc — 점수·delta 동률이면 덜 오른 종목 우선(추격 인상 완화, phase 38).
+                // 마지막 확정 봉 등락률 asc — 점수·delta 동률이면 덜 오른 종목 우선(추격 인상 완화, phase 38).
+                // 섹터 점수와 같은 값(scoreSectorMomentum 이 채운다, 2026-10-19) — 후보가 실어 온 changeRate 는 출처마다
+                // 시각이 달라(수급 행 = 직전 거래일, AI = 스냅샷 시점) 같은 줄에서 다른 날을 견줬다.
                 // 결측은 MAX_VALUE 로 두어 <b>맨 뒤</b>로 보낸다(2026-08-05 감사). 예전엔 0.0 으로
-                // 대체해 "등락률을 모르는 종목"이 "0% 상승"으로 최상위에 놓였는데, changeRate 는 일부
-                // 진입 경로에서만 채워지므로 실제 +12% 급등주가 +0.8% 종목을 이기는 의도 정반대
-                // 결과가 났다. 모르는 것을 '덜 올랐다'고 우대하지 않는다(§4c).
-                .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : Double.MAX_VALUE);
+                // 대체해 "등락률을 모르는 종목"이 "0% 상승"으로 최상위에 놓였다. 모르는 것을 '덜 올랐다'고 우대하지 않는다(§4c).
+                .thenComparing(s -> s.settledChangeRate != null ? s.settledChangeRate.doubleValue() : Double.MAX_VALUE);
     }
 
     /**
@@ -2803,7 +2940,9 @@ public class RecommendationService {
                     .validCount(vc)
                     .tags(s.getTags() != null && !s.getTags().isBlank()
                             ? Arrays.asList(s.getTags().split(",")) : Collections.emptyList())
-                    .changeRate(s.getChangeRate()).build();
+                    // 저장된 등락률은 어느 날 기준인지 남지 않는다(예전 행은 후보가 실어 온 값) — 싣지 않고, 실시간 시세가 있으면
+                    // buildResponse 가 채운다(2026-10-19). 시각을 모르는 값을 '오늘' 등락률처럼 보이지 않게.
+                    .changeRate(null).build();
             }).toList();
             cachedTop5 = result;
             cacheTime = snapshots.get(0).getSnapshotAt();
@@ -2905,7 +3044,9 @@ public class RecommendationService {
                 .growth(s.growth >= 0 ? s.growth : NA)
                 .validCount(vc)
                 .tags(new ArrayList<>(s.tags))
-                .changeRate(s.changeRate).build();
+                // 표시 등락률 = 마지막 확정 봉 등락률 + 그 날짜(2026-10-19) — 실시간 시세가 있으면 buildResponse 가 덮는다
+                .changeRate(s.settledChangeRate)
+                .changeRateBasisDate(s.settledChangeRate != null ? s.settledChangeDate : null).build();
     }
 
     // ==================== Inner Classes ====================
@@ -2921,7 +3062,13 @@ public class RecommendationService {
         // valueStability 처럼 totalScore 산식엔 미포함 (별도 표시 factor).
         int growth = -1;
         Set<String> tags = new LinkedHashSet<>();
+        // 후보가 실어 온 등락률 — 출처마다 시각이 다르다(수급 행 = 직전 거래일, AI = 스냅샷 시점, 실적만 = 없음).
+        // 표시·스냅샷 저장용(buildResponse 가 캐시 시세로 덮는다). 점수·순서에는 쓰지 않는다.
         BigDecimal changeRate;
+        // 마지막 확정 봉 등락률 — scoreSectorMomentum 이 settledChangeRates 로 채운다(모르면 null). 섹터 점수·동점 순서 단일 출처.
+        BigDecimal settledChangeRate;
+        // 그 확정 봉의 날짜 — 후보 카드 등락률의 기준일(2026-10-19). 등락률을 모르면 null.
+        java.time.LocalDate settledChangeDate;
         // phase31 P2 — 5거래일 누적 등락률 (%). scoreTechnical 에서 채움. 신규 진입 감점에 사용.
         double fiveDayReturn = 0.0;
         // 리스크 공시 페널티(0 또는 5) — applyRiskPenalty 에서 설정. composite raw 합산
@@ -2952,7 +3099,10 @@ public class RecommendationService {
         private String stockCode, stockName;
         private int totalScore, aiStrategy, earnings, supplyDemand, technical, sectorMomentum, valueStability, growth, validCount;
         private List<String> tags;
+        // 표시 등락률 — 마지막 확정 봉 등락률(기준일 = changeRateBasisDate), 실시간 시세(캐시)가 있으면 그 값(기준일 null)(2026-10-19).
+        // 예전엔 후보가 실어 온 값(수급 행 = 직전 거래일, AI = 스냅샷 시점)이라 캐시가 없으면 다른 시각 값이 '오늘' 등락률처럼 보였다.
         private BigDecimal changeRate;
+        private java.time.LocalDate changeRateBasisDate;
         private BigDecimal currentPrice;
         // 저평가 TOP 10 전용 — 4 항목 점수 분해 (UI 막대 그래프용). 종합 추천은 모두 null.
         private Integer valuePbrScore;             // 0~8

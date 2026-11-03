@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ma20PositionLabel, netBuyClass, netBuyText, closeBasisLabel } from './stockFormat'
+import { ma20PositionLabel, netBuyClass, netBuyText, closeBasisLabel, closeBasisTitle, todayKstIso } from './stockFormat'
 
 /**
  * 종목상세 표시층 정직성 — 2026-08-27 감사 수정분 회귀.
@@ -58,5 +58,18 @@ describe('closeBasisLabel', () => {
     expect(closeBasisLabel(null)).toBe('')
     expect(closeBasisLabel(undefined)).toBe('')
     expect(closeBasisLabel('10/06')).toBe('')
+  })
+})
+
+describe('closeBasisTitle', () => {
+  it('재현: 기준일이 오늘이면 오늘 움직임이 들어 있다고 말한다 — 예전엔 늘 "들어 있지 않습니다"', () => {
+    expect(closeBasisTitle('2026-10-07', '2026-10-07')).toContain('오늘 장 마감 종가까지 들어 있습니다')
+    expect(closeBasisTitle('2026-10-07', '2026-10-07')).not.toContain('들어 있지 않습니다')
+    expect(closeBasisTitle('2026-10-06', '2026-10-07')).toContain('오늘 움직임은 들어 있지 않습니다')
+    expect(closeBasisTitle(null, '2026-10-07')).toBeNull()
+  })
+  it('오늘 날짜는 KST — 기기 시간대와 무관', () => {
+    expect(todayKstIso(new Date('2026-10-07T16:30:00Z'))).toBe('2026-10-08')   // UTC 16:30 = KST 다음 날 01:30
+    expect(todayKstIso(new Date('2026-10-07T08:30:00Z'))).toBe('2026-10-07')
   })
 })

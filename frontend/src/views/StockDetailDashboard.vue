@@ -1,9 +1,9 @@
 <template>
   <div class="trading-dashboard">
     <GlobalNav :subtitle="stockName" />
-    <!-- 종목 검색 모달 (Ctrl+K) -->
-    <StockSearchModal v-if="showSearch" @close="showSearch = false"
-      @select="(code) => { showSearch = false; router.push('/stock/' + code) }" />
+    <!-- 종목 검색 모달 (Ctrl+K) — visible 로 띄운다. 예전엔 v-if 만 두고 visible 을 안 넘겨 모달 안쪽 v-if 가 늘 거짓이라 한 번도
+         뜬 적이 없었고, 고르면 종목 객체를 문자열에 붙여 '/stock/[object Object]' 였다(2026-10-19) -->
+    <StockSearchModal :visible="showSearch" @close="showSearch = false" @select="onSearchSelect" />
     <!-- Header -->
     <header class="dashboard-header">
       <div class="header-left">
@@ -15,15 +15,18 @@
             <!-- 종합 신호 매칭 뱃지 — 클릭 시 5개 분해 -->
             <span v-if="compositeSignal && compositeSignal.totalCount > 0"
                   class="composite-badge" :class="getCompositeBadgeClass()">
-              신호 {{ compositeSignal.matchedCount }}/{{ compositeSignal.totalCount }}
+              신호 {{ compositeSignal.matchedCount }}/{{ compositeSignal.totalCount }}<template
+                v-if="compositeSignal.unavailableCount > 0"> · 조회 실패 {{ compositeSignal.unavailableCount }}</template>
+              <!-- 조회 실패한 신호는 '안 맞음(○)'이 아니다 — 서버가 따로 센다(2026-10-19) -->
               <InfoTooltip title="5가지 신호 매칭" position="left">
                 <p>의사결정 단순화 — 단일 신호 X, 여러 개 같은 방향이면 적중률 ↑</p>
                 <div v-for="s in compositeSignal.signals" :key="s.id" class="tip-row">
                   <span :style="{ color: s.matched ? '#4ade80' : 'rgba(255,255,255,0.35)' }">
-                    {{ s.matched ? '✓' : '○' }}
+                    {{ s.matched ? '✓' : (s.unavailable ? '–' : '○') }}
                   </span>
                   <b>{{ s.label }}</b>
                   <em v-if="s.matched && s.detail" style="opacity:0.85">{{ s.detail }}</em>
+                  <em v-else-if="s.unavailable" style="opacity:0.85">조회 실패</em>
                 </div>
               </InfoTooltip>
             </span>
@@ -74,7 +77,7 @@
 
     <!-- 핵심 요약 카드 (RSI/20일선/외인/기관/리스크/AI) — 요약존으로 이동 -->
     <QuickSummaryBar :has-data="hasData" :loading="loading"
-                     :diagnosis-data="diagnosisData" :ai-analysis="aiAnalysis" />
+                     :diagnosis-data="diagnosisData" :ai-analysis="aiAnalysis" :risk-info="riskInfo" />
 
     <!-- 데이터 갱신 상태 -->
     <div class="freshness-bar" v-if="hasData">
@@ -84,7 +87,7 @@
     <!-- 검색바 + 실시간 상태 — 데이터 로드 후엔 큰 검색바 숨김(헤더 🔍/Ctrl+K 모달이 대체, 슬림화).
          종목 미선택(빈 화면) 상태에서만 진입용으로 노출. -->
     <div class="control-section">
-      <div v-if="!hasData" class="search-bar">
+      <div v-if="!hasData && !loading" class="search-bar">
         <StockCodeInput
           v-model="searchQuery"
           placeholder="종목명 또는 종목코드 입력 (예: 삼성전자, 005930)"
@@ -251,7 +254,7 @@
                   {{ multipleOrDash(financial?.per, 1) }}
                   <span v-if="financial?.forwardPer" class="forward-badge" :class="{ 'forward-improved': financial.forwardPer < financial.per }">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
                 </span>
-                <span v-if="recentMultipleLine(financial, 'per')" class="fin-sub" :title="recentMultipleTitle(financial)">{{ recentMultipleLine(financial, 'per') }}</span>
+                <span v-if="recentMultipleLine(financial, 'per')" class="fin-sub" :title="recentMultipleTitle(financial, 'per')">{{ recentMultipleLine(financial, 'per') }}</span>
               </span>
             </div>
             <div class="fin-card">
@@ -261,7 +264,7 @@
                   {{ multipleOrDash(financial?.pbr, 2) }}
                   <span v-if="financial?.forwardPbr" class="forward-badge" :class="{ 'forward-improved': financial.forwardPbr < financial.pbr }">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
                 </span>
-                <span v-if="recentMultipleLine(financial, 'pbr')" class="fin-sub" :title="recentMultipleTitle(financial)">{{ recentMultipleLine(financial, 'pbr') }}</span>
+                <span v-if="recentMultipleLine(financial, 'pbr')" class="fin-sub" :title="recentMultipleTitle(financial, 'pbr')">{{ recentMultipleLine(financial, 'pbr') }}</span>
               </span>
             </div>
             <div class="fin-card">
@@ -615,13 +618,21 @@ const router = useRouter();
 
 // 종목 검색 (Ctrl+K)
 const showSearch = ref(false);
+// ⚠ 캡처 단계로 듣는다(onMounted) — 모달 입력창의 Esc 가 모달을 먼저 닫으면 버블 단계의 이 처리기는 모달이 이미 닫힌 것으로 보고
+// 차트 전체화면까지 닫았다. 캡처 단계에선 모달이 아직 열려 있을 때 판단한다(2026-10-19).
 const onSearchKeydown = (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault();
     showSearch.value = true;
   }
-  // 차트 전체화면은 Esc 로 닫기 (검색 모달이 떠 있으면 모달 자체 Esc 가 우선)
-  if (e.key === 'Escape' && chartFullscreen.value && !showSearch.value) {
+  if (e.key !== 'Escape') return;
+  // 검색 모달이 떠 있으면 Esc 는 모달만 닫는다(입력창 밖에 초점이 있어도)
+  if (showSearch.value) {
+    showSearch.value = false;
+    return;
+  }
+  // 차트 전체화면은 Esc 로 닫기
+  if (chartFullscreen.value) {
     chartFullscreen.value = false;
   }
 };
@@ -828,6 +839,17 @@ const goBoardNav = (delta) => {
   // 같은 컴포넌트 재사용 라우트(/stock/:code)라 URL 만 바꾸면 리로드 안 됨 — 명시적으로 재조회
   router.replace(`/stock/${next}`);
   searchQuery.value = next;
+  searchStock();
+};
+
+// 검색 모달에서 고른 종목 — 모달은 종목 객체를 보낸다. 주소를 바꾸고 바로 읽는다(보드 이동과 같다 — 아래 주소 감시는 이미 보고
+// 있는 종목이면 건너뛴다)(2026-10-19)
+const onSearchSelect = (stock) => {
+  showSearch.value = false;
+  const code = typeof stock === 'string' ? stock : stock?.stockCode;
+  if (!code) return;
+  router.push(`/stock/${code}`);
+  searchQuery.value = code;
   searchStock();
 };
 
@@ -1041,8 +1063,8 @@ const safetyScore = computed(() => {
     return Math.max(0, Math.min(100, diagScore - riskPenalty));
   }
 
-  // 진단 데이터 없으면 리스크 반전으로 폴백
-  if (risk !== null && risk !== undefined) return 100 - risk;
+  // 진단 점수를 모르면(분석 불가·조회 실패) 모른다 — 예전엔 '100 − 리스크 점수'를 진단 점수라며 보였다(리스크 20 → 80 · 안전,
+  // 2026-10-19). 게이지 색은 아래 safetyStatusClass 가 리스크 상태로 폴백한다.
   return null;
 });
 
@@ -1140,9 +1162,38 @@ const getBarWidth = (value) => {
   return Math.min((Math.abs(value) / maxVal) * 100, 100);
 };
 
+// 종목 읽기 순서 토큰 — 다른 종목으로 넘어간 뒤 늦게 도착한 이전 종목 응답이 새 화면을 덮지 않게(2026-10-19). 예전엔 보드
+// '다음 ▶'·검색으로 넘어가도 이전 종목 요청을 버리지 않아, 그 응답이 늦게 오면 이름·시세·리스크·AI·진단·차트 패턴을 그대로 덮었다.
+// 하위 섹션(신호 이력·재료 이력·공시·유튜브 의견)의 reqSeq 와 같은 방식이다.
+let loadSeq = 0;
+const isCurrentLoad = (seq) => seq === loadSeq;
+
+// 다른 종목으로 넘어갈 때 이전 종목의 데이터를 비운다(2026-10-19) — 남겨 두면 새 종목을 읽는 동안(2단계 리스크·AI·진단은 수 초)
+// 이전 종목 시세·진단 점수가 새 종목 이름 옆에 보였고, 새 종목 조회가 실패하면 이전 종목 데이터가 새 종목 화면으로 그대로 남았다.
+const resetStockData = () => {
+  priceInfo.value = null;
+  supplyDemand.value = null;
+  financial.value = null;
+  chartData.value = null;
+  riskInfo.value = null;
+  aiAnalysis.value = null;
+  peerComparisons.value = null;
+  sectorAvgPbr.value = null;
+  sectorName.value = null;
+  diagnosisData.value = null;
+  chartPatterns.value = [];
+  supportResistance.value = null;
+  volumeProfile.value = null;
+  compositeSignal.value = null;
+  relatedStocks.value = [];
+  panelError.value = {};
+  lastUpdated.value = null;
+};
+
 // 종목 검색
 const searchStock = async () => {
   if (!searchQuery.value.trim()) return;
+  const seq = ++loadSeq;
 
   loading.value = true;
   stopAutoRefresh();
@@ -1162,6 +1213,7 @@ const searchStock = async () => {
         // 2. API 검색 시도
         try {
           const searchResult = await stockAPI.searchStocks(code);
+          if (!isCurrentLoad(seq)) return;   // 그사이 다른 종목을 골랐다
           if (searchResult.data.success && searchResult.data.data?.length > 0) {
             code = searchResult.data.data[0].stockCode;
             searchedName = searchResult.data.data[0].stockName;
@@ -1172,6 +1224,7 @@ const searchStock = async () => {
             return;
           }
         } catch (apiError) {
+          if (!isCurrentLoad(seq)) return;
           console.warn('[StockDetail] API 검색 실패:', apiError);
           toast.error('종목 검색에 실패했습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
           loading.value = false;
@@ -1186,29 +1239,38 @@ const searchStock = async () => {
       }
     }
 
+    if (code !== stockCode.value) {
+      resetStockData();
+      stockName.value = CODE_TO_NAME[code] || searchedName || code;
+    }
     stockCode.value = code;
     // 종목 변경 시 분석 탭으로 복귀 — 투자자 탭(InvestorTrendTab)은 :key=stockCode 로 새로 마운트되며 자체 로드
     mainTab.value = 'analysis';
 
-    await fetchAllData(code, searchedName);
+    await fetchAllData(code, searchedName, seq);
 
-    // 자동 갱신 시작
-    if (autoRefresh.value) {
+    // 자동 갱신 시작 — 그사이 다른 종목으로 넘어갔으면 그쪽 읽기가 시작한다
+    if (autoRefresh.value && isCurrentLoad(seq)) {
       startAutoRefresh();
     }
   } catch (error) {
+    if (!isCurrentLoad(seq)) return;
     console.error('종목 조회 오류:', error);
     toast.error('종목 조회에 실패했습니다.');
   } finally {
-    loading.value = false;
+    if (isCurrentLoad(seq)) loading.value = false;
   }
 };
 
 // 모든 데이터 가져오기 (점진적 로딩: Quick → Heavy + Diagnosis 병렬)
-const fetchAllData = async (code, searchedName) => {
+// seq = 이 읽기의 순서 토큰 — 응답이 왔을 때 그사이 다른 종목으로 넘어갔으면 버린다(2026-10-19)
+const fetchAllData = async (code, searchedName, seq) => {
+  const current = () => isCurrentLoad(seq);
+  const ifCurrent = (fn) => (arg) => { if (current()) fn(arg); };
   try {
     // ★ 1단계: Quick (시세/수급/차트/재무) — 빠르게 화면 표시
     const quickRes = await stockDetailAPI.getQuick(code);
+    if (!current()) return;
 
     if (quickRes.data.success && quickRes.data.data) {
       const data = quickRes.data.data;
@@ -1228,38 +1290,39 @@ const fetchAllData = async (code, searchedName) => {
     chartPatterns.value = [];
     supportResistance.value = null;
     volumeProfile.value = null;
+    // 늦게 온 이전 종목 응답은 버린다(ifCurrent)
     quantTaAPI.patterns(code)
-      .then(res => {
+      .then(ifCurrent(res => {
         if (res.data?.success) { chartPatterns.value = res.data.data || []; panelError.value = { ...panelError.value, chartPatterns: false }; }
         else panelError.value = { ...panelError.value, chartPatterns: true };
-      })
-      .catch(err => { console.warn('차트 패턴 실패:', err.message); panelError.value = { ...panelError.value, chartPatterns: true }; });
+      }))
+      .catch(ifCurrent(err => { console.warn('차트 패턴 실패:', err.message); panelError.value = { ...panelError.value, chartPatterns: true }; }));
     quantTaAPI.supportResistance(code)
-      .then(res => {
+      .then(ifCurrent(res => {
         if (res.data?.success) { supportResistance.value = res.data.data; panelError.value = { ...panelError.value, supportResistance: false }; }
         else panelError.value = { ...panelError.value, supportResistance: true };
-      })
-      .catch(err => { console.warn('지지/저항 실패:', err.message); panelError.value = { ...panelError.value, supportResistance: true }; });
+      }))
+      .catch(ifCurrent(err => { console.warn('지지/저항 실패:', err.message); panelError.value = { ...panelError.value, supportResistance: true }; }));
     quantTaAPI.volumeProfile(code)
-      .then(res => {
+      .then(ifCurrent(res => {
         if (res.data?.success) { volumeProfile.value = res.data.data; panelError.value = { ...panelError.value, volumeProfile: false }; }
         else panelError.value = { ...panelError.value, volumeProfile: true };
-      })
-      .catch(err => { console.warn('Volume Profile 실패:', err.message); panelError.value = { ...panelError.value, volumeProfile: true }; });
+      }))
+      .catch(ifCurrent(err => { console.warn('Volume Profile 실패:', err.message); panelError.value = { ...panelError.value, volumeProfile: true }; }));
     compositeSignal.value = null;
     relatedStocks.value = [];
     quantTaAPI.compositeSignal(code)
-      .then(res => {
+      .then(ifCurrent(res => {
         if (res.data?.success) { compositeSignal.value = res.data.data; panelError.value = { ...panelError.value, compositeSignal: false }; }
         else panelError.value = { ...panelError.value, compositeSignal: true };
-      })
-      .catch(err => { console.warn('종합 신호 실패:', err.message); panelError.value = { ...panelError.value, compositeSignal: true }; });
+      }))
+      .catch(ifCurrent(err => { console.warn('종합 신호 실패:', err.message); panelError.value = { ...panelError.value, compositeSignal: true }; }));
     quantTaAPI.relatedStocks(code, 5)
-      .then(res => {
+      .then(ifCurrent(res => {
         if (res.data?.success) { relatedStocks.value = res.data.data || []; panelError.value = { ...panelError.value, relatedStocks: false }; }
         else panelError.value = { ...panelError.value, relatedStocks: true };
-      })
-      .catch(err => { console.warn('관련 종목 실패:', err.message); panelError.value = { ...panelError.value, relatedStocks: true }; });
+      }))
+      .catch(ifCurrent(err => { console.warn('관련 종목 실패:', err.message); panelError.value = { ...panelError.value, relatedStocks: true }; }));
 
     // ★ 2단계: Heavy (리스크/AI/피어) + Diagnosis 병렬 — 백그라운드 로딩
     heavyLoading.value = true;
@@ -1267,6 +1330,7 @@ const fetchAllData = async (code, searchedName) => {
       stockDetailAPI.getHeavy(code),
       stockDetailAPI.getDiagnosis(code)
     ]);
+    if (!current()) return;
 
     // Heavy 처리
     if (heavyRes.status === 'fulfilled' && heavyRes.value.data.success && heavyRes.value.data.data) {
@@ -1289,7 +1353,7 @@ const fetchAllData = async (code, searchedName) => {
   } catch (error) {
     console.error('데이터 로드 오류:', error);
   } finally {
-    heavyLoading.value = false;
+    if (current()) heavyLoading.value = false;
   }
 };
 
@@ -1297,9 +1361,11 @@ const fetchAllData = async (code, searchedName) => {
 const refreshRealtimeData = async () => {
   if (!stockCode.value || !autoRefresh.value) return;
 
+  const seq = loadSeq;   // 이 갱신이 속한 종목 읽기 — 응답이 오기 전에 다른 종목으로 넘어갔으면 버린다(2026-10-19)
   isRefreshing.value = true;
   try {
     const response = await stockDetailAPI.getQuick(stockCode.value);
+    if (!isCurrentLoad(seq)) return;
     if (response.data.success && response.data.data) {
       const data = response.data.data;
       // 실시간 데이터만 갱신
@@ -1462,9 +1528,17 @@ const getAdjustedVerdict = (data) => {
   return data.verdict || '분석 중';
 };
 
+// 주소의 종목코드가 바뀌면(뒤로·앞으로 가기, 다른 화면의 링크) 그 종목을 읽는다(2026-10-19) — 같은 화면을 다시 쓰는 라우트라
+// 예전엔 주소만 바뀌고 화면은 이전 종목이었다. 이미 그 종목을 보고 있으면(보드 이동·검색 선택이 먼저 읽었다) 건너뛴다.
+watch(() => route.params.stockCode, (code) => {
+  if (!code || code === stockCode.value) return;
+  searchQuery.value = code;
+  searchStock();
+});
+
 // URL 파라미터 처리
 onMounted(() => {
-  document.addEventListener('keydown', onSearchKeydown);
+  document.addEventListener('keydown', onSearchKeydown, true);   // 캡처 단계(onSearchKeydown 주석)
   loadBoardNav();   // 보드 진입 여부 확인(sessionStorage) — 없으면 네비 미표시
   const code = route.query.code || route.params.stockCode;
   if (code) {
@@ -1475,7 +1549,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopAutoRefresh();
-  document.removeEventListener('keydown', onSearchKeydown);
+  document.removeEventListener('keydown', onSearchKeydown, true);
 });
 </script>
 

@@ -259,3 +259,15 @@ describe('netIncomeChangeLabel', () => {
     expect(netIncomeChangeLabel(null, null)).toBe('-')
   })
 })
+
+// 2026-10-19: 간밤 미국장 tilt 이름표 — 오늘 탭·종합판단 보드 공용(두 벌이던 표)
+describe('overnightTiltLabel', () => {
+  it('BULL·NEUTRAL·BEAR 는 종전대로, UNKNOWN 은 판단 보류, 모르는 코드는 그대로', async () => {
+    const { overnightTiltLabel } = await import('./marketDataLabels')
+    expect(overnightTiltLabel('BULL')).toBe('강세')
+    expect(overnightTiltLabel('NEUTRAL')).toBe('중립')
+    expect(overnightTiltLabel('BEAR')).toBe('약세')
+    expect(overnightTiltLabel('UNKNOWN')).toBe('판단 보류')
+    expect(overnightTiltLabel('XYZ')).toBe('XYZ')
+  })
+})

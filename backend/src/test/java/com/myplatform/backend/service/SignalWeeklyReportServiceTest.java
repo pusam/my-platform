@@ -289,4 +289,35 @@ class SignalWeeklyReportServiceTest {
 
         verify(weeklyRepository, org.mockito.Mockito.never()).save(any());
     }
+
+    @Test
+    @DisplayName("재현(2026-10-19): 정상 운영 목요일엔 돌지 않는다 — 지난 일요일 크론이 만든 주가 있으면, 다음 일요일 차례인 주가 아직 없어도 놓친 게 아니다")
+    void catchUpIsSilentOnNormalThursday() {
+        // 일요일 크론(8/30)은 8/17~8/23 주를 만든다. 목요일(9/3)부터 '오늘 기준 대상 주'는 8/24~8/30 인데 그 주는 9/6(일) 크론
+        // 차례라 아직 없다 — 예전엔 그걸 '놓친 주'로 보고 매주 목요일 18:30 에 경고와 함께 돌아 같은 주 리포트가 목·일 두 번 나갔다.
+        LocalDate thursday = LocalDate.of(2026, 9, 3);
+        assertThat(thursday.getDayOfWeek().getValue()).isEqualTo(4);
+        when(schedulerLockService.tryLock(any(), any())).thenReturn(true);
+        when(weeklyRepository.findByWeekStart(LocalDate.of(2026, 8, 17)))
+                .thenReturn(java.util.Optional.of(new SignalWeeklyAccuracy()));
+        when(weeklyRepository.findByWeekStart(LocalDate.of(2026, 8, 24))).thenReturn(java.util.Optional.empty());
+
+        service(thursday).weeklyReportCatchUp();
+
+        verify(weeklyRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    @DisplayName("일요일 크론을 놓쳤으면 월요일에 그 주를 채운다 — 일요일 크론이 만들었을 주와 같다")
+    void catchUpOnMondayAfterMissedSunday() {
+        LocalDate monday = LocalDate.of(2026, 8, 31);   // 8/30(일) 크론을 놓침 → 그 크론의 주 = 8/17~8/23
+        when(schedulerLockService.tryLock(any(), any())).thenReturn(true);
+        when(weeklyRepository.findByWeekStart(any())).thenReturn(java.util.Optional.empty());
+
+        service(monday).weeklyReportCatchUp();
+
+        ArgumentCaptor<SignalWeeklyAccuracy> saved = ArgumentCaptor.forClass(SignalWeeklyAccuracy.class);
+        verify(weeklyRepository).save(saved.capture());
+        assertThat(saved.getValue().getWeekStart()).isEqualTo(LocalDate.of(2026, 8, 17));
+    }
 }

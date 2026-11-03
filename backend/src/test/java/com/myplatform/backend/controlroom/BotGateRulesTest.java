@@ -81,8 +81,11 @@ class BotGateRulesTest {
         assertThat(v.trades()).isEqualTo(112);
         assertThat(v.distinctDays()).isEqualTo(16);
         assertThat(v.dailyMeanPct()).isEqualByComparingTo("-0.38");
-        assertThat(v.blockers()).containsExactly("하루 평균 순수익 -0.38%");
-        assertThat(v.headline()).isEqualTo("평가 가능 — 아직 근거 없음: 하루 평균 순수익 -0.38%");
+        // 이 모양(7월 모의)은 그냥 음수가 아니라 0 보다 유의하게 나쁘다 — 2026-10-19 부터 그렇게 적는다
+        assertThat(v.lossBelowUncertainty()).isTrue();
+        assertThat(v.blockers()).containsExactly("하루 평균 순수익 -0.38%(불확실성 ±0.33% 밖 — 0 보다 유의하게 나쁨)");
+        assertThat(v.headline())
+                .isEqualTo("평가 가능 — 아직 근거 없음: 하루 평균 순수익 -0.38%(불확실성 ±0.33% 밖 — 0 보다 유의하게 나쁨)");
     }
 
     @Test
@@ -181,5 +184,15 @@ class BotGateRulesTest {
                 .contains("시장 대비 비교가 없다")
                 .contains("슬리피지가 없다")
                 .contains("현재 3일");
+    }
+
+    @Test
+    @DisplayName("재현: 하루 평균 손실이 불확실성 폭 밖이면 '0 보다 유의하게 나쁨'이라고 적는다 — 그냥 음수라고만 하지 않는다")
+    void significantLossIsNamed() {
+        // 날마다 -1.0 ± 0.1 — 손실이 흔들림보다 훨씬 크다
+        BotGateRules.Verdict v = BotGateRules.judge(spread(12, 3, "-0.9", "-1.1"), null, 0);
+
+        assertThat(v.state()).isEqualTo(TrustGateRules.State.EVALUABLE);
+        assertThat(v.blockers()).anyMatch(b -> b.contains("0 보다 유의하게 나쁨"));
     }
 }

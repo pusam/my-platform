@@ -104,7 +104,7 @@ class HolidayWasteGateTest {
         private WatchlistRiskMonitorService service(boolean closed) {
             return new WatchlistRiskMonitorService(watchlist, mock(AlertHistoryRepository.class), mock(StockPriceService.class),
                     mock(DartService.class), mock(InvestorDailyTradeRepository.class), mock(TelegramNotificationService.class),
-                    locks, calendar(closed));
+                    locks, calendar(closed), mock(RedisCacheService.class));
         }
 
         @Test

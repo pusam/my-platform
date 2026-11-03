@@ -234,13 +234,19 @@ public final class CrewContextBuilder {
           .append(" · 대조군比 ").append(pct(t.edgeVsControl()))
           .append(t.edgeMarginOfError() == null ? " ±미상(비교일 부족)"
                   : " ±" + t.edgeMarginOfError().toPlainString())
-          .append(t.edgeExceedsUncertainty() ? "(불확실성 초과)" : "(불확실성 이내 — 0 과 구분 안 됨)")
+          .append(t.edgeExceedsUncertainty() ? "(불확실성 초과)"
+                  : t.edgeBelowUncertainty() ? "(불확실성 밖 — 무작위보다 유의하게 나쁨)"
+                  : "(불확실성 이내 — 0 과 구분 안 됨)")
           .append('\n');
         sb.append("  이익시 ").append(pct(t.avgWin())).append(" / 손실시 ").append(pct(t.avgLoss()))
           .append(" · 최악 ").append(pct(t.worst()))
           .append(" · 평균낙폭 ").append(pct(t.avgMaePct())).append('\n');
         if (t.excludedDays() > 0) {
             sb.append("  ⚠ 대조군 짝 없어 제외된 날 ").append(t.excludedDays()).append("일\n");
+        }
+        if (t.notEvaluatedNote() != null) {
+            // 표본에서 빠진 시그널 — 거래정지·봉 결측은 최악일 수 있다(2026-10-19)
+            sb.append("  ⚠ ").append(t.notEvaluatedNote()).append("(최악일 수 있다)\n");
         }
         if (t.blockers() != null && !t.blockers().isEmpty()) {
             sb.append("  막는 것: ").append(String.join(", ", t.blockers())).append('\n');
@@ -278,9 +284,13 @@ public final class CrewContextBuilder {
                 sb.append(" · 기간 ").append(l.firstTradeDay()).append('~').append(l.lastTradeDay());
             }
             sb.append('\n');
+            // 판정 문구 — 휴장일 기록 매도를 뺐다는 메모가 앞에 붙는다(관제실 카드와 같은 줄, 2026-10-19). 예전엔 데이터가 있으면 안 넣었다.
+            if (l.note() != null) sb.append("  판정: ").append(l.note()).append('\n');
             sb.append("  하루평균(비용차감) ").append(pct(l.dailyMeanPct()))
               .append(l.marginOfError() == null ? " ±미상(거래일 부족)" : " ±" + l.marginOfError().toPlainString())
-              .append(l.profitExceedsUncertainty() ? "(불확실성 초과)" : "(0 과 구분 안 됨)")
+              .append(l.profitExceedsUncertainty() ? "(불확실성 초과)"
+                      : l.lossBelowUncertainty() ? "(불확실성 밖 — 0 보다 유의하게 나쁨)"
+                      : "(0 과 구분 안 됨)")
               .append(" · 승률 ").append(l.winRatePct() == null ? "미상" : l.winRatePct().toPlainString() + "%")
               .append(" · 최악 ").append(pct(l.worstPct()))
               .append(" · 최대낙폭 ").append(pct(l.maxDrawdownPct()))

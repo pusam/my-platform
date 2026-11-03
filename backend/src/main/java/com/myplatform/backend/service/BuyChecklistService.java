@@ -240,19 +240,42 @@ public class BuyChecklistService {
         return da.isAfter(db) ? da : db;
     }
 
+    /**
+     * 복합 신호 — 조회 실패한 신호는 '안 맞음'으로 세지 않는다(2026-10-19). 매칭이 3 미만이어도 실패한 신호가 다 맞았다면 3 이상이
+     * 될 수 있으면 판정 불가(dataMissing — 분모에서 빠진다, §4c)이고, 그래도 3 미만이면 진짜 미충족이다. 평가 결과가 없으면 판정 불가.
+     */
     private ChecklistItem checkCompositeSignal(String stockCode) {
         try {
             CompositeSignalDto signal = compositeSignalService.evaluate(stockCode);
-            int matched = signal == null ? 0 : signal.getMatchedCount();
-            int total = signal == null ? 5 : signal.getTotalCount();
+            if (signal == null) {
+                return ChecklistItem.builder()
+                        .key("compositeSignal")
+                        .label("복합 신호 매칭")
+                        .passed(false)
+                        .dataMissing(true)
+                        .value("판정 불가")
+                        .threshold("≥ 3/5")
+                        .note("복합 신호 평가 결과가 없습니다 — 판정에서 제외.")
+                        .dimension("MID")
+                        .build();
+            }
+            int matched = signal.getMatchedCount();
+            int total = signal.getTotalCount();
+            int unavailable = signal.getUnavailableCount();
             boolean passed = matched >= COMPOSITE_SIGNAL_MIN_MATCHES;
+            boolean undecidable = !passed && matched + unavailable >= COMPOSITE_SIGNAL_MIN_MATCHES;
+            String note = passed ? ""
+                    : undecidable
+                    ? "신호 " + unavailable + "개를 조회하지 못해 판정 불가 — 그 신호가 맞았다면 충족일 수 있습니다(결과는 30분 캐시)."
+                    : "차트·지지·가치·수급·AI 중 매칭 부족 — 후보 검증 더 필요.";
             return ChecklistItem.builder()
                     .key("compositeSignal")
                     .label("복합 신호 매칭")
                     .passed(passed)
-                    .value("신호 " + matched + "/" + total)
+                    .dataMissing(undecidable)
+                    .value("신호 " + matched + "/" + total + (unavailable > 0 ? " · 조회 실패 " + unavailable : ""))
                     .threshold("≥ 3/5")
-                    .note(passed ? "" : "차트·지지·가치·수급·AI 중 매칭 부족 — 후보 검증 더 필요.")
+                    .note(note)
                     .dimension("MID")
                     .build();
         } catch (Exception e) {

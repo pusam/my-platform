@@ -22,7 +22,8 @@ const STATUS = {
 const hub = () => ({
   marketData: {}, sectorData: [], globalData: {}, supplyPanelData: null,
   sections: { marketMap: { loading: false, error: false } },
-  extractData: M.extractData, hasSectorData: M.hasSectorData, flattenInvestorMap: M.flattenInvestorMap
+  extractData: M.extractData, hasSectorData: M.hasSectorData, flattenInvestorMap: M.flattenInvestorMap,
+  closedTodayInfo: null, noteClosedToday: M.noteClosedToday
 })
 
 /**
@@ -90,5 +91,21 @@ describe('수급 패널 — 줄마다 시점(2026-10-07)', () => {
     await M.loadSupplyPanel.call(ctx)
     expect(ctx.supplyPanelData.daily.map(d => d.basis)).toEqual(['10.07 09:40 장중 잠정', '10.06 장 마감 집계'])
     expect(ctx.supplyPanelData.consecutiveThrough).toBe('10.06까지')
+  })
+})
+
+// 2026-10-19: 시장 한 줄은 지수 값의 세션 날짜(indexAsOf)를 넘기고, 등락률을 모르면 0 으로 만들지 않는다('+0.00%' 위장, §4c)
+describe('시장 한 줄 — 지수 기준일·모르는 등락률', () => {
+  it('재현: 세션 날짜를 넘기고 등락률 null 은 null 그대로', async () => {
+    marketAPI.getStatus.mockResolvedValue(ok({
+      kospi: { indexClose: 2500, indexChangeRate: null, indexAsOf: '2026-10-30' },
+      kosdaq: { indexClose: 850, indexChangeRate: -1.1, indexAsOf: '2026-10-30' },
+      combinedAdr: null, diagnosis: '진단'
+    }))
+    const h = hub()
+    await M.loadMarketLine.call(h)
+    expect(h.marketData.indexAsOf).toBe('2026-10-30')
+    expect(h.marketData.kospiChangeRate).toBeNull()
+    expect(h.marketData.kosdaqChangeRate).toBe(-1.1)
   })
 })

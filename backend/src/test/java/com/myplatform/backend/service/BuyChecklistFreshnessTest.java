@@ -68,7 +68,9 @@ class BuyChecklistFreshnessTest {
         when(shortSellingTradeService.stockShare(anyString())).thenReturn(share("1.00", LocalDate.of(2026, 9, 16)));
         when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
                 .thenReturn(List.of(consecutive(LocalDate.of(2026, 9, 16))));
-        when(compositeSignalService.evaluate(anyString())).thenReturn(null);
+        // 복합 신호 기본값 = '평가했고 안 맞음'(0/5). null 은 2026-10-19 부터 '평가 결과 없음 = 판정 불가'라 기본값으로 쓰지 않는다.
+        when(compositeSignalService.evaluate(anyString())).thenReturn(com.myplatform.backend.dto.CompositeSignalDto.builder()
+                .stockCode(CODE).matchedCount(0).totalCount(5).signals(List.of()).build());
         when(conclusionService.getConclusion(anyString())).thenReturn(
                 StockConclusionDto.builder().stockCode(CODE).stockName("삼성전자")
                         .level(StockConclusionDto.Level.BUY).dataAvailable(true).currentlyValid(true).build());

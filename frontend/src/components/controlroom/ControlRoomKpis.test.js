@@ -294,6 +294,25 @@ describe('ControlRoomKpis ⑦ — "믿고 사도 되나" 게이트', () => {
     expect(c.text()).toContain('±1.90')
   })
 
+  it('재현(2026-10-19): 우위가 아래쪽으로 불확실성 폭을 넘으면 "우연일 수 있다"가 아니라 "무작위보다 유의하게 나쁘다"', () => {
+    const span = trustCard({ edgeBelowUncertainty: true }).find('.trust-nums span[title]')
+    expect(span.attributes('title')).toContain('무작위보다 유의하게 나쁘다')
+    expect(span.attributes('title')).not.toContain('우연일 수 있다')
+    expect(span.classes()).toContain('bad')
+  })
+
+  it('재현(2026-10-19): 표본에서 빠진 시그널(거래정지·봉 없음)을 숫자 옆에 보인다 — 없으면 줄이 없다', () => {
+    const c = trustCard({ notEvaluatedNote: '평가에서 빠진 시그널 2건 — 봉 없음 1 · 창 안 거래정지 1' })
+    expect(c.find('.trust-excluded').text()).toContain('평가에서 빠진 시그널 2건 — 봉 없음 1 · 창 안 거래정지 1')
+    expect(trustCard().find('.trust-excluded').exists()).toBe(false)
+  })
+
+  it('어느 쪽으로도 못 넘으면 그때만 "0 과 구분되지 않는다"', () => {
+    const span = trustCard({ edgeVsControl: 0.3, edgeMarginOfError: 1.1 }).find('.trust-nums span[title]')
+    expect(span.attributes('title')).toContain('0 과 구분되지 않는다')
+    expect(span.classes()).toContain('dead')
+  })
+
   it('불확실성을 모르면 ± 물음표 — 0 으로 두면 어떤 미세한 우위도 확실해진다(§4c)', () => {
     const c = trustCard({ edgeMarginOfError: null })
     expect(c.text()).toContain('±?')
@@ -463,6 +482,13 @@ describe('ControlRoomKpis ⑧ — "봇을 믿고 맡겨도 되나" 게이트', (
 
   it('불확실성을 모르면 ± 물음표(§4c)', () => {
     expect(botCard({}, { marginOfError: null }).text()).toContain('±?')
+  })
+
+  it('재현(2026-10-19): 하루 평균 손실이 불확실성 폭 밖이면 "0 보다 유의하게 나쁘다" — 7월 모의 -0.53% ±0.41 이 그랬다', () => {
+    const span = botCard({}, { lossBelowUncertainty: true }).find('.trust-nums span[title]')
+    expect(span.attributes('title')).toContain('0 보다 유의하게 나쁘다')
+    expect(span.attributes('title')).not.toContain('우연일 수 있다')
+    expect(span.classes()).toContain('bad')
   })
 
   it('줄 단위 집계 실패는 "측정 불가" + 사유 — 거래 0건으로 위장하지 않는다', () => {

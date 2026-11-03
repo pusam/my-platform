@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import TodayBriefingTab from './TodayBriefingTab.vue'
+import { todayKstIso } from '../../utils/stockFormat'
 import apiClient, { recommendationAPI, paperTradingAPI, youtubeOpinionAPI } from '../../utils/api'
 
 vi.mock('../../utils/api', () => ({
@@ -574,5 +575,80 @@ describe('TodayBriefingTab — 키보드로 연다', () => {
     await w.find('.ts-toggle').trigger('click')
     await w.find('.observe-card').trigger('keydown', { key: ' ' })
     expect(w.emitted('open-stock')).toEqual([['207940']])
+  })
+})
+
+// 2026-10-19: 후보 카드 등락률은 실시간 시세(캐시)가 없으면 후보가 실어 온 값이었다 — 수급 후보는 직전 거래일, AI 후보는 스냅샷
+// 시점 값이 시각 표시 없이 '오늘' 등락률처럼 보였다(가격 칸이 비어 등락률만 보이는 경우가 그것). 이제 서버가 마지막 확정 봉 등락률과
+// 그 날짜(changeRateBasisDate)를 보내고, 실시간 시세로 덮으면 날짜를 지운다.
+describe('TodayBriefingTab — 후보 등락률 기준일', () => {
+  it('재현: 마지막 확정 봉 기준이면 그 날짜를 붙인다 — 실시간처럼 보이지 않게', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, dataTime: '10:30 기준', realtime: true, data: [
+      { stockCode: '005930', stockName: '삼성전자', totalScore: 82, tags: [], changeRate: 1.2, changeRateBasisDate: '2026-10-16' }
+    ] } })
+    const w = await mountTab()
+    expect(w.find('.cc-basis').exists()).toBe(true)
+    expect(w.find('.cc-basis').text()).toBe('10/16 종가')
+  })
+
+  it('실시간 시세면(기준일 없음) 날짜를 붙이지 않는다', async () => {
+    stubAll()
+    const w = await mountTab()
+    expect(w.find('.cc-basis').exists()).toBe(false)
+  })
+})
+
+// 2026-10-19: 장 시작 전·휴장일의 지수 등락률은 직전 거래일 세션 값이다 — 시장 한 줄이 그걸 오늘 등락처럼 보였다.
+// 서버가 세션 날짜(indexAsOf)를 싣고, 오늘이 아니면 그 날짜를 붙인다.
+describe('TodayBriefingTab — 시장 한 줄의 지수 기준일', () => {
+  it('재현: 지수가 지난 거래일 값이면 "10/30 종가"를 붙인다', async () => {
+    stubAll()
+    const w = await mountTab({ marketData: { kospiIndex: '2,500.00', kospiChangeRate: -2.8, kosdaqIndex: '850.00',
+      kosdaqChangeRate: -1.1, indexAsOf: '2026-10-30' } })
+    expect(w.find('.today-market .tm-basis').exists()).toBe(true)
+    expect(w.find('.today-market .tm-basis').text()).toBe('10/30 종가')
+  })
+
+  it('오늘 세션 값이면 날짜를 붙이지 않는다', async () => {
+    stubAll()
+    const w = await mountTab({ marketData: { kospiIndex: '2,500.00', kospiChangeRate: -2.8, kosdaqIndex: '850.00',
+      kosdaqChangeRate: -1.1, indexAsOf: todayKstIso() } })
+    expect(w.find('.today-market .tm-basis').exists()).toBe(false)
+  })
+})
+
+// 2026-10-19: 지수 등락이 전부 간밤 세션 값이 아니면(미국 휴장 다음 날) 서버가 tilt=UNKNOWN 을 준다 — 예전엔 VIX 만으로 '중립'.
+// 화면은 그걸 '판단 보류'로 말하고(영문 코드 그대로 보이지 않게), 판정에 쓴 시세의 기준 시각을 붙인다.
+describe('TodayBriefingTab — 🌙 간밤 미국장', () => {
+  function stubOvernight(overnight) {
+    stubAll()
+    const base = apiClient.get.getMockImplementation()
+    apiClient.get.mockImplementation((url) => (url.includes('/global-futures/overnight-us')
+      ? Promise.resolve({ data: { success: true, data: overnight } })
+      : base(url)))
+  }
+
+  it('재현: tilt UNKNOWN 은 "판단 보류" — 영문 코드를 그대로 보이지 않는다', async () => {
+    stubOvernight({ tilt: 'UNKNOWN', dataAvailable: true, asOf: '10/10 05:15 (토) KST',
+      drivers: ['미국 지수 간밤 세션 값 없음', 'VIX 18.0(보통)'] })
+    const w = await mountTab()
+    expect(w.find('.today-overnight .ov-tilt').text()).toBe('판단 보류')
+    expect(w.find('.today-overnight').text()).toContain('미국 지수 간밤 세션 값 없음')
+  })
+
+  it('재현: 판정에 쓴 시세의 기준 시각을 붙인다 — 월요일 아침의 "간밤"은 금요일 세션이다', async () => {
+    stubOvernight({ tilt: 'BULL', dataAvailable: true, asOf: '10/17 05:00 (토) KST',
+      drivers: ['S&P500 +0.80%', '나스닥 +1.20%', 'SOX +2.00%', 'VIX 14.0(안정)'] })
+    const w = await mountTab()
+    expect(w.find('.today-overnight .ov-tilt').text()).toBe('강세')
+    expect(w.find('.today-overnight .ov-asof').text()).toBe('10/17 05:00 (토) KST 기준')
+  })
+
+  it('기준 시각을 모르면 붙이지 않는다', async () => {
+    stubOvernight({ tilt: 'NEUTRAL', dataAvailable: true, asOf: null, drivers: ['S&P500 +0.10%'] })
+    const w = await mountTab()
+    expect(w.find('.today-overnight .ov-tilt').text()).toBe('중립')
+    expect(w.find('.today-overnight .ov-asof').exists()).toBe(false)
   })
 })

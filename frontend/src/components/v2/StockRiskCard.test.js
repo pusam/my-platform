@@ -45,3 +45,23 @@ describe('StockRiskCard', () => {
     expect(w.text()).not.toContain('리스크 안전')
   })
 })
+
+// 2026-10-19: 공시 항목의 위험 여부는 JSON 에서 dangerous 다(백엔드 원시 boolean isDangerous — BooleanJsonKeyContractTest).
+// 화면이 isDangerous 로 읽어 걸러지지 않았다(지금은 백엔드가 위험한 것만 보내 드러나지 않았다).
+describe('StockRiskCard — 위험 공시 목록(실제 응답 이름)', () => {
+  it('재현: dangerous=false 항목은 위험 공시로 세지 않는다', async () => {
+    quickCheck.mockResolvedValue({ data: { success: true, checked: true, hasDangerousDisclosure: true } })
+    checkRisk.mockResolvedValue({ data: { success: true, data: { status: 'DANGER', riskScore: 80, disclosuresChecked: true,
+      dangerousDisclosures: [
+        { reportNm: '유상증자결정', rceptDt: '20261016', dangerous: true, matchedKeyword: '유상증자' },
+        { reportNm: '단일판매ㆍ공급계약체결', rceptDt: '20261015', dangerous: false }
+      ] } } })
+    const w = mount(StockRiskCard, { props: { stockName: 'SK하이닉스', stockCode: '000660' } })
+    await flushPromises()
+    await w.find('.deep-btn').trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('위험 공시 (1건)')
+    expect(w.text()).not.toContain('단일판매')
+  })
+})

@@ -10,7 +10,7 @@
         v-for="(peer, i) in peerComparisons"
         :key="i"
         class="peer-bar-row"
-        :class="{ current: peer.isCurrent }"
+        :class="{ current: peer.current }"
       >
         <span class="peer-name">{{ peer.stockName }}</span>
         <div class="peer-bar-container">
