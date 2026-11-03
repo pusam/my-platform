@@ -16,6 +16,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -80,7 +81,7 @@ public class DailyReportScheduler {
         // 1. 계좌 요약
         try {
             AccountSummaryDto summary = virtualTradeService.getAccountSummary();
-            sb.append("<b>💰 계좌 요약</b>\n");
+            sb.append("<b>💰 계좌 요약 (모의투자)</b>\n");
             sb.append(String.format("• 총 자산: <b>%s원</b>\n", formatPrice(summary.getCurrentBalance().add(summary.getTotalEvaluation()))));
             sb.append(String.format("• 현금: %s원\n", formatPrice(summary.getCurrentBalance())));
             sb.append(String.format("• 투자금: %s원\n", formatPrice(summary.getTotalInvested())));
@@ -89,11 +90,11 @@ public class DailyReportScheduler {
             String profitSign = summary.getTotalProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
             sb.append(String.format("• 총 손익: <b>%s%s원 (%s%s%%)</b>\n",
                     profitSign, formatPrice(summary.getTotalProfitLoss()),
-                    profitSign, summary.getTotalProfitRate().setScale(2).toPlainString()));
+                    profitSign, summary.getTotalProfitRate().setScale(2, RoundingMode.HALF_UP).toPlainString()));
 
             if (summary.getTotalTradeCount() > 0) {
                 sb.append(String.format("• 승률: %s%% (%d승 %d패)\n",
-                        summary.getWinRate().setScale(1).toPlainString(),
+                        summary.getWinRate().setScale(1, RoundingMode.HALF_UP).toPlainString(),
                         summary.getWinCount(), summary.getLoseCount()));
             }
             sb.append("\n");
@@ -107,13 +108,13 @@ public class DailyReportScheduler {
                     sb.append(String.format("• %s: %s원 (%s%s%%)\n",
                             item.getStockName(),
                             formatPrice(item.getCurrentPrice()),
-                            itemSign, item.getProfitRate().setScale(2).toPlainString()));
+                            itemSign, item.getProfitRate().setScale(2, RoundingMode.HALF_UP).toPlainString()));
                 }
                 sb.append("\n");
             }
         } catch (Exception e) {
             log.warn("포트폴리오 조회 실패: {}", e.getMessage());
-            sb.append("💰 포트폴리오 데이터 없음\n\n");
+            sb.append("💰 포트폴리오 조회 실패\n\n");
         }
 
         // 3. AI 전략 TOP 추천
