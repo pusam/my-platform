@@ -26,7 +26,7 @@ import static org.mockito.Mockito.when;
  * <p>고치려는 결함(2026-09-07 실측): 이오플로우(294090)는 거래정지인데 KIS 종목마스터에 남아 있어(상장 유지,
  * is_active=1) {@code isActive} 게이트를 통과했고, 동결가(1,490원·volume=0 봉이 매일 적재)로 만들어진
  * 재무 스냅샷(PER 1.0·ROE 40.5·영업이익률 3,995%)이 마법의공식 #1 로 08:30 텔레그램에 발송됐다.
- * 마스터는 상폐(목록 제거)만 잡는다 — 거래정지는 "최근 봉 전부 거래량 0" 실측으로 잡는다.
+ * 이 감지는 봉이 있는 종목만 본다 — 주 판정은 마스터의 거래정지 칸이다(2026-11-04, {@code StockStatusMasterHaltTest}). 여기는 동기화 뒤에 정지된 종목을 잡는 보조다.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)

@@ -79,8 +79,18 @@ public class StockStatusService {
     // 거래정지/상폐 감지된 종목 (코드 → 사유)
     private final ConcurrentHashMap<String, String> suspendedStocks = new ConcurrentHashMap<>();
 
-    // 거래량 기반 거래정지 감지(2026-09-07): 마스터는 상폐(목록 제거)만 잡는다 — 거래정지 종목은 상장이 유지돼
-    // 마스터에 남는다(이오플로우 294090 이 is_active=1 로 마법의공식 #1). 최근 봉 전부 volume=0 이 실측 신호.
+    /**
+     * 마스터의 거래정지·정리매매 칸이 Y 인 종목(2026-11-04). 목록에 있는 것만 봐서는 상폐밖에 못 잡는다 — 거래정지 종목은 상장이 유지돼 목록에
+     * 남는다. 칸은 파일 끝 고정폭 구역에 있다({@link #parseMasterHalts}).
+     */
+    private final Set<String> masterHaltedCodes = ConcurrentHashMap.newKeySet();
+    static final String MASTER_HALT_REASON = "KIS 종목마스터 거래정지·정리매매";
+    /** 이보다 많으면 칸 위치가 바뀐 것으로 본다 — 11/4 실측 120건/3,963건(3.0%). */
+    static final double MAX_MASTER_HALT_SHARE = 0.15;
+
+    // 거래량 기반 거래정지 감지(2026-09-07) — 이오플로우 294090 이 is_active=1 로 마법의공식 #1. 최근 봉 전부 volume=0 이 실측 신호.
+    // ⚠ 봉이 있는 종목(후보 풀 약 650)만 볼 수 있다 — 11/4 마스터의 정지 110종목 중 7종목만 최근 봉이 있었다. 주 판정은 위 마스터 칸이고, 이 감지는
+    // 동기화(08:30) 뒤에 정지된 종목을 다음 날 봉으로 잡는 보조다.
     private final Set<String> volumeHaltedCodes = ConcurrentHashMap.newKeySet();
     static final int HALT_WINDOW_DAYS = 7;
     static final long HALT_MIN_BARS = 3;
@@ -123,7 +133,7 @@ public class StockStatusService {
      * 그래서 표시층이 구분할 수 있게 상태를 따로 준다 — <b>게이트 동작은 바꾸지 않는다</b>.
      */
     public ActiveStatus activeStatus(String stockCode) {
-        if (volumeHaltedCodes.contains(stockCode)) return ActiveStatus.HALTED;
+        if (masterHaltedCodes.contains(stockCode) || volumeHaltedCodes.contains(stockCode)) return ActiveStatus.HALTED;
         if (activeStockCodes.isEmpty()) return ActiveStatus.UNVERIFIED;   // 마스터 동기화 전
         return activeStockCodes.contains(stockCode) ? ActiveStatus.ACTIVE : ActiveStatus.HALTED;
     }
@@ -153,7 +163,7 @@ public class StockStatusService {
 
     /**
      * 상장폐지로 확인된 종목인가 — 온전한 KIS 종목마스터에 없을 때만 true(2026-10-07). 동기화 전·잘린 목록이면 false(모른다, §4c).
-     * <b>거래량 정지는 상폐가 아니다</b>(상장 유지 — 재개하면 바로 다시 다뤄야 한다). 재무 수집 유니버스가 오래전 상폐 코드를 빼는 데 쓴다.
+     * <b>거래정지는 상폐가 아니다</b>(상장 유지 — 재개하면 바로 다시 다뤄야 한다). 재무 수집 유니버스가 오래전 상폐 코드를 빼는 데 쓴다.
      */
     public boolean isKnownDelisted(String stockCode) {
         return knownDelisted(activeStockCodes, stockCode);
@@ -167,7 +177,7 @@ public class StockStatusService {
     public enum ActiveStatus {
         /** 상장 목록에서 확인됨. */
         ACTIVE,
-        /** 거래정지·상폐(마스터 부재 또는 거래량 0 감지). */
+        /** 거래정지·상폐(마스터 부재·마스터 거래정지/정리매매 칸 또는 거래량 0 감지). */
         HALTED,
         /** 마스터 동기화 전 — 차단할 근거가 없을 뿐 "거래 가능 확인"은 아니다. */
         UNVERIFIED
@@ -345,17 +355,18 @@ public class StockStatusService {
     public void syncListedStocks() {
         log.info("[종목상태] 상장종목 동기화 시작(KIS 종목마스터)...");
         Set<String> newActiveCodes = ConcurrentHashMap.newKeySet();
+        Set<String> newMasterHalts = new HashSet<>();
 
         try {
             // KOSPI 종목 수집
-            Set<String> kospiCodes = fetchMarketStockList(MARKET_KOSPI);
+            Set<String> kospiCodes = fetchMarketStockList(MARKET_KOSPI, KOSPI_LAYOUT, newMasterHalts);
             log.info("[종목상태] KOSPI 종목 {}건 수집", kospiCodes.size());
 
             // 1초 딜레이 (연속 다운로드 부하 완화)
             Thread.sleep(1000);
 
             // KOSDAQ 종목 수집
-            Set<String> kosdaqCodes = fetchMarketStockList(MARKET_KOSDAQ);
+            Set<String> kosdaqCodes = fetchMarketStockList(MARKET_KOSDAQ, KOSDAQ_LAYOUT, newMasterHalts);
             log.info("[종목상태] KOSDAQ 종목 {}건 수집", kosdaqCodes.size());
 
             // ⚠ 시장별 게이트(2026-08-21 리뷰 B-5) — 아래 합산 <100 게이트는 "한 시장만 실패"를 원리적으로
@@ -386,7 +397,30 @@ public class StockStatusService {
         lastSyncTime = DateTimeUtil.kstNow();
         log.info("[종목상태] 동기화 완료 — 총 {}건 ({})", activeStockCodes.size(), lastSyncTime);
 
+        applyMasterHalts(newMasterHalts, newActiveCodes.size());
         refreshVolumeHalts();
+    }
+
+    /** 마스터 거래정지 목록 교체 — 비정상적으로 많으면 칸 위치가 바뀐 것으로 보고 이전 목록을 유지한다(멀쩡한 종목을 통째로 막는 게 더 나쁘다). */
+    private void applyMasterHalts(Set<String> next, int listed) {
+        if (!plausibleHaltShare(next.size(), listed)) {
+            log.warn("[종목상태] 마스터 거래정지 칸 {}건/{}건 — 비정상적으로 많아 쓰지 않는다(레코드 형식 변경 의심, 이전 {}건 유지)",
+                    next.size(), listed, masterHaltedCodes.size());
+            return;
+        }
+        if (!next.equals(masterHaltedCodes)) {
+            log.info("[종목상태] 마스터 거래정지·정리매매 {}건 (이전 {}건): {}",
+                    next.size(), masterHaltedCodes.size(), next.stream().sorted().limit(20).toList());
+        }
+        masterHaltedCodes.retainAll(next);
+        masterHaltedCodes.addAll(next);
+        suspendedStocks.entrySet().removeIf(e -> MASTER_HALT_REASON.equals(e.getValue()) && !next.contains(e.getKey()));
+        next.forEach(c -> suspendedStocks.putIfAbsent(c, MASTER_HALT_REASON));
+    }
+
+    /** 거래정지 건수가 상식 범위인가. 순수 함수. */
+    static boolean plausibleHaltShare(int halted, int listed) {
+        return listed > 0 && halted <= listed * MAX_MASTER_HALT_SHARE;
     }
 
     /**
@@ -396,8 +430,8 @@ public class StockStatusService {
     public List<String> detectSuspendedInSectors(List<String> sectorStockCodes) {
         if (activeStockCodes.isEmpty()) return Collections.emptyList();
 
-        // 마스터 사유만 지운다 — 거래량 기반 정지 항목(HALT_REASON)은 refreshVolumeHalts 가 관리
-        suspendedStocks.entrySet().removeIf(e -> !HALT_REASON.equals(e.getValue()));
+        // '목록에 없음' 사유만 지운다 — 거래량·마스터 칸 기반 정지 항목은 각자 갱신 경로가 관리
+        suspendedStocks.entrySet().removeIf(e -> !HALT_REASON.equals(e.getValue()) && !MASTER_HALT_REASON.equals(e.getValue()));
         List<String> suspended = new ArrayList<>();
 
         for (String code : sectorStockCodes) {
@@ -436,9 +470,11 @@ public class StockStatusService {
      * <p>실패는 전부 <b>빈 집합</b>으로 수렴하고, 호출측 시장별 게이트가 그걸 보고 동기화를
      * 취소하고 기존 목록을 유지한다. "수집 0건"을 정상 결과로 흘려보내지 않는다(§4c).
      *
-     * @param market {@link #MARKET_KOSPI} 또는 {@link #MARKET_KOSDAQ}
+     * @param market   {@link #MARKET_KOSPI} 또는 {@link #MARKET_KOSDAQ}
+     * @param layout   그 시장 파일의 끝 구역 형식
+     * @param haltsOut 거래정지·정리매매 코드를 더할 곳
      */
-    private Set<String> fetchMarketStockList(String market) {
+    private Set<String> fetchMarketStockList(String market, MasterLayout layout, Set<String> haltsOut) {
         String url = String.format(KIS_MASTER_URL, market);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -458,6 +494,7 @@ public class StockStatusService {
                 log.warn("[종목상태] KIS 마스터 {} 파싱 0건 — 레코드 포맷 변경 의심(zip {}바이트)",
                         market, zip.length);
             }
+            haltsOut.addAll(readZippedMasterHalts(zip, layout));
             return codes;
         } catch (Exception e) {
             log.warn("[종목상태] KIS 마스터 {} 조회 실패 — {}: {}",
@@ -476,6 +513,52 @@ public class StockStatusService {
             }
         }
         return Collections.emptySet();
+    }
+
+    /** zip 안 첫 파일 엔트리를 거래정지·정리매매 코드 집합으로. <b>순수 함수(테스트 대상)</b>. */
+    static Set<String> readZippedMasterHalts(byte[] zipBytes, MasterLayout layout) throws IOException {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.isDirectory()) continue;
+                return parseMasterHalts(zis, layout);
+            }
+        }
+        return Collections.emptySet();
+    }
+
+    /**
+     * 마스터 파일 끝 고정폭 구역의 형식 — 공식 샘플 {@code kis_kospi_code_mst.py}·{@code kis_kosdaq_code_mst.py} 의 field_specs 합계와 위치
+     * (줄바꿈 제외). 정리매매 칸은 거래정지 바로 뒤다. 실측 대조(2026-11-04): STX·멤레이비티·이오플로우 Y(네이버 거래정지 일치), 삼성전자·알테오젠 N.
+     *
+     * @param tailWidth  끝 구역 길이
+     * @param haltOffset 끝 구역 안 거래정지 칸 위치
+     */
+    record MasterLayout(int tailWidth, int haltOffset) {}
+
+    static final MasterLayout KOSPI_LAYOUT = new MasterLayout(227, 60);
+    static final MasterLayout KOSDAQ_LAYOUT = new MasterLayout(221, 55);
+
+    /**
+     * KIS 종목마스터(.mst) → 거래정지·정리매매 종목코드 집합. <b>순수 함수(테스트 대상)</b>.
+     *
+     * <p>끝 구역은 전부 ASCII 라 줄 끝에서 재면 앞쪽 한글 이름 길이와 무관하다(ISO-8859-1 로 읽어 글자 = 바이트). 끝 구역이 없는 짧은 줄은 판정하지
+     * 않는다(모르는 것을 정지로 보지 않는다). 스트림을 닫지 않는다 — zip 스트림 수명은 호출측이 관리한다.
+     */
+    static Set<String> parseMasterHalts(InputStream mstStream, MasterLayout layout) throws IOException {
+        Set<String> halted = new HashSet<>();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(mstStream, StandardCharsets.ISO_8859_1));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (line.length() < layout.tailWidth() + 9) continue;
+            String code = line.substring(0, 9).trim();
+            if (!isShortCode(code)) continue;
+            int at = line.length() - layout.tailWidth() + layout.haltOffset();
+            if (line.charAt(at) == 'Y' || line.charAt(at + 1) == 'Y') {
+                halted.add(code);
+            }
+        }
+        return halted;
     }
 
     /**
