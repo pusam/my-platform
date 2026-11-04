@@ -79,4 +79,12 @@ class AiStrategyFallbackRetiredTest {
                 .toList())
                 .isEmpty();
     }
+
+    @Test
+    @DisplayName("스크리너 요약의 대형주 대체 목록도 은퇴했다 — 성장률 자리에 ROE, 순이익 증감률 자리에 주가 등락률을 넣었다(2026-11-04)")
+    void screenerSummaryHasNoNaverFallback() {
+        assertThat(java.util.Arrays.stream(QuantScreenerService.class.getDeclaredMethods())
+                .map(java.lang.reflect.Method::getName))
+                .doesNotContain("getScreenerFromNaver");
+    }
 }
