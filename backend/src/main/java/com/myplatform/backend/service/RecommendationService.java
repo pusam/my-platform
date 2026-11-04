@@ -218,6 +218,20 @@ public class RecommendationService {
     }
 
     /**
+     * 마지막 계산이 정상으로 채점됐는가(2026-11-04). 컷 통과 0건이면 스냅샷을 저장하지 않아 날짜가 밀리므로, 스냅샷이
+     * 오래됐다는 것만으로는 '입력 노후'와 '관망'을 가를 수 없다 — 관제실이 이 값으로 가른다.
+     */
+    public boolean lastCalculationScoredNormally() {
+        Map<String, StockScore> m = this.cachedScoreMap;
+        return m != null && scoredNormally(m.size(), lastTechnicalStale);
+    }
+
+    /** 후보가 있고 봉 노후로 기술 미채점인 종목이 절반 미만이다 — 순수 함수. */
+    static boolean scoredNormally(int scoredStockCount, int staleTechnicalCount) {
+        return scoredStockCount > 0 && !technicalMostlyStale(scoredStockCount, staleTechnicalCount);
+    }
+
+    /**
      * 백그라운드에서 fresh 계산 후 cachedTop5 갱신.
      * - AtomicBoolean 으로 중복 호출 차단(N개 동시 요청 들어와도 한 번만 계산)
      * - 결과는 다음 getTop5() 호출에서 캐시 hit

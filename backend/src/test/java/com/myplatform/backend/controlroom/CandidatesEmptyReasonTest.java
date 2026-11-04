@@ -20,6 +20,20 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class CandidatesEmptyReasonTest {
 
+    @Test
+    @DisplayName("재현: 채점이 정상이면 스냅샷이 오래돼도 '입력 노후'가 아니다 — 컷 통과 0건이면 스냅샷을 저장하지 않아 날짜가 밀린다(2026-11-04)")
+    void scoredNormallyIsNotInputStale() {
+        assertThat(ControlRoomSnapshotService.emptyReasonShort(true, true, STALE, true)).isEqualTo("컷 통과 0건(관망)");
+        assertThat(ControlRoomSnapshotService.emptyReason(true, STALE, true, true)).contains("채점은 정상");
+    }
+
+    @Test
+    @DisplayName("채점이 안 됐거나 기술 미채점이 절반을 넘으면 입력 노후 판정을 유지한다")
+    void notScoredKeepsInputStale() {
+        assertThat(ControlRoomSnapshotService.emptyReasonShort(true, true, STALE, false)).contains("입력 노후");
+        assertThat(ControlRoomSnapshotService.emptyReason(true, STALE, true, false)).contains("노후");
+    }
+
     private static final LocalDateTime STALE = LocalDateTime.of(2026, 8, 20, 11, 30);
     private static final LocalDateTime FRESH = LocalDateTime.of(2026, 8, 24, 11, 30);
 
