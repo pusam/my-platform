@@ -142,6 +142,29 @@ class DartControllingFinancialServiceTest {
     }
 
     @Test
+    @DisplayName("달러 재무제표(두산밥캣) — 금액을 저장하지 않는다. 억 달러를 억원으로 읽으면 PER 12,312·PBR 929 가 된다(네이버 9.52·0.60)")
+    void foreignCurrencyStatementsAreNotStored() {
+        universe("241560");
+        corp("241560", "01234567");
+        responses.put("01234567/2026/11012/CFS", cfs("20260814000001", "22300000000", "16500000000", "510000000000")
+                .replace("\"sj_div\"", "\"currency\":\"USD\",\"sj_div\""));
+
+        service.collect();
+
+        DartControllingFinancial row = savedRow(2026, "11012");
+        assertThat(row.getStatus()).isEqualTo(DartControllingFinancial.STATUS_NON_KRW);
+        assertThat(row.getFsDiv()).as("어느 재무제표였는지는 남긴다").isEqualTo("CFS");
+        assertThat(row.getCtrlNetIncome()).isNull();
+        assertThat(row.getCtrlEquity()).isNull();
+        assertThat(saved).noneMatch(r -> DartControllingFinancial.STATUS_OK.equals(r.getStatus()));
+
+        int callsAfterFirstRun = calls.size();
+        service.collect();
+        assertThat(calls.stream().skip(callsAfterFirstRun).filter(c -> c.contains("/2026/11012/")))
+                .as("같은 보고서를 다시 묻지 않는다").isEmpty();
+    }
+
+    @Test
     @DisplayName("처음 보는 종목 — 2026 반기 + 2025 사업보고서 두 건만 받는다")
     void freshStock() {
         universe("023590");

@@ -102,8 +102,9 @@ CREATE TABLE stock_financial_data (
     total_assets DECIMAL(15,2),
     total_equity DECIMAL(15,2),
     total_debt DECIMAL(15,2),
+    debt_ratio DECIMAL(10,2),
     eps_growth DECIMAL(10,2),
     profit_growth DECIMAL(10,2),
     revenue_growth DECIMAL(10,2),
     peg DECIMAL(10,2)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;  -- 운영과 같게(V68 이 V55 표와 조인한다)

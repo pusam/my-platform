@@ -226,6 +226,14 @@ public class DartControllingFinancialService {
             }
             String status = root.path("status").asText();
             if ("000".equals(status)) {
+                String currency = ControllingEarnings.foreignCurrency(root.path("list"));
+                if (currency != null) {
+                    log.info("[DART 지배주주] {} {}/{} 재무제표 통화가 {} — 원화 금액으로 쓰지 않는다",
+                            code, key.year(), key.code().code, currency);
+                    saveWithoutFigures(code, corpCode, key, fs, DartControllingFinancial.STATUS_NON_KRW, existing, stored);
+                    run.noData++;
+                    return Outcome.NO_DATA;
+                }
                 Figures f = ControllingEarnings.parse(root.path("list"), key.code(), "CFS".equals(fs));
                 DartControllingFinancial row = existing != null ? existing : new DartControllingFinancial();
                 row.setStockCode(code);
@@ -251,13 +259,21 @@ public class DartControllingFinancialService {
                 return Outcome.ABORT;
             }
         }
+        saveWithoutFigures(code, corpCode, key, null, DartControllingFinancial.STATUS_NO_DATA, existing, stored);
+        run.noData++;
+        return Outcome.NO_DATA;
+    }
+
+    /** 금액 없는 행 — 데이터 없음(재조회 판단용)·원화가 아닌 재무제표. */
+    private void saveWithoutFigures(String code, String corpCode, ReportKey key, String fs, String status,
+                                    DartControllingFinancial existing, Map<ReportKey, DartControllingFinancial> stored) {
         DartControllingFinancial row = existing != null ? existing : new DartControllingFinancial();
         row.setStockCode(code);
         row.setCorpCode(corpCode);
         row.setBsnsYear(key.year());
         row.setReprtCode(key.code().code);
-        row.setFsDiv(null);
-        row.setStatus(DartControllingFinancial.STATUS_NO_DATA);
+        row.setFsDiv(fs);
+        row.setStatus(status);
         row.setFiledOn(null);
         row.setCtrlNetIncome(null);
         row.setCtrlNetIncomePrev(null);
@@ -266,8 +282,6 @@ public class DartControllingFinancialService {
         row.setTotalEquity(null);
         row.setCollectedAt(LocalDateTime.now(clock));
         stored.put(key, repository.save(row));
-        run.noData++;
-        return Outcome.NO_DATA;
     }
 
     static boolean companyRetryDue(DartCompany company, LocalDate today) {

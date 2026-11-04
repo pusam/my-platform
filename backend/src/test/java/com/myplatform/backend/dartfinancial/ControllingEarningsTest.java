@@ -60,6 +60,22 @@ class ControllingEarningsTest {
     class Parse {
 
         @Test
+        @DisplayName("통화 칸 — 재무제표 금액 행이 원화가 아니면 그 통화를, 원화·표시 없음이면 null 을 준다(공식 가이드 currency)")
+        void foreignCurrency() throws Exception {
+            String usd = "[{\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Equity\",\"thstrm_amount\":\"5100000000\",\"currency\":\"USD\"}]";
+            String krw = "[{\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Equity\",\"thstrm_amount\":\"5100000000\",\"currency\":\"KRW\"}]";
+            String none = "[{\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Equity\",\"thstrm_amount\":\"5100000000\"}]";
+            String otherLine = "[{\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Equity\",\"currency\":\"KRW\"},"
+                    + "{\"sj_div\":\"BS\",\"account_id\":\"dart_Something\",\"currency\":\"USD\"}]";
+
+            assertThat(ControllingEarnings.foreignCurrency(list(usd))).isEqualTo("USD");
+            assertThat(ControllingEarnings.foreignCurrency(list(krw))).isNull();
+            assertThat(ControllingEarnings.foreignCurrency(list(none))).as("표시가 없으면 막을 근거가 없다").isNull();
+            assertThat(ControllingEarnings.foreignCurrency(list(otherLine))).as("쓰지 않는 계정의 표시는 보지 않는다").isNull();
+            assertThat(ControllingEarnings.foreignCurrency(null)).isNull();
+        }
+
+        @Test
         @DisplayName("다우기술 반기 — CIS 의 지배주주 귀속 순이익(누적·전년 동기 누적)과 지배지분 자본, 접수일")
         void daouHalfYear() throws Exception {
             Figures f = ControllingEarnings.parse(list(DAOU_2026_H1), ReportCode.H1, true);

@@ -22,9 +22,11 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -74,6 +76,22 @@ public class StockFinancialDataCollector {
     private final StockMasterService stockMasterService;
     private final DartControllingFinancialRepository dartControllingRepository;
     private final DartCompanyRepository dartCompanyRepository;
+
+    /** 재무 보고서가 묵었는지 재는 오늘 — 테스트가 고정한다(고정 분기 날짜가 시간이 지나 저절로 깨지지 않게). */
+    Clock clock = Clock.system(ZoneId.of("Asia/Seoul"));
+
+    /**
+     * 연간 결산 행을 오늘 값으로 쓸 수 있는 나이 — 12월 결산의 다음 사업보고서는 결산 뒤 약 15개월에 나오고(이듬해 3월 말
+     * 제출) KIS 반영까지 조금 더 걸린다. 그보다 묵었으면 자료가 끊긴 것이다(별도재무제표 회사, 2026-11-04).
+     */
+    static final int ANNUAL_REPORT_MAX_AGE_DAYS = 500;
+
+    /** KIS 재무 행(stac_yymm)이 아직 쓸 만큼 최근인가 — 결산월을 못 읽으면 true(나이를 모르는 것이지 묵은 것이 아니다). */
+    private boolean reportStillCurrent(String stacYymm, int maxAgeDays) {
+        YearMonth period = QuarterlyFinancials.parseFiscalPeriod(stacYymm);
+        if (period == null) return true;
+        return !QuarterlyFinancials.periodEnd(period).isBefore(LocalDate.now(clock).minusDays(maxAgeDays));
+    }
 
     /**
      * 시장 구분 — 순수 함수(회귀 {@code FinancialCollectorMarketTest}, 2026-10-02).
@@ -519,12 +537,20 @@ public class StockFinancialDataCollector {
                     JsonNode output = root.get("output");
                     if (output != null && output.isArray() && output.size() > 0) {
                         JsonNode latest = output.get(0);
-                        ratios.put("roe", parseBigDecimal(latest.path("roe_val").asText()));
+                        // 묵은 결산의 ROE·부채비율을 오늘 값으로 쓰지 않는다(2026-11-04) — 아래 재무상태표와 같은 규칙
+                        boolean currentRatios = reportStillCurrent(latest.path("stac_yymm").asText(null), ANNUAL_REPORT_MAX_AGE_DAYS);
+                        if (currentRatios) {
+                            ratios.put("roe", parseBigDecimal(latest.path("roe_val").asText()));
+                        } else {
+                            noteState("재무비율 결산 노후 — ROE·부채비율 안 씀");
+                        }
                         // bsop_prfi_inrt·ntin_inrt 는 '영업 이익 증가율'·'순이익 증가율'이다 — 이익률이 아니다(KIS 공식 샘플
                         // chk_finance_financial_ratio.py COLUMN_MAPPING, 2026-09-30). 예전엔 이 둘을 영업이익률·순이익률로 담아
                         // TTM 손익이 없는 종목은 증가율이 영업이익률로 저장됐다(운영 108행 — 기도산업 81.65 는 상반기 영업이익
                         // 증가율, 실제 이익률 약 4.6%). 이익률은 아래 손익계산서 TTM(영업이익÷매출)으로만 만든다 — 없으면 모른다.
-                        ratios.put("debtRatio", parseBigDecimal(latest.path("lblt_rate").asText()));
+                        if (currentRatios) {
+                            ratios.put("debtRatio", parseBigDecimal(latest.path("lblt_rate").asText()));
+                        }
                         // eps_cagr·sls_cagr·ntin_cagr 는 읽지 않는다 — 실측 전부 0(죽은 필드), 성장률은 2단계 배치 단독(2026-09-29)
                     }
                 }
@@ -591,6 +617,11 @@ public class StockFinancialDataCollector {
                         boolean cumulativeUndecided = rawFigures.size() >= QuarterlyFinancials.TTM_QUARTERS
                                 && QuarterlyFinancials.judgeCumulative(rawFigures) == null;
                         BigDecimal[] ttm = QuarterlyFinancials.ttmSum(individuals);
+                        // ★ 최신 분기가 묵었으면 그 4분기는 '최근 4분기'가 아니다(2026-11-04) — 끊긴 지점의 실적을 오늘 값으로
+                        //   저장하지 않는다. 성장률·실적 서프라이즈와 같은 나이 기준이고, 지배주주 PER 은 DART 가 따로 만든다.
+                        boolean staleTtm = ttm != null && QuarterlyFinancials.isStale(individuals,
+                                LocalDate.now(clock), EarningSurpriseService.QUARTER_MAX_AGE_DAYS);
+                        if (staleTtm) ttm = null;
 
                         // ★ 분기 원본 보존 (R1) — 이미 받아서 버리던 배열을 적재만 한다. 새 API 호출 없음.
                         persistQuarterlyRows(stockCode, output, isCumulative);
@@ -608,7 +639,8 @@ public class StockFinancialDataCollector {
                             // 아래 !=0 가드가 걸러 ratios 에 안 담기고, 그게 의도된 동작이다.
                             log.debug("[손익계산서 TTM] {} - 연속 4분기 확보 실패(원본 {} / 개별 {}) — TTM 미산출",
                                     stockCode, rawFigures.size(), individuals.size());
-                            noteState(cumulativeUndecided ? "TTM 미산출(누적 여부 판정 불가 — 인접 분기 부족·매출 공란)"
+                            noteState(staleTtm ? "TTM 미산출(최신 분기 노후 — KIS 분기 자료 끊김)"
+                                    : cumulativeUndecided ? "TTM 미산출(누적 여부 판정 불가 — 인접 분기 부족·매출 공란)"
                                     : "TTM 미산출(연속 4분기 부족)");
                         }
 
@@ -666,6 +698,7 @@ public class StockFinancialDataCollector {
             Thread.sleep(100);
             try {
                 boolean bsDataFound = false;
+                boolean bsStale = false;
                 for (String divClsCode : new String[]{"1", "0"}) {
                     if (bsDataFound) break;
 
@@ -686,6 +719,17 @@ public class StockFinancialDataCollector {
                                 // 가장 최근 데이터 사용
                                 JsonNode latestBs = bsOutput.get(0);
                                 logBalanceSchemaOnce(stockCode, divClsCode, latestBs);
+                                // ★ 묵은 재무상태표를 오늘 값으로 쓰지 않는다(2026-11-04) — 별도재무제표 회사는 분기·연간 자료가 끊겨,
+                                //   자본총계가 DART 와 ±3% 안인 곳이 353곳 중 77곳뿐이었다(연결은 2,087곳 중 2,028곳). 분기가 묵었으면
+                                //   연간으로, 연간도 묵었으면 모른다.
+                                if (!reportStillCurrent(latestBs.path("stac_yymm").asText(null), "1".equals(divClsCode)
+                                        ? EarningSurpriseService.QUARTER_MAX_AGE_DAYS : ANNUAL_REPORT_MAX_AGE_DAYS)) {
+                                    bsStale = true;
+                                    if ("1".equals(divClsCode)) {
+                                        Thread.sleep(100);
+                                    }
+                                    continue;
+                                }
                                 BigDecimal totalAset = parseBigDecimal(latestBs.path("total_aset").asText());
                                 BigDecimal totalCptl = parseBigDecimal(latestBs.path("total_cptl").asText());
                                 BigDecimal totalLblt = parseBigDecimal(latestBs.path("total_lblt").asText());
@@ -763,7 +807,9 @@ public class StockFinancialDataCollector {
                         }
                     }
                 }
-                if (!bsDataFound) noteState("재무상태표 자본총계 없음(분기·연간)");
+                if (!bsDataFound) {
+                    noteState(bsStale ? "재무상태표 노후(분기·연간) — 자본·부채 모름" : "재무상태표 자본총계 없음(분기·연간)");
+                }
             } catch (Exception e) {
                 log.warn("[재무상태표] {} - 조회 실패: {}", stockCode, e.getMessage());
             }

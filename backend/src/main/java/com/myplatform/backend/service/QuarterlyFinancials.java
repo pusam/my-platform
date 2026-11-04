@@ -148,9 +148,46 @@ public final class QuarterlyFinancials {
      */
     public static List<Figures> usableIndividualQuarters(List<Figures> rows) {
         if (rows == null || rows.isEmpty()) return new ArrayList<>();
-        boolean anyCumulative = rows.stream().anyMatch(f -> f != null && f.cumulative());
-        if (!anyCumulative && !Boolean.FALSE.equals(judgeCumulative(rows))) return new ArrayList<>();
-        return toIndividualQuarters(rows);
+        // 빈 행은 분기가 아니다(2026-11-04) — 빠진 분기는 연속이 끊긴 것으로 다뤄야 TTM·전년 동기가 지어낸 값이 되지 않는다
+        List<Figures> reported = new ArrayList<>(rows);
+        reported.removeIf(QuarterlyFinancials::isBlankReport);
+        boolean anyCumulative = reported.stream().anyMatch(Figures::cumulative);
+        if (!anyCumulative && !Boolean.FALSE.equals(judgeCumulative(reported))) return new ArrayList<>();
+        return toIndividualQuarters(reported);
+    }
+
+    /**
+     * KIS 가 자료가 없는 분기에 주는 <b>빈 행</b>인가 — 매출·영업이익·순이익이 전부 0(또는 공란)(2026-11-04).
+     *
+     * <p>KIS 분기 손익은 사실상 연결재무제표 회사만 이어서 준다(11/4 전 종목: 연결 2,095개 중 2,083개 최신 vs 별도 488개 중
+     * 11개). 그 밖의 회사는 끊긴 뒤의 분기를 0 으로 준다. 세 값이 동시에 정확히 0 인 실적은 없다 — 실적 0 으로 읽어 더하면
+     * 두산테스나 매출이 828억(2024년 4분기 + 0·0·0, 실제 최근 4분기 3,264억)이 되고, 누적 환산이 연간 값을 '4분기 한 분기'로
+     * 읽어 한화엔진 매출이 실제의 약 1.5배가 된다. 하나라도 값이 있으면 실제 보고다(매출 없는 바이오의 적자 분기).
+     */
+    static boolean isBlankReport(Figures f) {
+        return f == null || (isZeroOrMissing(f.revenue()) && isZeroOrMissing(f.operatingProfit())
+                && isZeroOrMissing(f.netIncome()));
+    }
+
+    private static boolean isZeroOrMissing(BigDecimal v) {
+        return v == null || v.signum() == 0;
+    }
+
+    /**
+     * 개별 분기 목록의 최신 분기가 {@code maxAgeDays} 보다 오래됐는가 — 그런 '최근 4분기'는 자료가 끊긴 지점의 실적이다
+     * (2026-11-04). {@link #ttmSum} 은 나이를 보지 않아, KIS 분기가 끊긴 회사의 몇 년 전 4분기가 오늘 값으로 저장됐다 —
+     * 파미셀 순이익 −267억(2014-06 까지의 4분기, 실제 최근 4분기 +466억), HK이노엔 매출 8,465억(2022년 연간, 실제 1조 786억).
+     * 분기가 없으면 false — 판단할 것이 없다.
+     */
+    public static boolean isStale(List<Figures> individuals, LocalDate today, int maxAgeDays) {
+        if (individuals == null || today == null) return false;
+        LocalDate latest = null;
+        for (Figures f : individuals) {
+            if (f != null && f.periodEnd() != null && (latest == null || f.periodEnd().isAfter(latest))) {
+                latest = f.periodEnd();
+            }
+        }
+        return latest != null && latest.isBefore(today.minusDays(maxAgeDays));
     }
 
     /** 인접 분기로 인정하는 개월 수. */

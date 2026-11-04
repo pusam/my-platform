@@ -45,6 +45,7 @@ class FinancialRatioFieldMappingTest {
                 restTemplate, new ObjectMapper(), mock(StockMasterService.class),
                 mock(com.myplatform.backend.dartfinancial.DartControllingFinancialRepository.class),
                 mock(com.myplatform.backend.dartfinancial.DartCompanyRepository.class));
+        collector.clock = java.time.Clock.fixed(java.time.Instant.parse("2026-11-04T06:38:00Z"), java.time.ZoneId.of("Asia/Seoul"));
     }
 
     private void respond(String path, String body) {

@@ -77,6 +77,17 @@ class FlywayMigrationTest {
                 .validateOnMigrate(true)
                 .load();
 
+        // V68 은 V55·V64 표의 행으로 대상을 고른다 — 그 표가 생긴 뒤에야 심을 수 있어 67 까지 먼저 올린다.
+        Flyway.configure()
+                .dataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword())
+                .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
+                .baselineVersion("14")
+                .target("67")
+                .load()
+                .migrate();
+        seedStaleFinancialRowsForV68();
+
         // --- 검증 1: 마이그레이션이 예외 없이 성공하고 실제로 무언가 적용되었다 ---
         MigrateResult result = flyway.migrate();
         assertThat(result.success).as("Flyway migrate() 성공").isTrue();
@@ -165,7 +176,7 @@ class FlywayMigrationTest {
         validateEntitiesAgainstSchema("com.myplatform.backend.youtubeopinion");
 
         // --- 검증 13 (V62): KIS 일별 행의 성장률 4종만 백업 후 비운다 — 네이버 분기 행(market_cap NULL)은 그대로 ---
-        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE market_cap IS NOT NULL "
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE market_cap IS NOT NULL AND stock_code <> 'F00001' "
                 + "AND (eps_growth IS NOT NULL OR profit_growth IS NOT NULL OR revenue_growth IS NOT NULL OR peg IS NOT NULL)"))
                 .as("V62 KIS 일별 행 성장률이 전부 NULL — 새 배치가 분기 원본으로 다시 채운다").isZero();
         assertThat(scalarString("SELECT profit_growth FROM stock_financial_data WHERE market_cap IS NULL AND stock_code = '019010'"))
@@ -213,6 +224,69 @@ class FlywayMigrationTest {
         assertThat(columnCount("short_selling_trade", "short_volume_share"))
                 .as("V67 거래량 비중 칸 — 잔고 비율이 아니다").isEqualTo(1);
         validateEntitiesAgainstSchema("com.myplatform.backend.shortselling");
+
+        // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
+                + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "
+                + "AND total_assets IS NULL AND total_equity IS NULL AND total_debt IS NULL AND debt_ratio IS NULL"))
+                .as("V68 묵은 종목의 손익·재무상태표 칸이 전부 NULL").isEqualTo(1);
+        assertThat(scalarString("SELECT revenue FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2025-03-01'"))
+                .as("V68 그 날짜엔 최신 분기가 200일 안이던 행은 그대로").isEqualTo("3000.00");
+        assertThat(scalarString("SELECT revenue FROM stock_financial_data WHERE stock_code = 'S00001' AND market_cap IS NULL"))
+                .as("V68 네이버 분기 행은 writer 가 달라 건드리지 않는다(V56→V57 사고)").isEqualTo("3731.00");
+        assertThat(scalarString("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'B00001' AND total_equity IS NULL AND debt_ratio IS NULL"))
+                .as("V68 분기가 전부 빈 행인 종목의 묵은 재무상태표도 비운다(리노공업형)").isEqualTo("1");
+        assertThat(scalarString("SELECT CONCAT(IFNULL(revenue, 'null'), '/', IFNULL(net_income, 'null'), '/', IFNULL(revenue_growth, 'null'), '/', total_equity) "
+                + "FROM stock_financial_data WHERE stock_code = 'H00012'"))
+                .as("V68 최근 4분기가 끊긴 종목 — 손익·성장률만 비우고 재무상태표는 그대로(한화엔진형)").isEqualTo("null/null/null/9000.00");
+        assertThat(scalarString("SELECT CONCAT(revenue, '/', IFNULL(revenue_growth, 'null'), '/', IFNULL(peg, 'null')) "
+                + "FROM stock_financial_data WHERE stock_code = 'H00024'"))
+                .as("V68 1년 전 기준만 끊긴 종목 — 손익은 맞고 성장률만 비운다(플레이디형)").isEqualTo("500.00/null/null");
+        assertThat(scalarString("SELECT CONCAT(revenue, '/', revenue_growth, '/', total_equity) FROM stock_financial_data WHERE stock_code = 'F00001'"))
+                .as("V68 빈 행이 없는 최신 종목은 그대로").isEqualTo("2000.00/12.00/1500.00");
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_stale_backup_v68"))
+                .as("V68 백업은 비운 행만").isEqualTo(4);
+        assertThat(scalarString("SELECT CONCAT(reason, '/', revenue, '/', net_income, '/', total_equity) FROM stock_financial_stale_backup_v68 WHERE stock_code = 'S00001'"))
+                .as("V68 백업에 비우기 전 값이 남아 되돌릴 수 있다").isEqualTo("STALE/828.00/4.00/5000.00");
+        assertThat(scalarString("SELECT status FROM dart_controlling_financial WHERE stock_code = '241560'"))
+                .as("V68 외화 재무제표 행은 PER·PBR 에 쓰지 않는다(두산밥캣 PER 12,312)").isEqualTo("NON_KRW");
+        assertThat(scalarString("SELECT status FROM dart_controlling_financial WHERE stock_code = '005930'"))
+                .as("V68 원화 재무제표는 그대로").isEqualTo("OK");
+    }
+
+    /**
+     * V68 검증용 행 — 묵은 종목(S00001)·빈 행뿐인 종목(B00001)·최근 4분기가 끊긴 종목(H00012)·1년 전 기준만 끊긴 종목(H00024)·
+     * 정상 종목(F00001). V55·V64 표가 있어야 하므로 V67 까지 올린 뒤 심는다.
+     */
+    private void seedStaleFinancialRowsForV68() throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("INSERT INTO stock_quarterly_financial (stock_code, fiscal_period, period_end, cumulative, "
+                    + "revenue, operating_profit, net_income, source, collected_at) VALUES "
+                    + "('S00001', '202412', '2024-12-31', 1, 3731, 379, 368, 'KIS_INCOME_STMT', NOW()), "
+                    + "('S00001', '202503', '2025-03-31', 1, 0, 0, 0, 'KIS_INCOME_STMT', NOW()), "
+                    + "('B00001', '202509', '2025-09-30', 0, 0, 0, 0, 'KIS_INCOME_STMT', NOW()), "
+                    + "('H00012', '202606', '2026-06-30', 1, 7075, 893, 861, 'KIS_INCOME_STMT', NOW()), "
+                    + "('H00012', '202509', '2025-09-30', 1, 0, 0, 0, 'KIS_INCOME_STMT', NOW()), "
+                    + "('H00024', '202606', '2026-06-30', 1, 400, 40, 30, 'KIS_INCOME_STMT', NOW()), "
+                    + "('H00024', '202503', '2025-03-31', 1, 0, 0, 0, 'KIS_INCOME_STMT', NOW()), "
+                    + "('F00001', '202606', '2026-06-30', 1, 1000, 100, 80, 'KIS_INCOME_STMT', NOW()), "
+                    + "('F00001', '202603', '2026-03-31', 1, 500, 50, 40, 'KIS_INCOME_STMT', NOW())");
+            stmt.execute("INSERT INTO stock_financial_data (stock_code, report_date, market_cap, revenue, operating_profit, "
+                    + "net_income, operating_margin, total_assets, total_equity, total_debt, debt_ratio, revenue_growth, peg) VALUES "
+                    + "('S00001', '2026-11-04', 1000, 828, -12, 4, -1.45, 9000, 5000, 4000, 80.00, NULL, NULL), "
+                    + "('S00001', '2025-03-01', 1000, 3000, 300, 200, 10.00, 9000, 5000, 4000, 80.00, NULL, NULL), "
+                    + "('S00001', '2024-12-31', NULL, 3731, 379, 368, NULL, NULL, NULL, NULL, NULL, NULL, NULL), "
+                    + "('B00001', '2026-11-04', 5000, NULL, NULL, NULL, NULL, 1000, 700, 300, 42.00, NULL, NULL), "
+                    + "('H00012', '2026-11-04', 2000, 20786, 2194, 2599, 10.56, 20000, 9000, 11000, 122.00, 104.31, NULL), "
+                    + "('H00024', '2026-11-04', 3000, 500, 50, 40, 10.00, 1600, 800, 800, 100.00, 758.48, 0.07), "
+                    + "('F00001', '2026-11-04', 4000, 2000, 200, 160, 10.00, 3000, 1500, 1500, 100.00, 12.00, 1.10)");
+            stmt.execute("INSERT INTO dart_controlling_financial (stock_code, corp_code, bsns_year, reprt_code, fs_div, status, "
+                    + "ctrl_equity, total_equity, collected_at) VALUES "
+                    + "('241560', '01234567', 2026, '11012', 'CFS', 'OK', 51.00, 51.00, NOW()), "
+                    + "('005930', '00126380', 2026, '11012', 'CFS', 'OK', 4000000.00, 4100000.00, NOW())");
+        }
     }
 
     /** V63 검증용 행 — 오독 행(증가율·파싱 실패 0), TTM 행, 네이버 분기 행. */

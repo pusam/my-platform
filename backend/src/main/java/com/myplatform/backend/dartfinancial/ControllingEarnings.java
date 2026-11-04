@@ -125,6 +125,28 @@ public final class ControllingEarnings {
                 filedOn(list.get(0).path("rcept_no").asText(null)));
     }
 
+    /**
+     * 재무제표 금액의 통화가 원화가 아니면 그 통화(USD·CNY·JPY …), 원화이거나 표시가 없으면 null(2026-11-04).
+     *
+     * <p>응답의 {@code currency} 는 OpenDART 가이드(단일회사 전체 재무제표)의 '통화 단위' 칸이다. 금액은 그 통화 그대로
+     * 오므로 {@link #eok} 로 나누면 '억 달러'가 '억원'이 된다 — 두산밥캣이 PER 12,312·PBR 929 로 저장됐다(네이버 9.52·0.60).
+     * 11/4 운영 24종목(달러·위안·엔). 환율로 바꾸지 않는다 — 결산일·평균 환율을 구분해야 하고, 그 회사는 KIS 값이 원화다.
+     * 쓰는 계정의 행만 본다.
+     */
+    public static String foreignCurrency(JsonNode list) {
+        if (list == null || !list.isArray()) return null;
+        for (JsonNode row : list) {
+            String id = row.path("account_id").asText();
+            if (!ID_EQUITY.equals(id) && !ID_CTRL_EQUITY.equals(id)
+                    && !ID_NET_INCOME.equals(id) && !ID_CTRL_NET_INCOME.equals(id)) continue;
+            String currency = row.path("currency").asText("").trim();
+            if (!currency.isEmpty() && !"KRW".equalsIgnoreCase(currency)) {
+                return currency.toUpperCase(java.util.Locale.ROOT);
+            }
+        }
+        return null;
+    }
+
     private static JsonNode incomeRow(JsonNode list, String accountId) {
         JsonNode cis = null;
         for (JsonNode row : list) {

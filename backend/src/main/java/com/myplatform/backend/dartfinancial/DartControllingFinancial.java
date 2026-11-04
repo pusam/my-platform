@@ -29,6 +29,8 @@ public class DartControllingFinancial {
 
     public static final String STATUS_OK = "OK";
     public static final String STATUS_NO_DATA = "NO_DATA";
+    /** 재무제표가 원화가 아니다(달러·위안·엔) — 금액을 저장하지 않고 PER·PBR 에 쓰지 않는다(2026-11-04). */
+    public static final String STATUS_NON_KRW = "NON_KRW";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

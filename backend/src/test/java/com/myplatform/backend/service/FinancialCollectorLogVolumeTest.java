@@ -58,6 +58,7 @@ class FinancialCollectorLogVolumeTest {
         collector = new StockFinancialDataCollector(dailyRepo, mock(StockQuarterlyFinancialRepository.class), kis, rest,
                 new ObjectMapper(), mock(StockMasterService.class), mock(DartControllingFinancialRepository.class),
                 mock(DartCompanyRepository.class));
+        collector.clock = FIXED_CLOCK;
         when(dailyRepo.findByStockCodeAndReportDate(anyString(), any())).thenReturn(Optional.of(new StockFinancialData()));
         when(kis.getAccessToken()).thenReturn("token");
         when(kis.getStockPrice(CODE)).thenReturn(new ObjectMapper().readTree(
@@ -92,6 +93,9 @@ class FinancialCollectorLogVolumeTest {
             return ResponseEntity.ok("{}");
         });
     }
+
+    private static final java.time.Clock FIXED_CLOCK =
+            java.time.Clock.fixed(java.time.Instant.parse("2026-11-04T06:38:00Z"), java.time.ZoneId.of("Asia/Seoul"));
 
     private static String quarters(int n) {
         String[] periods = {"202606", "202603", "202512", "202509", "202506", "202503", "202412", "202409"};
