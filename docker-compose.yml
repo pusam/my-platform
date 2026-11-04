@@ -263,6 +263,9 @@ services:
       # ── news-shorts-factory(nsf-news) 동거 — 서버블록만(화면·API 는 nsf-frontend 컨테이너가 서빙) ──
       # 인증서(nsf-news.dhkim-lab.duckdns.org)는 배포의 scripts/ensure-site-cert.sh 가 발급한다 — 못 하면 그 배포 동안 conf 를 끈다.
       - ./nginx/nsf-news.conf:/etc/nginx/conf.d/nsf-news.conf:ro
+      # ── content-factory 동거 — 서버블록만(화면·API·/r/ 는 cf-frontend 컨테이너가 서빙) ──
+      # 인증서(content-factory.dhkim-lab.duckdns.org)는 배포의 scripts/ensure-site-cert.sh 가 발급한다 — 못 하면 그 배포 동안 conf 를 끈다.
+      - ./nginx/content-factory.conf:/etc/nginx/conf.d/content-factory.conf:ro
       # ── 놀자(nolja, 조이콘 가족 게임) 동거 — 서버블록 + 정적 마운트 ─────────────
       # 인증서(nolja.dhkim-lab.duckdns.org)는 배포의 scripts/ensure-site-cert.sh 가 발급한다 — 못 하면 그 배포 동안 conf 를 끈다.
       # 정적 파일은 서버 크론(/home/dev/nolja/sync.sh, 5분마다)이 공개 저장소 pusam/nolja main 에서 받아 채운다(이 배포는 안 건드림).
