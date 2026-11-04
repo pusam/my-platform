@@ -78,4 +78,9 @@ describe('NewsToast — 키보드·터치 영역', () => {
     expect(rule('.toast-close')).toMatch(/min-width:\s*(2[4-9]|[3-9]\d)px/)
     expect(rule('.toast-source')).not.toMatch(/rgba\(255,\s*255,\s*255,\s*0\.5\)/)
   })
+  it("재현: 제목에 '실적'이 있을 뿐인 기사를 '긴급'이라 부르지 않는다(2026-11-04)", () => {
+    const src = readFileSync(join(__dirname, 'NewsToast.vue'), 'utf8')
+    expect(src).not.toContain('&#xAE34;&#xAE09;')
+    expect(src).toContain('주요 뉴스')
+  })
 })

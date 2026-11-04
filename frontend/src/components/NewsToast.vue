@@ -10,7 +10,7 @@
         <div class="toast-icon">&#x1F525;</div>
         <div class="toast-body">
           <div class="toast-label">
-            <span class="toast-badge">&#x26A1; &#xAE34;&#xAE09;</span>
+            <span class="toast-badge" title="제목에 실적·수주·인수 같은 주요 단어가 있는 새 기사">&#x26A1; 주요 뉴스</span>
             <span v-if="toast.sourceName" class="toast-source">{{ toast.sourceName }}</span>
           </div>
           <!-- 제목이 키보드 경로 — 토스트 click 은 마우스용으로 그대로, 링크 click 은 전파를 막고 토스트만 닫는다 -->
