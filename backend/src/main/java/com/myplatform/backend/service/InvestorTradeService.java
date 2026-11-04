@@ -430,7 +430,7 @@ public class InvestorTradeService {
         }
         LocalTime confirmedFrom = InvestorDailyConfirmation.confirmedFrom(marketClose);
         if (!InvestorDailyConfirmation.isConfirmedWindow(now, marketClose)) {
-            return "장 마감 집계 전(" + confirmedFrom + " 이전) — 잠정치는 일별 기록으로 저장하지 않습니다. "
+            return "그날 마지막 집계 전(" + confirmedFrom + " 이전) — 일별 기록은 그 뒤의 값만 저장합니다. "
                     + confirmedFrom + " 정규 수집을 기다려 주세요.";
         }
         return null;

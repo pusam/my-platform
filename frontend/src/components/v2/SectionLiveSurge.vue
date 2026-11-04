@@ -1,8 +1,9 @@
 <template>
   <div class="section-card live-surge">
     <div class="section-title-row">
-      <!-- '실시간'이 아니다 — 10분마다 수집한 스냅샷이고, 오늘 값이 없으면 직전 거래일 값이 온다(2026-10-03) -->
-      <h2><span class="section-icon">⚡</span> 장중 수급 급증 <small class="cadence">10분 스냅샷</small></h2>
+      <!-- '실시간'이 아니다 — 10분마다 확인하는 가집계이고, 오늘 값이 없으면 직전 거래일 값이 온다(2026-10-03).
+           가집계는 정해진 시각에만 입력돼 값이 그때 계단처럼 뛴다 — 예전 이름표는 10분 동안의 흐름으로 읽혔다(2026-11-04). -->
+      <h2><span class="section-icon">⚡</span> 장중 수급 급증 <small class="cadence" :title="SUPPLY_TALLY_NOTE">장중 가집계 변화</small></h2>
       <span class="meta">
         <span class="auto-refresh-badge" :class="{ active: isAutoRefresh }">
           <span class="status-dot"></span>
@@ -17,9 +18,9 @@
 
     <div class="sub-controls">
       <div class="filter-item">
-        <!-- 서버는 누적 순매수(netBuyAmount)로 거른다 — 카드의 '변화량'(10분 변화)과 다른 값이다(2026-10-07).
-             예전 이름표 '최소 변화량'이라 '100억 이상'을 10분에 100억 산 종목으로 읽었다. -->
-        <label title="장 시작부터 쌓인 순매수 기준 — 카드의 '변화량'(직전 10분 변화)과 다르다">누적 순매수</label>
+        <!-- 서버는 누적 순매수(netBuyAmount)로 거른다 — 카드의 '변화량'(직전 확인 대비)과 다른 값이다(2026-10-07).
+             예전 이름표 '최소 변화량'이라 '100억 이상'을 짧은 시간에 100억 산 종목으로 읽었다. -->
+        <label title="장 시작부터 쌓인 순매수 기준 — 카드의 '변화량'(직전 확인 대비)과 다르다">누적 순매수</label>
         <select v-model="minChange" @change="fetchSurge">
           <option :value="30">30억 이상</option>
           <option :value="50">50억 이상</option>
@@ -106,7 +107,7 @@
           <!-- 카드는 그리드로 나란히 놓인다 — 결측이라고 행을 없애면 옆 카드와 라벨 높이가 어긋나
                가로로 훑어 비교할 수 없다. 자리는 남기고 '-'(§4c: 결측을 값으로 위장하지 않되 숨기지도 않음). -->
           <div class="detail-row" v-if="investor !== 'COMMON'">
-            <span class="label">변화량</span>
+            <span class="label" title="직전 확인 대비 — 가집계가 입력되는 시각에 한꺼번에 뛴다. 그 시간 동안의 매수가 아니다">변화량</span>
             <span class="value" :class="hasFormattedChange(stock.formattedChangeAmount) ? getAmountClass(stock.amountChange) : 'missing'">
               {{ hasFormattedChange(stock.formattedChangeAmount) ? stock.formattedChangeAmount : '-' }}
             </span>
@@ -143,6 +144,7 @@
 
 <script>
 import { investorAPI } from '../../utils/api'
+import { SUPPLY_TALLY_NOTE } from '../../utils/marketDataLabels'
 
 const REFRESH_MS = 30000
 

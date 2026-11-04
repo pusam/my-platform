@@ -97,6 +97,8 @@
           </span>
         </div>
         <div class="card-body" v-if="diagnosisData.supplyDemand">
+          <!-- 이 합계의 원천은 일별 가집계 순위다 — 확정치가 아니고, 순위 밖이었던 날은 더해지지 않는다(2026-11-04) -->
+          <p class="supply-basis">가집계(14:30 기준) 순위에 든 날만 더한 값입니다 — 확정치가 아닙니다.</p>
           <!-- 금일 수급 미니바 -->
           <div v-if="supplyDemand && supplyDemand.dataSource !== '장전(초기화)'" class="today-supply-mini">
             <span class="today-label">금일 수급</span>
@@ -451,6 +453,7 @@ const diagGetSupplyDemandLabel = (value) => {
 </script>
 
 <style scoped>
+.supply-basis { margin: 0 0 10px; font-size: 12px; color: var(--text-secondary, rgba(255,255,255,0.6)); }
 .fundamental-section {
   margin-top: 20px;
   padding: 24px;

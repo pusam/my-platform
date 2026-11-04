@@ -415,11 +415,11 @@
                   {{ inv.amount >= 0 ? '+' : '' }}{{ inv.amount.toLocaleString() }}억
                 </span>
               </div>
-              <!-- 줄마다 그 값의 시점 — 장중 잠정(KIS 순위)과 전일 확정(DB)이 한 이름표로 섞이던 것(2026-10-07) -->
+              <!-- 줄마다 그 값의 시점 — 장중 값(KIS 순위)과 전일 값(DB)이 한 이름표로 섞이던 것(2026-10-07). 둘 다 가집계다(2026-11-04) -->
               <div v-if="inv.basis" class="supply-day">{{ inv.basis }}</div>
             </div>
           </div>
-          <div v-if="supplyPanelData.daily.length" class="supply-basis-note">순매수 상위 10종목의 합 — 시장 전체 순매수 아님</div>
+          <div v-if="supplyPanelData.daily.length" class="supply-basis-note">가집계 순매수 상위 10종목의 합 — 시장 전체도, 장 마감 확정치도 아닙니다</div>
           <!-- 연속 순매수 종목 수(사실) — 예전 '진짜 반등 가능성' 판정은 위 합계(늘 +)로 갈려 사실상 항상 떴다 -->
           <div v-if="supplyPanelData.rallySignal" class="rally-indicator" :class="supplyPanelData.rallySignal.type">
             <span class="rally-icon">📌</span>
@@ -427,7 +427,7 @@
           </div>
           <!-- 연속매수 종목 -->
           <div v-if="supplyPanelData.consecutive.length" class="supply-consecutive">
-            <div class="supply-sub-title">연속 순매수 종목<span v-if="supplyPanelData.consecutiveThrough"> · {{ supplyPanelData.consecutiveThrough }} 확정치</span></div>
+            <div class="supply-sub-title">연속 순매수 종목<span v-if="supplyPanelData.consecutiveThrough"> · {{ supplyPanelData.consecutiveThrough }} 가집계</span></div>
             <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode + item.investorType"
                  class="supply-stock-row" role="button" tabindex="0"
                  @click="goToStock(item.stockCode)" @keydown.enter.self="goToStock(item.stockCode)" @keydown.space.self.prevent="goToStock(item.stockCode)">

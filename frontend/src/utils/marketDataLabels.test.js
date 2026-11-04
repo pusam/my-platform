@@ -26,12 +26,12 @@ describe('tradeDataLabel — 매매 동향 머리말은 데이터의 거래일�
       FOREIGN: [{ stockCode: '272210', tradeDate: '2026-10-01' }],
       INSTITUTION: [{ stockCode: '000660', tradeDate: '2026-10-01' }]
     }
-    expect(tradeDataLabel(data)).toEqual({ text: '10.01 장 마감 집계', status: 'status-confirmed' })
+    expect(tradeDataLabel(data)).toEqual({ text: '10.01 가집계(14:30 기준)', status: 'status-tally' })
   })
 
   it('유형마다 날짜가 다르면 가장 최근 거래일', () => {
     const data = { FOREIGN: [{ tradeDate: '2026-09-30' }], PENSION: [{ tradeDate: '2026-10-01' }] }
-    expect(tradeDataLabel(data).text).toBe('10.01 장 마감 집계')
+    expect(tradeDataLabel(data).text).toBe('10.01 가집계(14:30 기준)')
   })
 
   it('행이 없거나 날짜가 없으면 "-" — 지어낸 시각을 붙이지 않는다', () => {
@@ -198,13 +198,13 @@ describe('supplyBasisLabel / consecutiveThroughLabel', () => {
     expect(supplyBasisLabel([
       { tradeDate: '2026-10-07', asOf: '2026-10-07T10:29:44.123' },
       { tradeDate: '2026-10-07', asOf: '2026-10-07T10:29:44.123' }
-    ])).toBe('10.07 10:29 장중 잠정')
+    ])).toBe('10.07 10:29 장중 가집계')
   })
 
-  it('15:50 이후에 받은 값과 DB 확정치(asOf 없음)는 장 마감 집계', async () => {
+  it('재현: 15:50 이후에 받은 값과 DB 행도 확정치가 아니다 — KIS 순위는 14:30 입력이 마지막인 가집계다(2026-11-04)', async () => {
     const { supplyBasisLabel } = await import('./marketDataLabels')
-    expect(supplyBasisLabel([{ tradeDate: '2026-10-07', asOf: '2026-10-07T16:05:00' }])).toBe('10.07 장 마감 집계')
-    expect(supplyBasisLabel([{ tradeDate: '2026-10-06' }])).toBe('10.06 장 마감 집계')
+    expect(supplyBasisLabel([{ tradeDate: '2026-10-07', asOf: '2026-10-07T16:05:00' }])).toBe('10.07 가집계(14:30 기준)')
+    expect(supplyBasisLabel([{ tradeDate: '2026-10-06' }])).toBe('10.06 가집계(14:30 기준)')
   })
 
   it('행이 없으면 null', async () => {

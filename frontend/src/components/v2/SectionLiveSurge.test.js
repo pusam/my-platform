@@ -185,10 +185,20 @@ describe('SectionLiveSurge — 직전 거래일 값은 그렇게 말한다', () 
     expect(note.text()).toContain('10/02 15:30')
   })
 
-  it('머리말은 실시간이라고 하지 않는다 — 10분 스냅샷이다', () => {
+  it('머리말은 실시간이라고 하지 않는다 — 10분마다 확인하는 가집계다', () => {
     const src = readFileSync(join(process.cwd(), 'src/components/v2/SectionLiveSurge.vue'), 'utf8')
     expect(src).not.toMatch(/실시간 \(\{\{ nextRefresh \}\}s\)/)
     expect(src).not.toMatch(/⚡<\/span> 실시간 수급 급증/)
+  })
+
+  // 2026-11-04: KIS 가집계는 정해진 시각에만 입력된다 — 11/3 스냅샷은 09:50·11:10·13:10·14:20 에 뛰고 사이는 평평했고, 급증 시그널도 그 시각에
+  // 몰렸다(12시대 6건 vs 14:30대 107건). '10분 스냅샷'·'직전 10분 변화'라는 말은 10분 동안 그만큼 샀다는 뜻으로 읽힌다.
+  it('재현: 변화량이 10분 흐름처럼 읽히지 않는다 — 가집계 입력 시각의 계단임을 밝힌다', () => {
+    const src = readFileSync(join(process.cwd(), 'src/components/v2/SectionLiveSurge.vue'), 'utf8')
+    expect(src).not.toContain('10분 스냅샷')
+    expect(src).not.toContain('직전 10분 변화')
+    expect(src).toContain('가집계')
+    expect(src).toContain('SUPPLY_TALLY_NOTE')
   })
 })
 

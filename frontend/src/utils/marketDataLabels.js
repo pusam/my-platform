@@ -12,13 +12,21 @@ export function toMonthDay(iso) {
 }
 
 /**
+ * 투자자 순매수 순위의 정체(2026-11-04) — KIS 매매종목가집계는 확정치가 아니라 증권사 직원이 장중에 입력한 잠정 집계다(공식 샘플 주석).
+ * 15:50 에 받아도 14:30 입력값이다. 10/28~11/3 600행을 네이버 확정치와 대조하면 부호 일치 91%, 크기 ±50% 안 33%,
+ * 순위 1위도 뒤집혔다(10/30 외국인 순매수 1위 삼성전자 +1,210억 vs 확정 −2,366억).
+ */
+export const SUPPLY_TALLY_BASIS = '가집계(14:30 기준)'
+export const SUPPLY_TALLY_NOTE = '증권사 직원이 장중에 입력한 잠정 집계입니다(외국인 09:30·11:20·13:20·14:30, 기관 10:00·11:20·13:20·14:30). 장 마감 확정치와 다르고, 드물게 방향도 다릅니다.'
+
+/**
  * 매매 동향(투자자별 순매수 상위) 머리말 — 데이터의 거래일로.
  *
- * 서버는 장 마감 확정치만 저장한다(2026-10-01 감사, InvestorDailyConfirmation). 예전 화면은 브라우저 시계로
- * "오늘 HH:mm (잠정)"을 붙여, 장중엔 어제 확정치가 오늘 잠정치처럼 보였고 16:00~16:29 엔 아무 표시도 맞지 않았다.
+ * 서버는 그날 마지막 입력이 끝난 뒤(15:50)의 값만 저장한다(InvestorDailyConfirmation). 예전 화면은 브라우저 시계로
+ * "오늘 HH:mm (잠정)"을 붙여, 장중엔 어제 값이 오늘 잠정치처럼 보였고 16:00~16:29 엔 아무 표시도 맞지 않았다.
  *
  * @param {Object<string, Array<{tradeDate?: string}>>} tradesByInvestor 응답 data(투자자 유형 → 행 목록)
- * @returns {{ text: string, status: 'status-confirmed' | 'status-unknown' }}
+ * @returns {{ text: string, status: 'status-tally' | 'status-unknown' }}
  */
 export function tradeDataLabel(tradesByInvestor) {
   const dates = Object.values(tradesByInvestor || {})
@@ -28,7 +36,7 @@ export function tradeDataLabel(tradesByInvestor) {
     .sort()
   if (dates.length === 0) return { text: '-', status: 'status-unknown' }
   const latest = toMonthDay(dates[dates.length - 1])
-  return { text: `${latest} 장 마감 집계`, status: 'status-confirmed' }
+  return { text: `${latest} ${SUPPLY_TALLY_BASIS}`, status: 'status-tally' }
 }
 
 const numOrNull = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
@@ -279,9 +287,10 @@ export function staleQuoteNote(quote) {
 
 /**
  * 시장 탭 수급 패널 한 줄의 시점(2026-10-07). KIS 순위로 받은 값(asOf = 조회 시각)이면 15:50 전에 받은 것은
- * 'MM.DD HH:mm 장중 잠정', 그 뒤에 받은 것은 'MM.DD 장 마감 집계'. DB 행(asOf 없음)은 장 마감 뒤 확정치만 저장된다
- * (InvestorDailyConfirmation — 같은 15:50 기준)이라 'MM.DD 장 마감 집계'. 예전엔 패널 전체를 '10.07 기준' 하나로 적어
- * 장중 잠정 합계가 하루치처럼 읽혔고, 10시 전 기관 줄(DB 전일)과 외국인 줄(오늘 장중)의 날짜가 섞였다. 행이 없으면 null.
+ * 'MM.DD HH:mm 장중 가집계', 그 뒤에 받은 것은 'MM.DD 가집계(14:30 기준)'. DB 행(asOf 없음)은 15:50 뒤의 값만 저장된다
+ * (InvestorDailyConfirmation — 같은 15:50 기준)이라 같은 이름표다. 예전엔 패널 전체를 '10.07 기준' 하나로 적어
+ * 장중 값이 하루치처럼 읽혔고, 10시 전 기관 줄(DB 전일)과 외국인 줄(오늘 장중)의 날짜가 섞였다. 행이 없으면 null.
+ * '장 마감 집계'라고 부르던 것은 틀렸다 — 확정치가 아니다({@link SUPPLY_TALLY_BASIS}, 2026-11-04).
  */
 export function supplyBasisLabel(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return null
@@ -292,13 +301,13 @@ export function supplyBasisLabel(rows) {
   if (fetched.length) {
     const last = fetched[fetched.length - 1]
     const hm = last.slice(11, 16)
-    return hm < '15:50' ? `${toMonthDay(last)} ${hm} 장중 잠정` : `${toMonthDay(last)} 장 마감 집계`
+    return hm < '15:50' ? `${toMonthDay(last)} ${hm} 장중 가집계` : `${toMonthDay(last)} ${SUPPLY_TALLY_BASIS}`
   }
   const day = latestTradeDay(rows)
-  return day ? `${day} 장 마감 집계` : null
+  return day ? `${day} ${SUPPLY_TALLY_BASIS}` : null
 }
 
-/** 연속 순매수 목록이 어느 날까지의 확정치인지 'MM.DD까지' — 마지막 endDate. 없으면 null(2026-10-07). */
+/** 연속 순매수 목록이 어느 날까지의 가집계인지 'MM.DD까지' — 마지막 endDate. 없으면 null(2026-10-07). */
 export function consecutiveThroughLabel(items) {
   if (!Array.isArray(items)) return null
   const ends = items

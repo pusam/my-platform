@@ -42,7 +42,8 @@
             </span>
           </div>
           <p v-if="tradesCollecting" class="collecting-status">🔄 데이터 수집 중...</p>
-          <p class="rank-source-note">KIS 투자자별 순위 기준 · 하루 최대 30종목(연기금은 그보다 적을 수 있음)</p>
+          <p class="rank-source-note">KIS 외국인·기관 가집계 기준 · 하루 최대 30종목(연기금은 그보다 적을 수 있음)</p>
+          <p class="rank-source-note">{{ SUPPLY_TALLY_NOTE }}</p>
 
           <div class="investor-tabs">
             <button v-for="type in tradeInvestorTypes" :key="type.value"
@@ -269,7 +270,7 @@ import { ref, computed, onMounted, defineProps } from 'vue'
 import { useRouter } from 'vue-router'
 import { investorAPI, shortSellingAPI } from '../utils/api'
 import { toast } from '../utils/toast'
-import { tradeDataLabel, storedPriceLabel } from '../utils/marketDataLabels'
+import { tradeDataLabel, storedPriceLabel, SUPPLY_TALLY_NOTE } from '../utils/marketDataLabels'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
 import DataFreshness from '../components/DataFreshness.vue'
@@ -332,12 +333,12 @@ const getBarWidth = (amount) => {
 
 const tradeDataStatusIcon = computed(() => {
   if (tradeDataStatus.value === 'status-live') return '🔴'
-  if (tradeDataStatus.value === 'status-confirmed') return '✅'
+  if (tradeDataStatus.value === 'status-tally') return '🕑'
   return '📊'
 })
 
-// 머리말은 데이터의 거래일로(2026-10-02) — 브라우저 시계로 "오늘 HH:mm (잠정)"을 붙이면 장중엔 어제 확정치가
-// 오늘 잠정치처럼 보였다. 서버는 장 마감 확정치만 저장한다(InvestorDailyConfirmation). 판정은 marketDataLabels 단일 출처.
+// 머리말은 데이터의 거래일로(2026-10-02) — 브라우저 시계로 "오늘 HH:mm (잠정)"을 붙이면 장중엔 어제 값이
+// 오늘 잠정치처럼 보였다. 서버는 그날 마지막 입력 뒤(15:50)의 값만 저장한다 — 그래도 확정치는 아니다(가집계). 판정은 marketDataLabels 단일 출처.
 const updateTradeStatus = () => {
   const label = tradeDataLabel(allTrades.value)
   tradeTimestamp.value = label.text
@@ -701,10 +702,11 @@ onMounted(() => {
   border: 1px solid rgba(239,68,68,0.3);
 }
 
-.data-timestamp.status-confirmed {
-  background: rgba(34,197,94,0.15);
-  color: #22c55e;
-  border: 1px solid rgba(34,197,94,0.3);
+/* 가집계 — 확정치가 아니라 초록 체크를 쓰지 않는다(2026-11-04) */
+.data-timestamp.status-tally {
+  background: rgba(245,158,11,0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245,158,11,0.3);
 }
 
 .data-timestamp.status-unknown {

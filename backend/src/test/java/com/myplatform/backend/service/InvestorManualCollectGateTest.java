@@ -23,7 +23,7 @@ class InvestorManualCollectGateTest {
     @DisplayName("재현: 평일 장중(11:00) 수동 수집 — 잠정치라 저장하지 않고 이유를 말한다")
     void refusesBeforeConfirmedWindow() {
         assertThat(InvestorTradeService.manualCollectRefusal(LocalDateTime.of(2026, 10, 6, 11, 0), false))
-                .contains("장 마감 집계 전").contains("15:50");
+                .contains("마지막 집계 전").contains("15:50");
     }
 
     @Test
