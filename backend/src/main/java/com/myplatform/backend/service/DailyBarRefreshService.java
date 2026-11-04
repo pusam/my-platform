@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,9 +28,10 @@ import java.util.List;
  * 전체 유니버스를 훑지 않아 KIS 호출은 후보 풀 크기(600여)로 bound 된다. 상한({@value #MAX_STOCKS_PER_RUN})을 두되 초과분은
  * <b>로그로 반드시 노출</b>한다 — 조용한 절단은 "다 갱신했다"는 착각을 만든다.
  *
- * <p><b>시각</b>: 평일 18:30 KST. KRX 정규장(15:30) + 종가단일가(15:40) 이후라 일봉이 확정돼 있고,
- * 이 히스토리를 읽는 시그널 평가 배치(19:30)보다 앞선다. StockPriceHistory 는 KRX 단독(J) 기준이라
- * NXT 애프터마켓(~20:00)을 기다릴 필요가 없다.
+ * <p><b>시각</b>: 평일 18:30 KST + 장이 열리는 날 아침 07:40.
+ * 18:30 은 20:05 계산이 그날 봉을 보게 하는 몫이고, <b>그때 받은 봉은 KRX 종가가 아니다</b>(2026-11-04 실측) — KIS 일봉의 그날 행은 시장 코드가 J 여도
+ * 저녁 내내 종가·거래량이 바뀌고 다음 날에야 KRX 종가가 된다(11/3 삼성전자 15:39 시세·다음 날 기준가·야후 219,500 vs 저녁 봉 222,000).
+ * 그래서 아침 갱신({@link #refreshBarsBeforeOpen})이 장 시작 전에 다시 받는다.
  *
  * <p><b>덮어쓰기 판정</b>은 {@code DailyBarUpsertRule}(순수) 이 갖고 있다 — 당일 봉은 항상 최신화,
  * 과거 봉은 값이 다를 때만. 그래서 이 배치는 과거에 얼어붙은 봉도 <b>확정값으로 복구</b>하며,
@@ -80,6 +82,42 @@ public class DailyBarRefreshService {
         } catch (Exception e) {
             log.error("[일봉갱신] 실패: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * 아침 확정 갱신 — 장이 열리는 날 07:40. 전 거래일 저녁에 받은 봉을 KRX 종가로 바꾼다(2026-11-04).
+     *
+     * <p>예전엔 다음 날 18:30 에야 바뀌어서 그날 11:30·14:00·17:00 기술 채점(RSI·이평·5일 누적·과열 감점)과 섹터 점수의 등락률이 저녁 값을 '전일 종가'로
+     * 읽었고, 후보 풀에서 빠진 종목은 그 값이 그대로 남았다. KIS 종목마스터가 07:35 에 전일 최종 기준가·거래량을 담아 나오므로 그 뒤로 잡았고,
+     * 08:30 재무 수집·08:00 토큰 무효화 시간대와 겹치지 않는다. 초 필드는 :30(§4b). 평일 공휴일은 건너뛴다 — 다음 거래일 아침이 받는다.
+     * 주말·연휴엔 돌지 않으니 그동안 화면의 마지막 봉은 저녁 값이다(그때 계산·시그널이 없어 쓰는 곳은 표시뿐이다).
+     */
+    @Scheduled(scheduler = "batchScheduler", cron = "30 40 7 * * MON-FRI", zone = "Asia/Seoul")
+    public void refreshBarsBeforeOpen() {
+        if (!enabled) return;
+        if (marketCalendar.isMarketClosed()) { log.debug("[일봉갱신] 휴장일 — 아침 갱신 스킵"); return; }
+        if (!schedulerLockService.tryLock("daily-bar.refresh.morning", Duration.ofMinutes(30))) {
+            log.debug("[일봉갱신] 다른 인스턴스에서 진행 중 — 아침 갱신 스킵");
+            return;
+        }
+        try {
+            LocalDate target = marketCalendar.lastClosedTradingDay(DateTimeUtil.kstNow());
+            long before = stockAnalysisService.correctedBarCount();
+            int refreshed = refreshBarsFor(target);
+            long corrected = stockAnalysisService.correctedBarCount() - before;
+            log.info("[일봉갱신] 아침 갱신 완료 — {} 봉 기준 {}종목 재수집, 값이 달라 고친 봉 {}개", target, refreshed, corrected);
+            if (tooFewCorrected(refreshed, corrected)) {
+                log.warn("[일봉갱신] 아침 갱신이 고친 봉이 {}종목 중 {}개뿐 — 평소엔 대부분 바뀐다. KIS 값이 아직 안 바뀐 시각이면 "
+                        + "그날 기술 채점이 저녁 값을 읽는다(07:40 이 이른지 볼 것)", refreshed, corrected);
+            }
+        } catch (Exception e) {
+            log.error("[일봉갱신] 아침 갱신 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /** 고친 봉이 재수집 종목의 10% 미만인가 — 저녁 값이 그대로면 대부분 바뀌지 않는다. 순수 함수. */
+    static boolean tooFewCorrected(int refreshed, long corrected) {
+        return refreshed > 0 && corrected * 10 < refreshed;
     }
 
     /**

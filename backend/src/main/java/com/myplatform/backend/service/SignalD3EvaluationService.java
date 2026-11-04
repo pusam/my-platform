@@ -50,11 +50,12 @@ import java.util.TreeMap;
  * 먹어 뒤쪽 신규 종목이 계속 밀린다. 수집 실패는 일시 장애일 수 있어 다음 날 다시({@link
  * #FETCH_RETRY_INTERVAL_DAYS}), 봉/지수 없음은 {@link #RETRY_INTERVAL_DAYS} 뒤에 다시.
  *
- * <p><b>마감된 거래일까지만 확정한다(F2, 2026-09-17 감사).</b> {@link #lastSettledTradingDay} 가 시계와
- * 거래일 달력으로 "지금까지 마감이 확정된 마지막 거래일"을 정하고, 크론·기동 따라잡기·수동·force·dryRun 이
- * <b>모두 같은 경계</b>를 쓴다. D+3 이 아직 마감 전이면 <b>아무 상태도 쓰지 않고</b> 미도래로 둔다 —
- * 장중 잠정 봉으로 OK 를 굳히지도, 장전에 MISSING_BARS 를 박아 재시도를 7일 밀지도 않는다.
+ * <p><b>값이 굳은 거래일까지만 평가한다(F2 2026-09-17, 경계 변경 2026-11-04).</b> {@link #lastFinalTradingDay} 가 시계와
+ * 거래일 달력으로 "일봉 값이 굳은 마지막 거래일"을 정하고, 크론·기동 따라잡기·수동·force·dryRun 이
+ * <b>모두 같은 경계</b>를 쓴다. D+3 봉이 아직 굳지 않았으면 <b>아무 상태도 쓰지 않고</b> 미도래로 둔다 —
+ * 잠정 봉으로 OK 를 굳히지도, 장전에 MISSING_BARS 를 박아 재시도를 7일 밀지도 않는다.
  * 반대로 D+3 이 과거 확정일이면 <b>장중에도 평가한다</b>(장중이라는 이유로 전체 백필을 막지 않는다).
+ * 그래서 D+3 그날 저녁(19:45)에는 평가하지 않고, 다음 거래일 19:45(또는 다음 날 08:00 뒤 기동 따라잡기)에 평가한다.
  *
  * <p><b>멱등.</b> OK 행은 대상에서 빠지고, 결과의 <b>모든 저장 필드</b>가 같으면 쓰지 않는다
  * ({@link #needsWrite}). {@code force} 는 관리자가 비교표를 다시 만들 때만 — 그때 수집이 실패해도 OK 행은
@@ -76,8 +77,13 @@ public class SignalD3EvaluationService {
     static final int FETCH_LEAD_DAYS = 10;
     /** D+3 이 오늘 이전이려면 시그널일은 최소 3달력일 전이다 — 미도래 행이 상한을 먹지 않게 하는 상한. */
     static final int MIN_CALENDAR_DAYS_TO_DUE = 3;
-    /** 일봉 확정 여유(분) — KRX 종가 단일가 종료(15:40) 후 KIS 일봉에 반영되기까지. */
+    /** 일봉 저장 여유(분) — KRX 종가 단일가 종료(15:40) 후 KIS 일봉에 반영되기까지. */
     static final int BAR_SETTLE_MARGIN_MINUTES = 30;
+    /**
+     * 일봉 값이 굳을 때까지의 시간(분) — 마감(15:40) + 16시간 20분 = 다음 날 08:00(2026-11-04).
+     * KIS 종목마스터가 매일 07:35 에 전일 최종 기준가·거래량을 담아 나오니 그때면 KIS 는 최종값을 갖고 있고, 다음 날 09:00 봉은 실측으로 전부 KRX 종가였다.
+     */
+    static final int BAR_FINAL_DELAY_MINUTES = 16 * 60 + 20;
     /** 기동 따라잡기 지연(ms) — 토큰·마스터 동기화가 끝난 뒤. */
     static final long STARTUP_DELAY_MS = 120_000L;
     static final Set<String> RETRYABLE = Set.of(
@@ -145,7 +151,7 @@ public class SignalD3EvaluationService {
                          Map<String, Integer> evaluatedByStatus, List<String> notes) {}
 
     /**
-     * 19:45 — 18:30 일봉 갱신·19:30 기존 평가 뒤. 초 필드는 :20 — KIS 를 부르는 크론은 :00 을 피한다(§4b, 2026-10-19:
+     * 19:45 — D+3 이 <b>전 거래일</b>인 행을 평가한다({@link #lastFinalTradingDay}). 초 필드는 :20 — KIS 를 부르는 크론은 :00 을 피한다(§4b, 2026-10-19:
      * 잔고 감시·워머가 :00 에 몰려 초당 한도(EGW00215)로 지수 조회 한 번이 밀리면 그날 행 전체가 미평가였다).
      */
     @Scheduled(scheduler = "batchScheduler", cron = "20 45 19 * * MON-FRI", zone = "Asia/Seoul")
@@ -156,7 +162,7 @@ public class SignalD3EvaluationService {
     /**
      * 기동 따라잡기 — 배포로 19:45 를 지나 재시작한 날, 다음 날 저녁까지 기다리지 않는다.
      *
-     * <p>⚠ <b>장중이라는 이유로 막지 않는다</b>(F2): 확정 경계({@link #lastSettledTradingDay})가 미도래 행을
+     * <p>⚠ <b>장중이라는 이유로 막지 않는다</b>(F2): 확정 경계({@link #lastFinalTradingDay})가 미도래 행을
      * 걸러내므로 장중 실행도 안전하고, 오히려 막으면 <b>과거 확정일 행의 백필이 저녁까지 밀린다</b>.
      * 대기 행이 없으면 KIS 를 부르지 않는다.
      */
@@ -186,8 +192,8 @@ public class SignalD3EvaluationService {
     public Report run(boolean dryRun, int maxFetchStocks, boolean force) {
         LocalDate today = LocalDate.now(clock);
         LocalDateTime now = LocalDateTime.now(clock);
-        // 확정 경계 — 크론·기동·수동·force·dryRun 이 모두 이 한 값을 쓴다(F2).
-        LocalDate settled = lastSettledTradingDay(now, calendar);
+        // 확정 경계 — 크론·기동·수동·force·dryRun 이 모두 이 한 값을 쓴다(F2). 저장 경계(lastSettledTradingDay)가 아니다(2026-11-04).
+        LocalDate settled = lastFinalTradingDay(now, calendar);
         List<String> notes = new ArrayList<>();
         // 시그널일 상한도 확정일 기준 — 미도래 행이 2,000행 상한을 먹지 않게.
         LocalDate latestDue = settled.minusDays(MIN_CALENDAR_DAYS_TO_DUE);
@@ -341,7 +347,7 @@ public class SignalD3EvaluationService {
     }
 
     /**
-     * 지금까지 <b>마감이 확정된 마지막 거래일</b> — 시계 판정은 서비스 계층에 두고 평가 순수함수는
+     * 그 날의 봉을 <b>저장해도 되는</b> 마지막 거래일 — 저장 경계다. 시계 판정은 서비스 계층에 두고 평가 순수함수는
      * 날짜만 받는다(결정성 보존). 순수 함수(테스트 대상).
      *
      * <p><b>왜 필요한가(F2, 2026-09-17 감사)</b>: 날짜만 비교하면 {@code D+3 == 오늘}인 행이 시각과
@@ -352,11 +358,25 @@ public class SignalD3EvaluationService {
      * <p><b>경계</b> = KRX 정규장 종료({@link MarketCalendarService#MARKET_CLOSE} 15:40) +
      * {@link #BAR_SETTLE_MARGIN_MINUTES}. 종가 단일가가 15:40 에 끝나도 KIS 일봉에 반영되기까지 여유가
      * 필요하다 — 여유 없이 15:40 을 쓰면 봉이 아직 없는 순간에 {@code MISSING_BARS} 가 박힌다.
-     * ⚠ NXT 표시 시간(20:00)과 합치지 말 것 — 일봉 확정은 KRX 종가 기준이다(§2 시간대 경계 분리).
+     *
+     * <p>⚠ 이 경계를 지난 봉도 값이 끝난 게 아니다 — 평가·측정에는 {@link #lastFinalTradingDay} 를 쓸 것.
      */
     static LocalDate lastSettledTradingDay(LocalDateTime now, MarketCalendarService calendar) {
         // 마지막 마감 거래일 판정은 달력 한 곳에 있다 — 여기서는 일봉 확정 여유만 얹는다.
         return calendar.lastClosedTradingDay(now.minusMinutes(BAR_SETTLE_MARGIN_MINUTES));
+    }
+
+    /**
+     * 일봉 값이 <b>굳은</b> 마지막 거래일 — 평가 경계(2026-11-04). 순수 함수(테스트 대상).
+     *
+     * <p>KIS 일봉(시장 코드 J)의 그날 행은 장 마감 뒤에도 저녁 내내 종가·거래량이 바뀌고, 다음 날에야 KRX 종가가 된다. 11/3 삼성전자:
+     * 15:39 통합 시세·다음 날 기준가·KIS 마스터·야후가 모두 219,500 인데 그날 저녁 받은 봉은 222,000. 이 사실을 모르고 D+3 그날 19:45 에
+     * 평가해서, 'KRX 종가'라는 저장값이 10/12~11/2 756행 중 86% 달랐다(평균 오차 0.3~1.4%, 최대 7%, 수익 부호가 뒤집힌 행 39건) —
+     * 비교 대상인 KOSPI 는 15:30 종가라 초과수익에는 저녁 움직임이 그대로 섞였다. OK 는 다시 재지 않으니 그 값이 그대로 굳었다.
+     * 저녁 값이 정확히 무엇인지(NXT·시간외)는 확인하지 못했다 — 15:39 시세와도, 그 시각 통합 시세와도 다르다.
+     */
+    static LocalDate lastFinalTradingDay(LocalDateTime now, MarketCalendarService calendar) {
+        return calendar.lastClosedTradingDay(now.minusMinutes(BAR_FINAL_DELAY_MINUTES));
     }
 
     /** 달력이 정한 [D+1, D+2, D+3]. */

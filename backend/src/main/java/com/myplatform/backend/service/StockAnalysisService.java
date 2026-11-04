@@ -1049,6 +1049,13 @@ public class StockAnalysisService {
      */
     private final Set<String> collectingStocks = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /** 이 프로세스에서 값이 달라 다시 쓴 봉 수(누적) — 아침 갱신이 저녁 값을 실제로 고쳤는지 센다. */
+    private final java.util.concurrent.atomic.AtomicLong correctedBars = new java.util.concurrent.atomic.AtomicLong();
+
+    public long correctedBarCount() {
+        return correctedBars.get();
+    }
+
     public void collectPriceHistory(String stockCode) {
         if (!collectingStocks.add(stockCode)) {
             return; // 이미 수집 중
@@ -1212,6 +1219,7 @@ public class StockAnalysisService {
             // 회차 요약은 호출부가 한 줄로 남긴다.
             log.debug("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 갱신: {}, 스킵(동일): {}, 마감 전 제외: {}",
                     stockCode, savedCount, updatedCount, skippedCount, unsettledCount);
+            correctedBars.addAndGet(updatedCount);
             return savedCount + updatedCount;
         }
     }

@@ -325,7 +325,8 @@ class SignalD3EvaluationServiceTest {
         var retryBefore = ArgumentCaptor.forClass(LocalDateTime.class);
         var fetchRetryBefore = ArgumentCaptor.forClass(LocalDateTime.class);
         verify(g.repo()).findD3Pending(eq(SignalOutcomeService.PHASE38_CUTOFF),
-                eq(LocalDate.now(CLOCK).minusDays(SignalD3EvaluationService.MIN_CALENDAR_DAYS_TO_DUE)),
+                // 상한은 값이 굳은 마지막 거래일(9/17 19:45 → 전 거래일 9/16) 기준(2026-11-04)
+                eq(LocalDate.of(2026, 9, 16).minusDays(SignalD3EvaluationService.MIN_CALENDAR_DAYS_TO_DUE)),
                 eq(SignalD3EvaluationService.RETRYABLE), retryBefore.capture(), eq("FETCH_FAILED"), fetchRetryBefore.capture(), any());
         assertThat(retryBefore.getValue()).isEqualTo(LocalDateTime.now(CLOCK).minusDays(7));
         assertThat(fetchRetryBefore.getValue()).isEqualTo(LocalDateTime.now(CLOCK).minusDays(1));

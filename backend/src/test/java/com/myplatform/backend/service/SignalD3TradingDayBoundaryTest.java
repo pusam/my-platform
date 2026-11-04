@@ -40,8 +40,10 @@ import static org.mockito.Mockito.when;
  *       정상 장마감 평가가 일주일 밀린다.</li>
  * </ul>
  *
- * <p><b>경계</b>는 KRX 정규장 종료({@link MarketCalendarService#MARKET_CLOSE} 15:40)에 일봉 확정
- * 여유를 더한 값이다 — NXT 표시 시간(20:00)과 합치지 않는다.
+ * <p><b>경계(2026-11-04 변경)</b>: D+3 은 <b>다음 날 08:00</b> 뒤에 평가한다({@link SignalD3EvaluationService#lastFinalTradingDay}).
+ * 일봉의 '그날' 행은 장 마감 뒤에도 저녁 내내 값이 바뀌고 다음 날에야 KRX 종가가 된다 — 19:45 에 받은 값은 KRX 종가가 아니었다
+ * (10/12~11/2 평가 756행 중 86%가 확정 봉과 달랐다, 평균 오차 0.3~1.4%, 최대 7%, 수익 부호가 뒤집힌 행 39건).
+ * 예: 삼성전자 11/3 — 15:39 통합 시세·다음 날 기준가·야후가 모두 219,500 인데 그날 저녁 받은 봉은 222,000.
  */
 class SignalD3TradingDayBoundaryTest {
 
@@ -156,9 +158,45 @@ class SignalD3TradingDayBoundaryTest {
         }
 
         @Test
-        @DisplayName("19:45 장후(야간 크론 시각): 확정 종가로 평가한다")
-        void afterCloseIsEvaluated() {
+        @DisplayName("재현: 19:45(그날 저녁)엔 평가하지 않는다 — 그 봉의 종가는 아직 KRX 종가가 아니고, OK 는 다시 재지 않아 그대로 굳는다")
+        void sameEveningIsNotDue() {
             Rig g = rig(at(D3, LocalTime.of(19, 45)), SIGNAL);
+            respondWith(g, true);
+
+            var report = g.svc().run(false, 120, false);
+
+            assertThat(g.pending().getD3Status()).as("그날 저녁 값으로 OK 를 쓰지 않는다").isNull();
+            assertThat(report.notDue()).isEqualTo(1);
+            verify(g.repo(), never()).save(any());
+        }
+
+        @Test
+        @DisplayName("다음 날 07:59 까지는 미도래 — 값이 바뀌었다고 볼 근거가 없다")
+        void nextMorningBeforeEightIsNotDue() {
+            Rig g = rig(at(D3.plusDays(1), LocalTime.of(7, 59)), SIGNAL);
+            respondWith(g, true);
+
+            g.svc().run(false, 120, false);
+
+            assertThat(g.pending().getD3Status()).isNull();
+        }
+
+        @Test
+        @DisplayName("다음 날 08:00 부터 평가한다 — 기동 따라잡기가 아침에 돌아도 확정 값이다")
+        void nextMorningIsEvaluated() {
+            Rig g = rig(at(D3.plusDays(1), LocalTime.of(8, 0)), SIGNAL);
+            respondWith(g, true);
+
+            var report = g.svc().run(false, 120, false);
+
+            assertThat(g.pending().getD3Status()).isEqualTo("OK");
+            assertThat(report.evaluatedByStatus()).containsEntry("OK", 1);
+        }
+
+        @Test
+        @DisplayName("다음 날 19:45(야간 크론): 확정 종가로 평가한다")
+        void nextEveningCronEvaluates() {
+            Rig g = rig(at(D3.plusDays(1), LocalTime.of(19, 45)), SIGNAL);
             respondWith(g, true);
 
             var report = g.svc().run(false, 120, false);
@@ -292,6 +330,52 @@ class SignalD3TradingDayBoundaryTest {
         void usesKrxCloseNotNxt() {
             assertThat(SignalD3EvaluationService.lastSettledTradingDay(
                     LocalDateTime.of(D3, LocalTime.of(16, 30)), cal)).isEqualTo(D3);
+        }
+    }
+
+    // ==================== 평가 경계 순수 판정 ====================
+
+    @Nested
+    @DisplayName("lastFinalTradingDay — 봉 값이 굳은 마지막 거래일(저장 경계 lastSettledTradingDay 와 다르다)")
+    class FinalDay {
+
+        private final MarketCalendarService cal = new MarketCalendarService();
+
+        private LocalDate at(LocalDate d, int h, int m) {
+            return SignalD3EvaluationService.lastFinalTradingDay(LocalDateTime.of(d, LocalTime.of(h, m)), cal);
+        }
+
+        @Test
+        @DisplayName("그날 저녁은 전 거래일, 다음 날 08:00 부터 그날")
+        void flipsAtEightNextMorning() {
+            assertThat(at(D3, 19, 45)).isEqualTo(D2);
+            assertThat(at(D3, 23, 59)).isEqualTo(D2);
+            assertThat(at(D3.plusDays(1), 7, 59)).isEqualTo(D2);
+            assertThat(at(D3.plusDays(1), 8, 0)).isEqualTo(D3);
+        }
+
+        @Test
+        @DisplayName("주말을 건너뛴다 — 금요일 봉은 토요일 08:00 부터, 월요일 아침에도 금요일")
+        void acrossWeekend() {
+            LocalDate fri = LocalDate.of(2026, 9, 18);
+            assertThat(at(fri.plusDays(1), 7, 0)).isEqualTo(LocalDate.of(2026, 9, 17));
+            assertThat(at(fri.plusDays(1), 9, 0)).isEqualTo(fri);
+            assertThat(at(fri.plusDays(3), 7, 0)).isEqualTo(fri);
+        }
+
+        @Test
+        @DisplayName("늦게 닫는 날(수능일 11/19 16:40 마감)은 다음 날 09:00 부터")
+        void lateCloseDay() {
+            LocalDate csat = LocalDate.of(2026, 11, 19);
+            assertThat(at(csat.plusDays(1), 8, 59)).isEqualTo(csat.minusDays(1));
+            assertThat(at(csat.plusDays(1), 9, 0)).isEqualTo(csat);
+        }
+
+        @Test
+        @DisplayName("저장 경계는 그대로다 — 저녁 봉은 저장하되(20:05 계산이 쓴다) 평가에는 쓰지 않는다")
+        void saveBoundaryIsUnchanged() {
+            assertThat(SignalD3EvaluationService.lastSettledTradingDay(LocalDateTime.of(D3, LocalTime.of(19, 45)), cal))
+                    .isEqualTo(D3);
         }
     }
 }
