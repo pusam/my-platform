@@ -157,6 +157,7 @@ export default {
   },
   data() {
     return {
+      SUPPLY_TALLY_NOTE,
       loading: false,
       expanded: false,
       investor: 'FOREIGN',

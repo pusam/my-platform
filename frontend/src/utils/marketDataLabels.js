@@ -20,13 +20,30 @@ export const SUPPLY_TALLY_BASIS = '가집계(14:30 기준)'
 export const SUPPLY_TALLY_NOTE = '증권사 직원이 장중에 입력한 잠정 집계입니다(외국인 09:30·11:20·13:20·14:30, 기관 10:00·11:20·13:20·14:30). 장 마감 확정치와 다르고, 드물게 방향도 다릅니다.'
 
 /**
+ * 장 마감 뒤에는 종목별 확정치로 순위를 다시 만든다(2026-11-05, 서버 InvestorFinalDataService · data_basis=FINAL). 그 재구성이
+ * 실패한 날의 행은 가집계 그대로라 이름표는 데이터의 기준을 따른다 — 시각으로 짐작하지 않는다.
+ */
+export const SUPPLY_FINAL_BASIS = '장 마감 확정치'
+export const SUPPLY_FINAL_NOTE = '장 마감 뒤 종목별 확정치로 다시 만든 순위입니다. 추천 후보와 최근 순위에 든 종목 안에서 매겼습니다 — 시장 전체 순위가 아닐 수 있습니다.'
+
+const isFinalRow = (r) => !!r && r.dataBasis === 'FINAL'
+
+/** 가장 최근 거래일의 행이 전부 확정치인가 — 행이 없으면 false. */
+function latestRowsAreFinal(rows) {
+  const dated = (rows || []).filter((r) => r && typeof r.tradeDate === 'string' && r.tradeDate.length >= 10)
+  if (dated.length === 0) return false
+  const latest = dated.map((r) => r.tradeDate).sort().pop()
+  return dated.filter((r) => r.tradeDate === latest).every(isFinalRow)
+}
+
+/**
  * 매매 동향(투자자별 순매수 상위) 머리말 — 데이터의 거래일로.
  *
  * 서버는 그날 마지막 입력이 끝난 뒤(15:50)의 값만 저장한다(InvestorDailyConfirmation). 예전 화면은 브라우저 시계로
  * "오늘 HH:mm (잠정)"을 붙여, 장중엔 어제 값이 오늘 잠정치처럼 보였고 16:00~16:29 엔 아무 표시도 맞지 않았다.
  *
- * @param {Object<string, Array<{tradeDate?: string}>>} tradesByInvestor 응답 data(투자자 유형 → 행 목록)
- * @returns {{ text: string, status: 'status-tally' | 'status-unknown' }}
+ * @param {Object<string, Array<{tradeDate?: string, dataBasis?: string}>>} tradesByInvestor 응답 data(투자자 유형 → 행 목록)
+ * @returns {{ text: string, status: 'status-final' | 'status-tally' | 'status-unknown' }}
  */
 export function tradeDataLabel(tradesByInvestor) {
   const dates = Object.values(tradesByInvestor || {})
@@ -36,6 +53,9 @@ export function tradeDataLabel(tradesByInvestor) {
     .sort()
   if (dates.length === 0) return { text: '-', status: 'status-unknown' }
   const latest = toMonthDay(dates[dates.length - 1])
+  if (latestRowsAreFinal(Object.values(tradesByInvestor).flat())) {
+    return { text: `${latest} ${SUPPLY_FINAL_BASIS}`, status: 'status-final' }
+  }
   return { text: `${latest} ${SUPPLY_TALLY_BASIS}`, status: 'status-tally' }
 }
 
@@ -287,10 +307,9 @@ export function staleQuoteNote(quote) {
 
 /**
  * 시장 탭 수급 패널 한 줄의 시점(2026-10-07). KIS 순위로 받은 값(asOf = 조회 시각)이면 15:50 전에 받은 것은
- * 'MM.DD HH:mm 장중 가집계', 그 뒤에 받은 것은 'MM.DD 가집계(14:30 기준)'. DB 행(asOf 없음)은 15:50 뒤의 값만 저장된다
- * (InvestorDailyConfirmation — 같은 15:50 기준)이라 같은 이름표다. 예전엔 패널 전체를 '10.07 기준' 하나로 적어
+ * 'MM.DD HH:mm 장중 가집계', 그 뒤에 받은 것은 'MM.DD 가집계(14:30 기준)'. DB 행(asOf 없음)은 행의 기준(dataBasis)대로 —
+ * 확정치로 다시 만든 날은 'MM.DD 장 마감 확정치', 재구성 전이면 가집계다(2026-11-05). 예전엔 패널 전체를 '10.07 기준' 하나로 적어
  * 장중 값이 하루치처럼 읽혔고, 10시 전 기관 줄(DB 전일)과 외국인 줄(오늘 장중)의 날짜가 섞였다. 행이 없으면 null.
- * '장 마감 집계'라고 부르던 것은 틀렸다 — 확정치가 아니다({@link SUPPLY_TALLY_BASIS}, 2026-11-04).
  */
 export function supplyBasisLabel(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return null
@@ -304,17 +323,26 @@ export function supplyBasisLabel(rows) {
     return hm < '15:50' ? `${toMonthDay(last)} ${hm} 장중 가집계` : `${toMonthDay(last)} ${SUPPLY_TALLY_BASIS}`
   }
   const day = latestTradeDay(rows)
-  return day ? `${day} ${SUPPLY_TALLY_BASIS}` : null
+  if (!day) return null
+  return `${day} ${latestRowsAreFinal(rows) ? SUPPLY_FINAL_BASIS : SUPPLY_TALLY_BASIS}`
 }
 
-/** 연속 순매수 목록이 어느 날까지의 가집계인지 'MM.DD까지' — 마지막 endDate. 없으면 null(2026-10-07). */
+/** 합계 줄의 설명 — 확정치로 다시 만든 순위면 '시장 전체가 아니다'만, 가집계가 섞였으면 그 말까지(2026-11-05). */
+export function supplyTotalNote(rowLists) {
+  const allFinal = (rowLists || []).every((rows) => latestRowsAreFinal(rows))
+  return allFinal
+    ? '순매수 상위 10종목의 합 — 시장 전체 순매수가 아닙니다'
+    : '가집계 순매수 상위 10종목의 합 — 시장 전체도, 장 마감 확정치도 아닙니다'
+}
+
+/** 연속 순매수 목록이 어느 날까지인지 'MM.DD까지 확정치' — 마지막 endDate 와 그 행의 기준. 없으면 null(2026-10-07). */
 export function consecutiveThroughLabel(items) {
   if (!Array.isArray(items)) return null
-  const ends = items
-    .map((i) => i && i.endDate)
-    .filter((d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d))
-    .sort()
-  return ends.length ? `${toMonthDay(ends[ends.length - 1])}까지` : null
+  const dated = items.filter((i) => i && typeof i.endDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(i.endDate))
+  if (dated.length === 0) return null
+  const last = dated.map((i) => i.endDate).sort().pop()
+  const allFinal = dated.filter((i) => i.endDate === last).every(isFinalRow)
+  return `${toMonthDay(last)}까지 ${allFinal ? '확정치' : '가집계'}`
 }
 
 /**

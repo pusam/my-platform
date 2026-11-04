@@ -90,6 +90,24 @@ CREATE TABLE bot_config (
 --     V56 이 실제로 갱신하는 6개 금액 컬럼만 넣는다.
 -- V57 은 writer 구분에 report_date·market_cap 을 쓴다(네이버 크롤 행만 되돌리기).
 -- V62 는 KIS 일별 행(market_cap NOT NULL)의 성장률 4종을 백업(stock_code 포함) 후 비운다.
+CREATE TABLE investor_daily_trade (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    market_type VARCHAR(10) NOT NULL,
+    trade_date DATE NOT NULL,
+    investor_type VARCHAR(20) NOT NULL,
+    trade_type VARCHAR(10) NOT NULL,
+    rank_num INT NOT NULL,
+    stock_code VARCHAR(20) NOT NULL,
+    stock_name VARCHAR(100) NOT NULL,
+    net_buy_amount DECIMAL(15,2),
+    buy_amount DECIMAL(15,2),
+    sell_amount DECIMAL(15,2),
+    current_price DECIMAL(15,0),
+    change_rate DECIMAL(8,2),
+    trade_volume BIGINT,
+    created_at DATETIME
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE stock_financial_data (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     stock_code VARCHAR(10),

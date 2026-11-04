@@ -29,6 +29,18 @@ class KoreaInvestmentShortSaleUrlTest {
     }
 
     @Test
+    @DisplayName("종목별 투자자매매동향(일별): 공식 샘플의 5개 그대로 — 공란 두 칸도 보낸다(분봉 API 는 빈 파라미터 하나가 빠지자 200 으로 실패했다)")
+    void investorTradeDailyUrlHasTheFiveOfficialParams() {
+        String url = KoreaInvestmentService.buildInvestorTradeByStockDailyUrl(BASE, "005930", LocalDate.of(2026, 10, 30));
+
+        assertThat(url).startsWith(BASE + "/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily?");
+        assertThat(paramNames(url)).containsExactlyInAnyOrder("FID_COND_MRKT_DIV_CODE", "FID_INPUT_ISCD", "FID_INPUT_DATE_1",
+                "FID_ORG_ADJ_PRC", "FID_ETC_CLS_CODE");
+        assertThat(url).contains("FID_COND_MRKT_DIV_CODE=J", "FID_INPUT_ISCD=005930", "FID_INPUT_DATE_1=20261030");
+        assertThat(KoreaInvestmentService.TR_INVESTOR_TRADE_BY_STOCK_DAILY).isEqualTo("FHPTJ04160001");
+    }
+
+    @Test
     @DisplayName("상위종목: 경로·공식 파라미터 10개 그대로 — 전체 시장(0000)·일(D)·1일(0)·화면키 20482")
     void rankingUrlHasTheTenOfficialParams() {
         String url = KoreaInvestmentService.buildShortSaleRankingUrl(BASE);

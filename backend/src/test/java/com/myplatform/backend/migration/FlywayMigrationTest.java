@@ -87,6 +87,7 @@ class FlywayMigrationTest {
                 .load()
                 .migrate();
         seedStaleFinancialRowsForV68();
+        seedTallyRowForV70();
 
         // --- 검증 1: 마이그레이션이 예외 없이 성공하고 실제로 무언가 적용되었다 ---
         MigrateResult result = flyway.migrate();
@@ -225,6 +226,23 @@ class FlywayMigrationTest {
                 .as("V67 거래량 비중 칸 — 잔고 비율이 아니다").isEqualTo(1);
         validateEntitiesAgainstSchema("com.myplatform.backend.shortselling");
 
+        // --- 검증 20 (V69): DART 매출·영업이익·자산·부채 칸 — 옛 행은 '안 읽음'이라 대상 종목만 다시 받는다 ---
+        assertThat(scalarLong("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() "
+                + "AND table_name = 'dart_controlling_financial' AND column_name IN "
+                + "('revenue', 'operating_profit', 'total_assets', 'total_liabilities', 'income_parsed')"))
+                .as("V69 칸 5개").isEqualTo(5);
+
+        // --- 검증 21 (V70): 가집계 행은 통째로 백업되고 TALLY 로 표시된다, 확정치 표는 종목·날짜당 한 행 ---
+        assertThat(scalarLong("SELECT COUNT(*) FROM investor_daily_trade_tally_backup_v70")).as("V70 백업").isEqualTo(1);
+        assertThat(scalarString("SELECT data_basis FROM investor_daily_trade WHERE stock_code = '005930'"))
+                .as("V70 옛 행은 가집계").isEqualTo("TALLY");
+        assertThat(uniqueConstraintCount("investor_stock_daily", "uq_isd_stock_date"))
+                .as("V70 investor_stock_daily UNIQUE").isEqualTo(1);
+        // 운영은 ddl-auto: validate — 엔티티와 표가 어긋나면 부팅이 멈춘다
+        validateEntityClassesAgainstSchema(com.myplatform.backend.entity.InvestorStockDaily.class,
+                com.myplatform.backend.entity.InvestorDailyTrade.class,
+                com.myplatform.backend.entity.StockQuarterlyFinancial.class);
+
         // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
                 + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "
@@ -258,6 +276,17 @@ class FlywayMigrationTest {
      * V68 검증용 행 — 묵은 종목(S00001)·빈 행뿐인 종목(B00001)·최근 4분기가 끊긴 종목(H00012)·1년 전 기준만 끊긴 종목(H00024)·
      * 정상 종목(F00001). V55·V64 표가 있어야 하므로 V67 까지 올린 뒤 심는다.
      */
+    /** V70 은 가집계 행을 통째로 복사해 둔다 — 행이 있어야 백업을 볼 수 있다. */
+    private void seedTallyRowForV70() throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("INSERT INTO investor_daily_trade (market_type, trade_date, investor_type, trade_type, rank_num, "
+                    + "stock_code, stock_name, net_buy_amount, created_at) VALUES "
+                    + "('KOSPI', '2026-10-30', 'FOREIGN', 'BUY', 1, '005930', '삼성전자', 1210.00, NOW())");
+        }
+    }
+
     private void seedStaleFinancialRowsForV68() throws Exception {
         try (Connection conn = DriverManager.getConnection(
                         MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
@@ -334,6 +363,27 @@ class FlywayMigrationTest {
      * 맞지 않으면 {@code afterPropertiesSet} 이 예외를 던진다. 레거시 베이스 테이블은 스텁이라 전 엔티티가 아니라
      * 마이그레이션이 온전히 만든 패키지만 넘긴다.
      */
+    /** 패키지째 돌리면 스텁에 없는 옛 표에서 깨지는 엔티티 패키지용 — 클래스를 골라 대조한다. */
+    private void validateEntityClassesAgainstSchema(Class<?>... classes) {
+        LocalContainerEntityManagerFactoryBean emf = new LocalContainerEntityManagerFactoryBean();
+        emf.setDataSource(new DriverManagerDataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword()));
+        emf.setPackagesToScan("com.myplatform.backend.migration.noentities");
+        emf.setPersistenceUnitPostProcessors(unit -> {
+            for (Class<?> c : classes) unit.addManagedClassName(c.getName());
+        });
+        emf.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+        emf.setJpaPropertyMap(Map.of(
+                "hibernate.hbm2ddl.auto", "validate",
+                "hibernate.dialect", "org.hibernate.dialect.MariaDBDialect",
+                "hibernate.physical_naming_strategy",
+                "org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy"));
+        try {
+            emf.afterPropertiesSet();
+        } finally {
+            emf.destroy();
+        }
+    }
+
     private void validateEntitiesAgainstSchema(String... packages) {
         LocalContainerEntityManagerFactoryBean emf = new LocalContainerEntityManagerFactoryBean();
         emf.setDataSource(new DriverManagerDataSource(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword()));

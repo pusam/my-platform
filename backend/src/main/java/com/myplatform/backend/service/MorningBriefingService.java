@@ -168,7 +168,7 @@ public class MorningBriefingService {
             List<ConsecutiveBuyDto> stocks = investorTradeService.getConsecutiveBuyStocks(investorType, 3);
             LocalDate through = latestEndDate(stocks);
             sb.append(String.format("%s <b>%s 연속 매수 TOP 5</b>%s\n", emoji, investorLabel,
-                    through == null ? "" : " (" + through.format(MONTH_DAY) + " 가집계까지)"));
+                    through == null ? "" : " (" + through.format(MONTH_DAY) + " 장 마감까지)"));
             if (through != null && marketCalendar != null && !marketCalendar.isFreshWithin(through, now(), 0)) {
                 LocalDate expected = marketCalendar.lastClosedTradingDay(now());
                 sb.append(String.format("⚠ 최신 수집분이 아닙니다 — %s 수급 집계가 없습니다(수집 정체 의심)\n",

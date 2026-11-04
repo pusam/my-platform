@@ -415,11 +415,11 @@
                   {{ inv.amount >= 0 ? '+' : '' }}{{ inv.amount.toLocaleString() }}억
                 </span>
               </div>
-              <!-- 줄마다 그 값의 시점 — 장중 값(KIS 순위)과 전일 값(DB)이 한 이름표로 섞이던 것(2026-10-07). 둘 다 가집계다(2026-11-04) -->
+              <!-- 줄마다 그 값의 시점 — 장중 값(KIS 순위)과 전일 값(DB)이 한 이름표로 섞이던 것(2026-10-07). 장중 값은 가집계, DB 값은 그 행의 기준대로(2026-11-05) -->
               <div v-if="inv.basis" class="supply-day">{{ inv.basis }}</div>
             </div>
           </div>
-          <div v-if="supplyPanelData.daily.length" class="supply-basis-note">가집계 순매수 상위 10종목의 합 — 시장 전체도, 장 마감 확정치도 아닙니다</div>
+          <div v-if="supplyPanelData.daily.length" class="supply-basis-note">{{ supplyPanelData.totalNote }}</div>
           <!-- 연속 순매수 종목 수(사실) — 예전 '진짜 반등 가능성' 판정은 위 합계(늘 +)로 갈려 사실상 항상 떴다 -->
           <div v-if="supplyPanelData.rallySignal" class="rally-indicator" :class="supplyPanelData.rallySignal.type">
             <span class="rally-icon">📌</span>
@@ -427,7 +427,7 @@
           </div>
           <!-- 연속매수 종목 -->
           <div v-if="supplyPanelData.consecutive.length" class="supply-consecutive">
-            <div class="supply-sub-title">연속 순매수 종목<span v-if="supplyPanelData.consecutiveThrough"> · {{ supplyPanelData.consecutiveThrough }} 가집계</span></div>
+            <div class="supply-sub-title">연속 순매수 종목<span v-if="supplyPanelData.consecutiveThrough"> · {{ supplyPanelData.consecutiveThrough }}</span></div>
             <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode + item.investorType"
                  class="supply-stock-row" role="button" tabindex="0"
                  @click="goToStock(item.stockCode)" @keydown.enter.self="goToStock(item.stockCode)" @keydown.space.self.prevent="goToStock(item.stockCode)">
@@ -643,7 +643,7 @@ import {
   recommendationAPI, stockDetailAPI, quantTaAPI, stockAPI
 } from '../utils/api'
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
-import { topNetSum, supplyBasisLabel, consecutiveThroughLabel, VALUE_LIST_BASIS } from '../utils/marketDataLabels'
+import { topNetSum, supplyBasisLabel, supplyTotalNote, consecutiveThroughLabel, VALUE_LIST_BASIS } from '../utils/marketDataLabels'
 import { kstDateOf, closedTodayFromStatus, closedOn } from '../utils/marketPhase'
 import { closeBasisLabel, todayKstIso } from '../utils/stockFormat'
 
@@ -1619,6 +1619,7 @@ export default {
             { type: 'inst', label: '기관 상위 10', amount: instNet == null ? null : Math.round(instNet), basis: supplyBasisLabel(iData) }
           ],
           consecutive,
+          totalNote: supplyTotalNote([fData, iData]),
           consecutiveThrough: consecutiveThroughLabel(consecutive),
           rallySignal,
           state: 'ready',

@@ -947,6 +947,50 @@ public class KoreaInvestmentService {
                 + "&FID_INPUT_DATE_2=" + to.format(ymd);
     }
 
+    /** 종목별 투자자매매동향(일별)[FHPTJ04160001] — 확정치, 종목당 1콜. */
+    static final String TR_INVESTOR_TRADE_BY_STOCK_DAILY = "FHPTJ04160001";
+
+    /**
+     * 종목별 투자자매매동향(일별) URL — {@code examples_llm/domestic_stock/investor_trade_by_stock_daily/investor_trade_by_stock_daily.py}
+     * 의 5개. 샘플이 공란으로 두는 두 칸도 보낸다 — 분봉 API 는 빈 파라미터 하나가 빠지자 200 으로 실패했다.
+     */
+    static String buildInvestorTradeByStockDailyUrl(String baseUrl, String stockCode, java.time.LocalDate date) {
+        return baseUrl + "/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily"
+                + "?FID_COND_MRKT_DIV_CODE=J"
+                + "&FID_INPUT_ISCD=" + stockCode
+                + "&FID_INPUT_DATE_1=" + date.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+                + "&FID_ORG_ADJ_PRC="
+                + "&FID_ETC_CLS_CODE=";
+    }
+
+    /**
+     * 종목별 투자자매매동향(일별) — 장 마감 뒤 확정치 수집용. 배치라도 NORMAL 이다: LOW 는 대기열이 차면 조용히 버려져
+     * 그 종목이 그날 순위에서 빠진다. 실패(토큰·HTTP·예외)면 null, rt_cd≠0 은 본문을 그대로 돌려준다.
+     */
+    public JsonNode getInvestorTradeByStockDaily(String stockCode, java.time.LocalDate date) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                log.error("[수급 확정치] 토큰 발급 실패");
+                return null;
+            }
+            try {
+                HttpHeaders headers = createHeaders(token, TR_INVESTOR_TRADE_BY_STOCK_DAILY);
+                ResponseEntity<String> response = restTemplate.exchange(
+                        buildInvestorTradeByStockDailyUrl(baseUrl, stockCode, date), HttpMethod.GET,
+                        new HttpEntity<>(headers), String.class);
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                }
+                log.warn("[수급 확정치] 응답 실패 [{}]: status={}", stockCode, response.getStatusCode());
+            } catch (Exception e) {
+                handleKisApiException(e, token);
+                log.debug("[수급 확정치] 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            }
+            return null;
+        });
+    }
+
     /**
      * 공매도 상위종목 한 페이지(FHPST04820000) — 배경 수집용(LOW). {@code continuation} 이면 요청 헤더
      * {@code tr_cont=N}(다음 페이지). 실패(토큰·HTTP·예외)면 null, rt_cd≠0 은 본문을 그대로 돌려준다(호출부가 사유를 남긴다).

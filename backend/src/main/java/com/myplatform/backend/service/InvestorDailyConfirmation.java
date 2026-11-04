@@ -18,6 +18,7 @@ import java.util.List;
  *
  * <p>⚠ 여기서 '확정'은 <b>그날 마지막 입력이 끝난 뒤의 기록</b>이라는 뜻이지 확정치가 아니다(2026-11-04). 이 API 는 증권사 직원이 장중에 입력한 가집계이고
  * 마지막 입력은 14:30 이다(공식 샘플 주석) — 10/28~11/3 600행 네이버 확정치 대조: 부호 일치 91%, 크기 ±50% 안 33%.
+ * 진짜 확정치는 그 뒤 {@code InvestorFinalDataService}(16:15·18:10)가 같은 표의 행을 다시 만든다(2026-11-05).
  */
 public final class InvestorDailyConfirmation {
 

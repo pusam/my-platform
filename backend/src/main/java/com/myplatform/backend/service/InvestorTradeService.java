@@ -338,6 +338,7 @@ public class InvestorTradeService {
                 .changeRate(entity.getChangeRate())
                 .tradeVolume(entity.getTradeVolume())
                 .rankNum(entity.getRankNum())
+                .dataBasis(entity.getDataBasis())
                 .build();
     }
 
@@ -374,6 +375,11 @@ public class InvestorTradeService {
     @Transactional
     @CacheEvict(value = "consecutiveBuys", allEntries = true)
     public Map<String, Integer> collectInvestorTradeData(LocalDate tradeDate) {
+        // 그날 행이 이미 확정치면 가집계로 되돌리지 않는다 — 아래 삭제가 확정치를 지운다
+        if (investorTradeRepository.existsByTradeDateAndDataBasis(tradeDate, InvestorDailyTrade.BASIS_FINAL)) {
+            log.info("투자자별 매매 데이터 수집 건너뜀: {} — 이미 확정치로 다시 만든 날", tradeDate);
+            return Map.of();
+        }
         log.info("투자자별 매매 데이터 수집 시작: {} (consecutiveBuys 캐시 초기화)", tradeDate);
 
         // 기존 데이터 삭제 (중복 방지) - Native Query로 즉시 삭제
@@ -403,6 +409,12 @@ public class InvestorTradeService {
         }
 
         return result;
+    }
+
+    /** 확정치로 순위를 다시 만든 뒤 — 연속 매수는 그 표로 계산한다. */
+    @CacheEvict(value = "consecutiveBuys", allEntries = true)
+    public void evictConsecutiveBuys() {
+        log.debug("consecutiveBuys 캐시 초기화");
     }
 
     /**
@@ -637,6 +649,7 @@ public class InvestorTradeService {
                         .avgDailyAmount(avgAmount)
                         .startDate(consecutiveStartDate)
                         .endDate(consecutiveEndDate)
+                        .dataBasis(latestTrade.getDataBasis())
                         .currentPrice(latestTrade.getCurrentPrice())
                         .changeRate(latestTrade.getChangeRate())
                         .build();

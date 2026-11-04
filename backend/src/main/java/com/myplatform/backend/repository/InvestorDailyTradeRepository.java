@@ -151,6 +151,13 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
     /**
      * 가장 최근 거래일 조회
      */
+    /** 최근 순위에 든 종목 — 확정치를 받을 범위. */
+    @Query("SELECT DISTINCT t.stockCode FROM InvestorDailyTrade t WHERE t.tradeDate >= :from")
+    List<String> findDistinctStockCodesSince(@Param("from") LocalDate from);
+
+    /** 그날 확정치 행이 있는가 — 가집계 수집이 그 행을 지우지 않게. */
+    boolean existsByTradeDateAndDataBasis(LocalDate tradeDate, String dataBasis);
+
     @Query("SELECT MAX(t.tradeDate) FROM InvestorDailyTrade t")
     LocalDate findLatestTradeDate();
 
@@ -187,6 +194,14 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = "DELETE FROM investor_daily_trade WHERE trade_date = :tradeDate", nativeQuery = true)
     void deleteByTradeDate(@Param("tradeDate") LocalDate tradeDate);
+
+    /**
+     * 그날 한 투자자 유형의 행 삭제 — 확정치 재구성용. 네이티브라 곧바로 지워진다: 파생 delete 는 플러시 순서(insert 먼저) 때문에
+     * 같은 트랜잭션의 새 순위 행이 유일 키에 걸린다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = "DELETE FROM investor_daily_trade WHERE trade_date = :tradeDate AND investor_type = :investorType", nativeQuery = true)
+    void deleteByTradeDateAndInvestorType(@Param("tradeDate") LocalDate tradeDate, @Param("investorType") String investorType);
 
     // ========== [성능 최적화] Pageable 지원 쿼리 ==========
 

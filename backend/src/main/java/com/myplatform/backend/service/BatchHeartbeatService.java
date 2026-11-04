@@ -50,6 +50,8 @@ public class BatchHeartbeatService {
     public static final String JOB_WEEKLY_REPORT = "weekly-report";
     /** 교정 D+3 평가(19:45) — 게이트·화면 성적이 읽는 값(2026-10-19). 레거시 19:30 평가 심박만으로는 이 배치의 사망이 안 보였다. */
     public static final String JOB_D3_EVALUATION = "d3-evaluation";
+    /** 수급 확정치 재구성 — 멈추면 수급이 조용히 가집계로 남는다(2026-11-05). */
+    public static final String JOB_INVESTOR_FINAL = "investor-final";
 
     /** 감시 대상 명세 — maxAge 는 주말/정상 갭을 감안한 완충 임계(클래스 주석 참조). */
     record JobSpec(String key, String label, Duration maxAge) {}
@@ -58,7 +60,8 @@ public class BatchHeartbeatService {
             new JobSpec(JOB_SIGNAL_EVALUATION, "시그널 평가(평일 19:30)", Duration.ofDays(4)),
             new JobSpec(JOB_DISCOVERY_RESET, "발굴 일일 리셋(평일 08:00)", Duration.ofDays(2)),
             new JobSpec(JOB_WEEKLY_REPORT, "시그널 주간 리포트(일 18:00)", Duration.ofDays(9)),
-            new JobSpec(JOB_D3_EVALUATION, "교정 D+3 평가(평일 19:45)", Duration.ofDays(4)));
+            new JobSpec(JOB_D3_EVALUATION, "교정 D+3 평가(평일 19:45)", Duration.ofDays(4)),
+            new JobSpec(JOB_INVESTOR_FINAL, "수급 확정치(평일 16:15·18:10)", Duration.ofDays(4)));
 
     private final StringRedisTemplate redis;   // null 허용 — Redis 비활성(dev) 시 심박 비활성
     private final ObjectProvider<TelegramNotificationService> telegramProvider;

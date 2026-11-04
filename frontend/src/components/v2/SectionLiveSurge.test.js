@@ -200,6 +200,11 @@ describe('SectionLiveSurge — 직전 거래일 값은 그렇게 말한다', () 
     expect(src).toContain('가집계')
     expect(src).toContain('SUPPLY_TALLY_NOTE')
   })
+
+  it('재현: 가집계 설명 툴팁이 실제로 뜬다 — 옵션 API 템플릿은 import 한 상수를 못 읽어 title 이 비어 있었다', () => {
+    const w = mount(SectionLiveSurge, { props: { active: false } })
+    expect(w.find('.cadence').attributes('title')).toContain('증권사 직원이 장중에 입력한')
+  })
 })
 
 /**

@@ -9,7 +9,10 @@ import java.time.LocalDateTime;
 
 /**
  * 투자자별 일별 상위 매수/매도 종목 기록
- * - 외국인, 기관, 연기금 등 투자자별 상위 20개 종목 저장
+ * - 외국인, 기관, 연기금 등 투자자별 상위 30개 종목 저장
+ *
+ * <p>행은 두 종류다({@link #dataBasis}): 15:50 에 받는 KIS 가집계 순위({@link #BASIS_TALLY} — 증권사 직원 입력, 마지막 14:30)와
+ * 장 마감 뒤 종목별 확정치로 다시 만든 순위({@link #BASIS_FINAL}, {@code InvestorFinalDataService}, V70).
  */
 @Entity
 @Table(name = "investor_daily_trade",
@@ -30,6 +33,11 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class InvestorDailyTrade {
+
+    /** KIS 매매종목가집계 순위 — 장중 잠정 집계, 마지막 입력 14:30. */
+    public static final String BASIS_TALLY = "TALLY";
+    /** 종목별 확정치로 다시 만든 순위 — {@code investor_stock_daily}. */
+    public static final String BASIS_FINAL = "FINAL";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -73,6 +81,11 @@ public class InvestorDailyTrade {
 
     @Column(name = "trade_volume")
     private Long tradeVolume;  // 거래량
+
+    /** {@link #BASIS_TALLY} · {@link #BASIS_FINAL} — 화면 이름표가 이 값을 따른다. */
+    @Column(name = "data_basis", nullable = false, length = 10)
+    @Builder.Default
+    private String dataBasis = BASIS_TALLY;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

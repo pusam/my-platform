@@ -90,7 +90,8 @@ describe('수급 패널 — 줄마다 시점(2026-10-07)', () => {
     const ctx = hub()
     await M.loadSupplyPanel.call(ctx)
     expect(ctx.supplyPanelData.daily.map(d => d.basis)).toEqual(['10.07 09:40 장중 가집계', '10.06 가집계(14:30 기준)'])
-    expect(ctx.supplyPanelData.consecutiveThrough).toBe('10.06까지')
+    expect(ctx.supplyPanelData.consecutiveThrough).toBe('10.06까지 가집계')
+    expect(ctx.supplyPanelData.totalNote).toContain('가집계')
   })
 })
 

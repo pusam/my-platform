@@ -39,6 +39,18 @@ describe('tradeDataLabel — 매매 동향 머리말은 데이터의 거래일�
     expect(tradeDataLabel(null).text).toBe('-')
     expect(tradeDataLabel({ FOREIGN: [{ stockCode: 'x' }] }).text).toBe('-')
   })
+
+  it('확정치로 다시 만든 날은 그렇게 말한다 — 행의 기준을 따르고 시각으로 짐작하지 않는다(2026-11-05)', () => {
+    const final = { FOREIGN: [{ tradeDate: '2026-11-04', dataBasis: 'FINAL' }], INSTITUTION: [{ tradeDate: '2026-11-04', dataBasis: 'FINAL' }] }
+    expect(tradeDataLabel(final)).toEqual({ text: '11.04 장 마감 확정치', status: 'status-final' })
+  })
+
+  it('재구성이 실패한 날은 가집계 그대로 — 한 유형이라도 가집계면 확정치라 부르지 않는다', () => {
+    const mixed = { FOREIGN: [{ tradeDate: '2026-11-04', dataBasis: 'FINAL' }], INSTITUTION: [{ tradeDate: '2026-11-04', dataBasis: 'TALLY' }] }
+    expect(tradeDataLabel(mixed).status).toBe('status-tally')
+    const older = { FOREIGN: [{ tradeDate: '2026-11-03', dataBasis: 'FINAL' }, { tradeDate: '2026-11-04', dataBasis: 'TALLY' }] }
+    expect(tradeDataLabel(older)).toEqual({ text: '11.04 가집계(14:30 기준)', status: 'status-tally' })
+  })
 })
 
 describe('commodityFromResponse — 원자재·환율 카드', () => {
@@ -207,15 +219,31 @@ describe('supplyBasisLabel / consecutiveThroughLabel', () => {
     expect(supplyBasisLabel([{ tradeDate: '2026-10-06' }])).toBe('10.06 가집계(14:30 기준)')
   })
 
+  it('DB 행이 확정치면 그렇게 — 장중 KIS 값은 여전히 가집계(2026-11-05)', async () => {
+    const { supplyBasisLabel, supplyTotalNote } = await import('./marketDataLabels')
+    const final = [{ tradeDate: '2026-11-04', dataBasis: 'FINAL' }]
+    const tally = [{ tradeDate: '2026-11-05', asOf: '2026-11-05T10:29:44.123' }]
+    expect(supplyBasisLabel(final)).toBe('11.04 장 마감 확정치')
+    expect(supplyBasisLabel(tally)).toBe('11.05 10:29 장중 가집계')
+    expect(supplyTotalNote([final, final])).toBe('순매수 상위 10종목의 합 — 시장 전체 순매수가 아닙니다')
+    expect(supplyTotalNote([final, tally])).toContain('가집계')
+  })
+
   it('행이 없으면 null', async () => {
     const { supplyBasisLabel } = await import('./marketDataLabels')
     expect(supplyBasisLabel([])).toBeNull()
     expect(supplyBasisLabel(null)).toBeNull()
   })
 
+  it('연속 순매수는 마지막 날의 기준까지 적는다 — 확정치로 다시 만든 날이면 "확정치"(2026-11-05)', async () => {
+    const { consecutiveThroughLabel } = await import('./marketDataLabels')
+    expect(consecutiveThroughLabel([{ endDate: '2026-11-04', dataBasis: 'FINAL' }])).toBe('11.04까지 확정치')
+    expect(consecutiveThroughLabel([{ endDate: '2026-11-04', dataBasis: 'FINAL' }, { endDate: '2026-11-04', dataBasis: 'TALLY' }])).toBe('11.04까지 가집계')
+  })
+
   it('연속 순매수는 마지막 날까지 — "MM.DD까지"', async () => {
     const { consecutiveThroughLabel } = await import('./marketDataLabels')
-    expect(consecutiveThroughLabel([{ endDate: '2026-10-05' }, { endDate: '2026-10-06' }])).toBe('10.06까지')
+    expect(consecutiveThroughLabel([{ endDate: '2026-10-05' }, { endDate: '2026-10-06' }])).toBe('10.06까지 가집계')
     expect(consecutiveThroughLabel([])).toBeNull()
     expect(consecutiveThroughLabel([{ endDate: null }])).toBeNull()
   })

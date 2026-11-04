@@ -28,6 +28,7 @@ public class ConsecutiveBuyDto {
 
     private LocalDate startDate;        // 연속 매수 시작일
     private LocalDate endDate;          // 연속 매수 종료일 (최근일)
+    private String dataBasis;           // 마지막 날 행의 기준 — TALLY 가집계 · FINAL 장 마감 확정치
 
     private BigDecimal currentPrice;    // 현재가
     private BigDecimal changeRate;      // 등락률

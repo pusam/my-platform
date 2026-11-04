@@ -59,7 +59,7 @@ class MorningBriefingConsecutiveBasisTest {
 
         String s = section();
 
-        assertThat(s).contains("외국인 연속 매수 TOP 5</b> (10/16 가집계까지)");
+        assertThat(s).contains("외국인 연속 매수 TOP 5</b> (10/16 장 마감까지)");
         assertThat(s).contains("⚠ 최신 수집분이 아닙니다 — 10/19 수급 집계가 없습니다");
         assertThat(s).contains("1. 삼성전자 (005930) - 4일 연속");
     }
@@ -73,7 +73,7 @@ class MorningBriefingConsecutiveBasisTest {
 
         String s = section();
 
-        assertThat(s).contains("외국인 연속 매수 TOP 5</b> (10/16 가집계까지)");
+        assertThat(s).contains("외국인 연속 매수 TOP 5</b> (10/16 장 마감까지)");
         assertThat(s).doesNotContain("⚠");
     }
 

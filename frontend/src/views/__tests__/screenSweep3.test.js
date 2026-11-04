@@ -13,7 +13,7 @@ describe('시장 탭 수급 패널 — 순매수 상위 10종목 합을 시장 �
   it('재현: "외국인 +2,773억"은 순매수 순위 상위 10종목의 합(늘 +)이었다 — 라벨과 안내가 그걸 밝힌다', () => {
     expect(src).toMatch(/label: '외국인 상위 10'/)
     expect(src).toMatch(/label: '기관 상위 10'/)
-    expect(src).toMatch(/가집계 순매수 상위 10종목의 합 — 시장 전체도, 장 마감 확정치도 아닙니다/)
+    expect(src).toMatch(/supplyPanelData\.totalNote/)   // 문구는 행의 기준을 따른다(marketDataLabels.supplyTotalNote)
   })
 
   it('재현: 그 합계로 가르던 "진짜 반등 가능성"/"진짜반등" 판정을 지웠다 — 사실(연속 종목 수)만', () => {

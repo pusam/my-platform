@@ -29,7 +29,7 @@
         <template v-else>
           <div class="sub-header">
             <div class="trade-type-selector">
-              <!-- 순위 출처(KIS 매매종목가집계)는 하루 30종목까지 — 예전 이름표의 50 은 없는 수였다(2026-10-07) -->
+              <!-- 순위는 하루 30종목까지 — 예전 이름표의 50 은 없는 수였다(2026-10-07) -->
               <button :class="['type-btn', { active: tradeType === 'BUY' }]" @click="changeTradeType('BUY')">
                 📈 순매수 상위
               </button>
@@ -42,8 +42,8 @@
             </span>
           </div>
           <p v-if="tradesCollecting" class="collecting-status">🔄 데이터 수집 중...</p>
-          <p class="rank-source-note">KIS 외국인·기관 가집계 기준 · 하루 최대 30종목(연기금은 그보다 적을 수 있음)</p>
-          <p class="rank-source-note">{{ SUPPLY_TALLY_NOTE }}</p>
+          <p class="rank-source-note">{{ tradeDataStatus === 'status-final' ? SUPPLY_FINAL_NOTE : '외국인·기관 가집계 기준 · 하루 최대 30종목(연기금은 그보다 적을 수 있음)' }}</p>
+          <p v-if="tradeDataStatus !== 'status-final'" class="rank-source-note">{{ SUPPLY_TALLY_NOTE }}</p>
 
           <div class="investor-tabs">
             <button v-for="type in tradeInvestorTypes" :key="type.value"
@@ -270,7 +270,7 @@ import { ref, computed, onMounted, defineProps } from 'vue'
 import { useRouter } from 'vue-router'
 import { investorAPI, shortSellingAPI } from '../utils/api'
 import { toast } from '../utils/toast'
-import { tradeDataLabel, storedPriceLabel, SUPPLY_TALLY_NOTE } from '../utils/marketDataLabels'
+import { tradeDataLabel, storedPriceLabel, SUPPLY_TALLY_NOTE, SUPPLY_FINAL_NOTE } from '../utils/marketDataLabels'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
 import DataFreshness from '../components/DataFreshness.vue'
@@ -333,12 +333,13 @@ const getBarWidth = (amount) => {
 
 const tradeDataStatusIcon = computed(() => {
   if (tradeDataStatus.value === 'status-live') return '🔴'
+  if (tradeDataStatus.value === 'status-final') return '✅'
   if (tradeDataStatus.value === 'status-tally') return '🕑'
   return '📊'
 })
 
 // 머리말은 데이터의 거래일로(2026-10-02) — 브라우저 시계로 "오늘 HH:mm (잠정)"을 붙이면 장중엔 어제 값이
-// 오늘 잠정치처럼 보였다. 서버는 그날 마지막 입력 뒤(15:50)의 값만 저장한다 — 그래도 확정치는 아니다(가집계). 판정은 marketDataLabels 단일 출처.
+// 오늘 잠정치처럼 보였다. 15:50 에 저장한 행은 가집계이고 장 마감 뒤 확정치로 다시 만들어진다 — 판정은 행의 기준(marketDataLabels 단일 출처).
 const updateTradeStatus = () => {
   const label = tradeDataLabel(allTrades.value)
   tradeTimestamp.value = label.text
@@ -700,6 +701,13 @@ onMounted(() => {
   background: rgba(239,68,68,0.15);
   color: var(--signal-buy, #f87171);
   border: 1px solid rgba(239,68,68,0.3);
+}
+
+/* 확정치로 다시 만든 날 — 그 재구성이 안 된 날만 아래 가집계 표시다(2026-11-05) */
+.data-timestamp.status-final {
+  background: rgba(16,185,129,0.15);
+  color: #10b981;
+  border: 1px solid rgba(16,185,129,0.3);
 }
 
 /* 가집계 — 확정치가 아니라 초록 체크를 쓰지 않는다(2026-11-04) */
