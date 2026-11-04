@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -334,6 +335,31 @@ class StockDetailServiceTest {
         }
 
         @Test
+        @DisplayName("재현: AI 프롬프트에 리스크 조회의 뉴스가 들어간다 — 같이 돌려서 화면엔 뉴스 8건인데 AI 는 '뉴스 없음'이라 썼다(2026-11-04)")
+        void aiPromptGetsRiskNews() {
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "1.43", TEST_STOCK_NAME));
+            when(cacheService.getCachedChartData(TEST_STOCK_CODE)).thenReturn(null);
+            when(cacheService.getCachedFinancialInfo(TEST_STOCK_CODE)).thenReturn(dummyFinancial());
+            when(riskService.analyzeRisk(anyString(), eq(TEST_STOCK_CODE))).thenReturn(RiskAnalysisDto.builder()
+                    .riskScore(25)
+                    .status(RiskAnalysisDto.RiskStatus.SAFE)
+                    .relatedNews(new ArrayList<>(List.of(RiskAnalysisDto.NewsItem.builder()
+                            .title("삼성전자 HBM 수주 확대").description("증권가 목표주가 상향").build())))
+                    .dangerousDisclosures(new ArrayList<>())
+                    .build());
+            Map<String, Object> peerMap = new HashMap<>();
+            peerMap.put("peers", Collections.emptyList());
+            doReturn(peerMap).when(cacheService).getCachedPeerData(anyString(), any());
+            ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+            when(geminiService.analyzeStockDetail(prompt.capture())).thenReturn(null);
+
+            stockDetailService.getStockDetailHeavy(TEST_STOCK_CODE);
+
+            assertThat(prompt.getValue()).contains("[뉴스1] 삼성전자 HBM 수주 확대");
+        }
+
+        @Test
         @DisplayName("리스크 실패해도 result Map 반환 + 나머지 키 존재 (부분 실패 허용)")
         void riskFail_resultStillReturned() {
             // given
@@ -511,6 +537,56 @@ class StockDetailServiceTest {
             String prompt = stockDetailService.buildGeminiPrompt(dtoWith("장전(초기화)", BigDecimal.ZERO));
             assertThat(prompt).contains("미수집");
             assertThat(prompt).doesNotContain("외국인 순매수: 0억");
+        }
+
+        @Test
+        @DisplayName("재현: 볼린저 줄은 오늘 밴드 — 목록은 최신→과거 순이라 마지막 원소는 200봉 전이다(2026-11-04)")
+        void bollingerLineUsesLatestBand() {
+            var dto = dtoWith("실시간", new BigDecimal("100"));
+            dto.setChartData(com.myplatform.backend.dto.StockDetailDto.ChartData.builder()
+                    .bbUpper(java.util.List.of(new BigDecimal("260071.64"), new BigDecimal("145029.26")))
+                    .bbLower(java.util.List.of(new BigDecimal("196178.36"), new BigDecimal("91710.74")))
+                    .build());
+
+            String prompt = stockDetailService.buildGeminiPrompt(dto);
+
+            assertThat(prompt).contains("볼린저: 상단 260071.64, 하단 196178.36").doesNotContain("145029.26");
+        }
+
+        @Test
+        @DisplayName("재현: 장중엔 외국인·기관 당일 값이 없다 — '미집계'만 주지 않고 5일 누적을 같이 준다(2026-11-04)")
+        void intradayMissingSupplyAdds5Day() {
+            StockAnalysisService mockAnalysis = org.mockito.Mockito.mock(StockAnalysisService.class);
+            when(mockAnalysis.getFiveDayNetBuy("298040")).thenReturn(
+                    new StockAnalysisService.FiveDaySupply(new BigDecimal("937"), new BigDecimal("-120"), 5));
+            when(stockAnalysisProvider.getIfAvailable()).thenReturn(mockAnalysis);
+            var dto = dtoWith("실시간", null);
+            dto.getSupplyDemand().setInstNetBuy(null);
+
+            String prompt = stockDetailService.buildGeminiPrompt(dto);
+
+            assertThat(prompt).contains("외국인 순매수: 미집계")
+                    .contains("최근 5거래일 누적 수급 — 외국인 +937억, 기관 -120억")
+                    .doesNotContain("장전 미거래");
+        }
+
+        @Test
+        @DisplayName("당일 값이 있으면 5일 누적을 덧붙이지 않는다")
+        void todaySupplyNeedsNo5Day() {
+            String prompt = stockDetailService.buildGeminiPrompt(dtoWith("실시간", new BigDecimal("100")));
+            assertThat(prompt).contains("외국인 순매수: 100억").doesNotContain("누적 수급");
+        }
+
+        @Test
+        @DisplayName("공매도 태그는 뉴스에 단어가 나왔다는 뜻만 말한다 — 대차대조표에 걸리지 않는다(2026-11-04)")
+        void shortSellingTagIsNewsMention() {
+            var withShort = RiskAnalysisDto.builder().relatedNews(java.util.List.of(RiskAnalysisDto.NewsItem.builder()
+                    .title("공매도 잔고 늘었다").build())).build();
+            var balanceSheet = RiskAnalysisDto.builder().relatedNews(java.util.List.of(RiskAnalysisDto.NewsItem.builder()
+                    .title("3분기 대차대조표 개선").build())).build();
+
+            assertThat(stockDetailService.generateRiskTags(withShort)).containsExactly("#공매도 언급 뉴스");
+            assertThat(stockDetailService.generateRiskTags(balanceSheet)).isNull();
         }
 
         @Test

@@ -12,6 +12,24 @@ function mountHeadline(supplyDemand, over = {}) {
   })
 }
 
+describe('StockBriefingHeadline — 진단 경고 칩', () => {
+  it('재현: 서버 문구가 ⚠️ 로 시작해도 칩에 한 번만 붙고, 끝이 잘리지 않는다(2026-11-04)', () => {
+    const w = mount(StockBriefingHeadline, {
+      props: {
+        diagnosisData: {
+          overallScore: 55,
+          technicalAnalysis: { rsi14: 50 },
+          warnings: ['⚠️ 외국인 순매도 1892억 (최근 5일) - 신중히 접근!']
+        },
+        aiAnalysis: { overallScore: 60, recommendation: 'HOLD' }
+      }
+    })
+    const text = w.find('.rec-cautions').text()
+    expect(text).not.toContain('⚠️ ⚠️')
+    expect(text).toContain('외국인 순매도 1892억 (최근 5일) - 신중히 접근!')
+  })
+})
+
 describe('StockBriefingHeadline — 수급 키 정합', () => {
   it('회귀: 기관 순매도를 institutionNet5Days 키로 읽어 "외인·기관 동반 매도" 경고가 뜬다', () => {
     // 외인·기관 둘 다 순매도 → isSupplyNegative=true. 기관을 구 오타 키(instNet5Days)로 읽으면

@@ -434,10 +434,12 @@ public class StockDetailService {
                     return enrichData;
                 }, stockDetailExecutor);
 
-        // AI 분석 (Gemini 또는 규칙기반)
-        CompletableFuture<AiAnalysis> aiFuture =
-                CompletableFuture.supplyAsync(() -> cacheService.getCachedAiAnalysis(
-                        stockCode, () -> fetchAiAnalysis(stockCode)), stockDetailExecutor);
+        // AI 분석 (Gemini 또는 규칙기반) — 리스크 조회가 끝난 뒤 그 뉴스·공시를 넘긴다. 나란히 돌리면 프롬프트에 뉴스가 없어
+        // 화면엔 뉴스 8건이 있는데 AI 는 '관련 뉴스 없음'이라고 썼다(2026-11-04). 리스크가 실패해도 AI 는 돈다.
+        CompletableFuture<AiAnalysis> aiFuture = riskFuture
+                .exceptionally(ex -> null)
+                .thenApplyAsync(risk -> cacheService.getCachedAiAnalysis(
+                        stockCode, () -> fetchAiAnalysis(stockCode, risk)), stockDetailExecutor);
 
         try {
             RiskInfo riskInfo = riskFuture.get(60, TimeUnit.SECONDS);
@@ -519,10 +521,11 @@ public class StockDetailService {
     }
 
     // 캐시는 cacheService.getCachedAiAnalysis 래퍼가 담당 (self-invocation 방지)
-    private AiAnalysis fetchAiAnalysis(String stockCode) {
+    private AiAnalysis fetchAiAnalysis(String stockCode, RiskInfo risk) {
         try {
             // Quick 데이터로 StockDetailDto 구성
             StockDetailDto quickDto = getStockDetailQuick(stockCode);
+            quickDto.setRisk(risk);
             AiAnalysis aiAnalysis = generateGeminiAnalysis(quickDto);
             if (aiAnalysis == null) {
                 aiAnalysis = generateAiAnalysis(quickDto);
@@ -643,7 +646,7 @@ public class StockDetailService {
     /**
      * 리스크 키워드 태그 생성 (뉴스/공시 기반)
      */
-    private List<String> generateRiskTags(RiskAnalysisDto risk) {
+    List<String> generateRiskTags(RiskAnalysisDto risk) {   // package-private: 태그 문구 테스트용
         List<String> tags = new ArrayList<>();
 
         // 뉴스 키워드 스캔
@@ -657,7 +660,11 @@ public class StockDetailService {
             if (allNews.contains("환율") || allNews.contains("달러")) tags.add("#환율 변동");
             if (allNews.contains("실적") && (allNews.contains("부진") || allNews.contains("하회"))) tags.add("#실적 우려");
             if (allNews.contains("감사") && allNews.contains("의견")) tags.add("#감사 리스크");
-            if (allNews.contains("공매도") || allNews.contains("대차")) tags.add("#공매도 주의");
+            // 뉴스에 단어가 나왔다는 뜻일 뿐 공매도 수치를 본 게 아니다 — '주의'라고 판정하지 않는다(§4c 공매도 항목).
+            // '대차' 만 보면 대차대조표에도 걸린다.
+            if (allNews.contains("공매도") || allNews.contains("대차거래") || allNews.contains("대차잔고")) {
+                tags.add("#공매도 언급 뉴스");
+            }
             if (allNews.contains("소송") || allNews.contains("제재")) tags.add("#법적 리스크");
             if (allNews.contains("유상증자") || allNews.contains("CB")) tags.add("#희석 리스크");
         }
@@ -2291,6 +2298,11 @@ public class StockDetailService {
                         s.getInstNetBuy() != null ? s.getInstNetBuy() + "억" : "미집계",
                         s.getVolumePower() != null ? s.getVolumePower() + "%" : "미집계",
                         s.getDataSource() != null ? s.getDataSource() : "실시간"));
+                // 장중엔 외국인·기관 당일 값이 없다(장 마감 뒤 제공) — '미집계'만 주면 AI 가 수급을 못 본다고 쓴다(2026-11-04)
+                if (s.getForeignNetBuy() == null && s.getInstNetBuy() == null) {
+                    String fiveDay = build5DaySupplyLine(dto.getStockCode());
+                    if (fiveDay != null) sb.append(fiveDay);
+                }
             }
         }
 
@@ -2345,8 +2357,9 @@ public class StockDetailService {
             // 볼린저 밴드 현재 범위
             if (c.getBbUpper() != null && !c.getBbUpper().isEmpty()
                     && c.getBbLower() != null && !c.getBbLower().isEmpty()) {
-                BigDecimal up = c.getBbUpper().get(c.getBbUpper().size() - 1);
-                BigDecimal lo = c.getBbLower().get(c.getBbLower().size() - 1);
+                // 목록은 최신→과거 순 — 0 번이 오늘 밴드다
+                BigDecimal up = c.getBbUpper().get(0);
+                BigDecimal lo = c.getBbLower().get(0);
                 sb.append(String.format("볼린저: 상단 %s, 하단 %s\n",
                         up != null ? up : "N/A", lo != null ? lo : "N/A"));
             }
@@ -2437,7 +2450,7 @@ public class StockDetailService {
             // 이미 억원이다 — 예전엔 1억으로 또 나눠 늘 "+0억"이었다(2026-10-03)
             long foreignEok = f.foreignNetEok().setScale(0, RoundingMode.HALF_UP).longValue();
             long instEok = f.institutionNetEok().setScale(0, RoundingMode.HALF_UP).longValue();
-            return String.format("최근 %d거래일 누적 수급 — 외국인 %+d억, 기관 %+d억 (당일은 장전 미거래)\n",
+            return String.format("최근 %d거래일 누적 수급 — 외국인 %+d억, 기관 %+d억 (당일 값은 아직 없음)\n",
                     f.days(), foreignEok, instEok);
         } catch (Exception e) {
             log.debug("[StockDetail] 5일 수급 조립 실패 [{}]: {}", stockCode, e.getMessage());

@@ -7,11 +7,14 @@ import com.myplatform.backend.dto.StockDetailDto.ChartSignal;
 import com.myplatform.backend.dto.StockDetailDto.PriceInfo;
 import com.myplatform.backend.dto.StockDetailDto.VolumePoint;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +35,7 @@ public class ChartSignalService {
     private static final String TONE_NEUTRAL = "neutral";
 
     private final TechnicalIndicatorService technicalIndicatorService;
+    private final MarketCalendarService marketCalendar;
 
     /**
      * 종목 상세 데이터에서 차트 시그널 리스트를 추출.
@@ -51,12 +55,13 @@ public class ChartSignalService {
         for (CandlePoint c : chart.getCandles()) {
             if (c.getClose() != null) closes.add(c.getClose());
         }
-        // 캔들은 최신순이 아닐 수 있으니 "마지막 원소 = 최근" 가정.
+        // ChartData 의 목록은 전부 최신→과거 순이다(0 번 = 오늘 — StockDetailCacheService.fetchChartData).
+        // 마지막 원소는 200봉 전이다. calculateRSI 도 같은 순서를 받는다.
         if (closes.size() < 5) return signals;
 
         BigDecimal current = price.getCurrentPrice() != null
                 ? price.getCurrentPrice()
-                : closes.get(closes.size() - 1);
+                : closes.get(0);
 
         // === 이동평균선 시그널 ===
         detectMovingAverage(signals, closes, chart, current);
@@ -122,14 +127,14 @@ public class ChartSignalService {
             }
         }
 
-        // MA5 / MA20 골든 / 데드 크로스 (마지막 두 값 비교)
+        // MA5 / MA20 골든 / 데드 크로스 (최신 두 값 비교)
         List<BigDecimal> line5 = chart.getMaLine5();
         List<BigDecimal> line20 = chart.getMaLine20();
         if (line5 != null && line20 != null && line5.size() >= 2 && line20.size() >= 2) {
-            BigDecimal prev5 = line5.get(line5.size() - 2);
-            BigDecimal cur5 = line5.get(line5.size() - 1);
-            BigDecimal prev20 = line20.get(line20.size() - 2);
-            BigDecimal cur20 = line20.get(line20.size() - 1);
+            BigDecimal prev5 = line5.get(1);
+            BigDecimal cur5 = line5.get(0);
+            BigDecimal prev20 = line20.get(1);
+            BigDecimal cur20 = line20.get(0);
             if (prev5 != null && cur5 != null && prev20 != null && cur20 != null) {
                 if (prev5.compareTo(prev20) <= 0 && cur5.compareTo(cur20) > 0) {
                     signals.add(build("MA5_20_GOLDEN", "골든크로스",
@@ -169,8 +174,8 @@ public class ChartSignalService {
         List<BigDecimal> lower = chart.getBbLower();
         if (upper == null || lower == null || upper.isEmpty() || lower.isEmpty()) return;
 
-        BigDecimal up = upper.get(upper.size() - 1);
-        BigDecimal lo = lower.get(lower.size() - 1);
+        BigDecimal up = upper.get(0);
+        BigDecimal lo = lower.get(0);
         if (up == null || lo == null) return;
 
         if (current.compareTo(up) >= 0) {
@@ -190,18 +195,17 @@ public class ChartSignalService {
         List<VolumePoint> volumes = chart.getVolumes();
         if (volumes == null || volumes.size() < 6) return;
 
-        // 최근 5개(오늘 제외) 평균 거래량 계산
-        int n = volumes.size();
+        // 최근 5거래일(오늘 제외) 평균 거래량 계산
         long sum = 0L;
         int cnt = 0;
-        for (int i = Math.max(0, n - 6); i < n - 1; i++) {
+        for (int i = 1; i <= 5; i++) {
             Long vol = volumes.get(i).getVolume();
             if (vol != null) { sum += vol; cnt++; }
         }
         if (cnt == 0) return;
         double avg5 = (double) sum / cnt;
 
-        Long today = volumes.get(n - 1).getVolume();
+        Long today = volumes.get(0).getVolume();
         // PriceInfo 쪽 trading volume 이 있으면 그게 더 최신
         if (price != null && price.getTradingVolume() != null) {
             today = price.getTradingVolume();
@@ -213,12 +217,22 @@ public class ChartSignalService {
             signals.add(build("VOLUME_SURGE", "거래량 급증",
                     String.format("5일 평균 대비 %.1f배", ratio),
                     TONE_POSITIVE));
-        } else if (ratio <= 0.5) {
+        } else if (ratio <= 0.5 && todayVolumeFinal()) {
             signals.add(build("VOLUME_DRY", "거래량 소강",
                     String.format("5일 평균의 %.0f%% — 방향성 대기",
                             ratio * 100),
                     TONE_NEUTRAL));
         }
+    }
+
+    /**
+     * 오늘 거래량이 확정됐는가 — 장이 끝났거나 장이 열리지 않은 날. 장중 누적은 하루치와 견줄 수 없어서 09시엔 어느 종목이나
+     * '소강'이다(급증은 장중 누적으로도 말할 수 있다).
+     */
+    private boolean todayVolumeFinal() {
+        LocalDateTime now = DateTimeUtil.kstNow();
+        LocalDate today = now.toLocalDate();
+        return marketCalendar.isMarketClosed(today) || today.equals(marketCalendar.lastClosedTradingDay(now));
     }
 
     private void detectExtremeChange(List<ChartSignal> signals, PriceInfo price) {

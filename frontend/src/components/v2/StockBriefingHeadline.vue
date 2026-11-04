@@ -65,7 +65,8 @@ export default {
       const warnings = this.diagnosisData?.warnings
       if (Array.isArray(warnings) && warnings.length) {
         // 펀더멘털 경고가 3개 이상이면 첫 1개만 헤드라인에 노출
-        list.push(warnings[0].slice(0, 30))
+        // 서버 문구가 이미 ⚠️ 로 시작한다 — 칩이 한 번 더 붙여 '⚠️ ⚠️'로 보였고 끝도 잘렸다(2026-11-04)
+        list.push(warnings[0].replace(/^\s*\u26A0\uFE0F?\s*/, '').slice(0, 40))
       }
       return list.slice(0, 2)
     },
