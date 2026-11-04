@@ -56,6 +56,12 @@ public class KisInvestorDataCollector {
             return;
         }
 
+        // 장이 늦게 닫히는 날(수능일)은 16:00 도 장중이다 — 잠정치를 쌓지 않고 18:00 보완 수집에 맡긴다
+        if (marketCalendar.closesLate(today)) {
+            log.info("[배치] 16:00 오늘은 마감이 늦다({}) — 투자자 일별 보완 수집 스킵", marketCalendar.marketCloseOf(today));
+            return;
+        }
+
         // 15:50 확정 기록이 있으면 스킵. 행은 있는데 확정이 아니면(장중 잠정치·외국인/기관 일부 누락) 여기서는 지우지 않고
         // 18:00 보완 수집(그날 행을 지우고 다시 넣는다)에 맡긴다 — 이 경로는 삭제 없이 덧붙이기만 해서 중복이 생긴다(2026-10-01).
         List<Object[]> summary = investorTradeRepository.summarizeByInvestorType(today);

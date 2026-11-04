@@ -50,6 +50,17 @@ class HolidayPhantomRowGateTest {
         }
 
         @Test
+        @DisplayName("재현: 장이 늦게 닫히는 날(수능일) 16:00 은 장중이다 — 잠정치를 쌓지 않는다(2026-11-04)")
+        void skipsWhileTheLateMarketIsOpen() {
+            when(calendar.isMarketClosed(any(LocalDate.class))).thenReturn(false);
+            when(calendar.closesLate(any(LocalDate.class))).thenReturn(true);
+
+            collector.scheduledDailyCollection();
+
+            verifyNoInteractions(repo, kis);
+        }
+
+        @Test
         @DisplayName("거래일이면 '그날 확정 기록이 있나'부터 본다 — 있으면 KIS 를 부르지 않는다")
         void proceedsOnTradingDay() {
             when(calendar.isMarketClosed(any(LocalDate.class))).thenReturn(false);

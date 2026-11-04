@@ -420,12 +420,18 @@ public class InvestorTradeService {
      * 예전엔 매매 동향 화면이 조회 결과가 비면 이 수집을 <b>자동으로</b> 불렀다 — 화면을 연 것만으로 기록이 바뀌었다.
      */
     static String manualCollectRefusal(java.time.LocalDateTime now, boolean marketClosed) {
+        return manualCollectRefusal(now, marketClosed, null);
+    }
+
+    /** 그날 마감을 받는 판정 — 수능일엔 15:50 도 장중이다. */
+    static String manualCollectRefusal(java.time.LocalDateTime now, boolean marketClosed, LocalTime marketClose) {
         if (marketClosed) {
             return "휴장일 — 수집하지 않습니다(KIS 는 휴장일에도 직전 거래일 값을 오늘 날짜로 줍니다).";
         }
-        if (!InvestorDailyConfirmation.isConfirmedWindow(now)) {
-            return "장 마감 집계 전(" + InvestorDailyConfirmation.CONFIRMED_FROM + " 이전) — 잠정치는 일별 기록으로 저장하지 않습니다. "
-                    + InvestorDailyConfirmation.CONFIRMED_FROM + " 정규 수집을 기다려 주세요.";
+        LocalTime confirmedFrom = InvestorDailyConfirmation.confirmedFrom(marketClose);
+        if (!InvestorDailyConfirmation.isConfirmedWindow(now, marketClose)) {
+            return "장 마감 집계 전(" + confirmedFrom + " 이전) — 잠정치는 일별 기록으로 저장하지 않습니다. "
+                    + confirmedFrom + " 정규 수집을 기다려 주세요.";
         }
         return null;
     }

@@ -51,6 +51,12 @@ public class InvestorTradeScheduler {
     @Scheduled(scheduler = "batchScheduler", cron = "0 50 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfterMarketClose() {
         if (marketCalendar.isMarketClosed()) { log.info("[배치] 15:50 휴장일 — 수집 스킵"); return; }
+        // 장이 늦게 닫히는 날(수능일)은 15:50 이 장중이다 — 잠정치를 저장하지 않고 18:00 보완 수집에 맡긴다
+        LocalDate marketDay = LocalDate.now(clock);
+        if (marketCalendar.closesLate(marketDay)) {
+            log.info("[배치] 15:50 오늘은 마감이 늦다({}) — 수집 스킵, 18:00 보완 수집이 받는다", marketCalendar.marketCloseOf(marketDay));
+            return;
+        }
         if (!schedulerLockService.tryLock("investor-trade.after-close", Duration.ofMinutes(30))) {
             log.debug("[배치] 15:50 다른 인스턴스에서 진행 중 — 스킵");
             return;
@@ -80,7 +86,7 @@ public class InvestorTradeScheduler {
         // 확정 기록이 있을 때만 건너뛴다 — 행 존재만 보면 장중 잠정치·부분 수집(외국인만)이 남은 날 재시도가 막혀
         // 잠정치가 그날 기록으로 영구화된다(2026-10-01). collectInvestorTradeData 는 그날 행을 지우고 다시 넣는다.
         List<Object[]> summary = investorDailyTradeRepository.summarizeByInvestorType(today);
-        if (InvestorDailyConfirmation.isConfirmed(today, summary)) {
+        if (InvestorDailyConfirmation.isConfirmed(today, summary, marketCalendar.marketCloseOf(today))) {
             log.debug("[배치] 18:00 - 오늘 확정 기록 존재, 스킵");
             return;
         }
@@ -136,9 +142,10 @@ public class InvestorTradeScheduler {
             // 장중 부팅은 수집하지 않는다(2026-10-01) — KIS 는 당일 값만 주고 장중엔 그 시각까지의 잠정 집계라,
             // 저장하면 그날 일별 기록이 되어 15:50 정규 수집 전까지 종합추천 수급 축이 잠정치로 계산된다
             // (9/30 11:13 실측: 잠정 156행 → 15:50 확정 159행). 지난 거래일 값은 이 API 로 못 받으니 메울 것도 없다.
-            if (!InvestorDailyConfirmation.isConfirmedWindow(java.time.LocalDateTime.now(clock))) {
+            java.time.LocalTime marketClose = marketCalendar.marketCloseOf(today);
+            if (!InvestorDailyConfirmation.isConfirmedWindow(java.time.LocalDateTime.now(clock), marketClose)) {
                 log.info("[시작시 수집] 장 마감 전({} 이전) — 잠정 집계를 일별 기록으로 저장하지 않는다(15:50 정규 수집)",
-                        InvestorDailyConfirmation.CONFIRMED_FROM);
+                        InvestorDailyConfirmation.confirmedFrom(marketClose));
                 return;
             }
 
@@ -150,7 +157,7 @@ public class InvestorTradeScheduler {
 
             // 확정 기록이 있으면 건너뛴다 — 행 존재만 보면 장중 잠정치가 남은 날 다시 받지 못한다.
             List<Object[]> summary = investorDailyTradeRepository.summarizeByInvestorType(today);
-            if (InvestorDailyConfirmation.isConfirmed(today, summary)) {
+            if (InvestorDailyConfirmation.isConfirmed(today, summary, marketClose)) {
                 long tradeDays = investorDailyTradeRepository.countDistinctTradeDates();
                 log.info("[시작시 수집] 오늘 확정 기록 존재 - 현재 {}일치 데이터 보유", tradeDays);
                 return;

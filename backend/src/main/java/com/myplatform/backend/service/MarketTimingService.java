@@ -125,7 +125,7 @@ public class MarketTimingService {
         if (!kospiExists || !kosdaqExists) {
             // 장중 부팅이면 수집하지 않는다 — 등락 종목 수는 장 마감 확정치만 쓴다(MarketBreadth.COUNTS_SETTLED_AT).
             // 저녁 배포처럼 마감 뒤 부팅이면 여기서 그날 값을 채운다.
-            if (!MarketBreadth.countsSettled(java.time.LocalTime.now(KST))) {
+            if (!MarketBreadth.countsSettled(java.time.LocalTime.now(KST), marketCalendar.marketCloseOf(today))) {
                 log.info("ADR 시장 데이터 — 장 마감 전 부팅이라 수집하지 않는다(16:30 크론이 확정치를 쓴다, 날짜: {})", today);
                 return;
             }
@@ -414,6 +414,13 @@ public class MarketTimingService {
             log.info("[배치] 16:30 휴장일 — ADR 시장 지표 수집 스킵");
             return;
         }
+        // 장이 늦게 닫히는 날(수능일)은 16:30 이 아직 마감 전이다 — 실패로 남기지 않고 16:45 회차에 맡긴다
+        LocalDate marketDay = LocalDate.now(KST);
+        if (marketCalendar.closesLate(marketDay)
+                && !MarketBreadth.countsSettled(java.time.LocalTime.now(KST), marketCalendar.marketCloseOf(marketDay))) {
+            log.info("[배치] 16:30 오늘은 마감이 늦다 — ADR 시장 지표는 16:45 회차가 수집");
+            return;
+        }
         log.info("=== ADR 시장 지표 자동 수집 시작 (16:30) ===");
         try {
             collectMarketData();
@@ -437,8 +444,9 @@ public class MarketTimingService {
 
     /** 시각을 받는 본체 — 장 마감 전/후 동작을 테스트하려고 분리. */
     void collectMarketData(java.time.LocalTime now) {
-        if (!MarketBreadth.countsSettled(now)) {
-            throw new IllegalStateException("장 마감(" + MarketBreadth.COUNTS_SETTLED_AT
+        java.time.LocalTime marketClose = marketCalendar.marketCloseOf(LocalDate.now(KST));
+        if (!MarketBreadth.countsSettled(now, marketClose)) {
+            throw new IllegalStateException("장 마감(" + (marketClose != null ? marketClose : MarketBreadth.COUNTS_SETTLED_AT)
                     + ") 전에는 등락 종목 수를 저장하지 않습니다 — 장중 잠정치입니다. 16:30 에 자동 수집됩니다.");
         }
         log.info("시장 데이터 수집 시작");
@@ -689,7 +697,7 @@ public class MarketTimingService {
      */
     static LocalDate indexSessionDate(java.time.LocalDateTime now, MarketCalendarService cal) {
         LocalDate d = now.toLocalDate();
-        if (!cal.isMarketClosed(d) && !now.toLocalTime().isBefore(MarketCalendarService.MARKET_OPEN)) return d;
+        if (!cal.isMarketClosed(d) && !now.toLocalTime().isBefore(cal.marketOpenOf(d))) return d;
         return cal.minusTradingDays(d, 1);
     }
 
@@ -722,7 +730,10 @@ public class MarketTimingService {
         boolean isOldData = status.getTradeDate() != null && !status.getTradeDate().equals(today);
         // ★ 장중(09:00~15:30)에는 항상 실시간 갱신 (DB에 stale 데이터가 저장됐을 수 있음)
         LocalTime now = clock.toLocalTime();
-        boolean isDuringMarketHours = !now.isBefore(LocalTime.of(9, 0)) && !now.isAfter(LocalTime.of(15, 30));
+        LocalTime marketOpen = marketCalendar.marketOpenOf(today);
+        LocalTime marketClose = marketCalendar.marketCloseOf(today);
+        boolean isDuringMarketHours = marketOpen != null && marketClose != null
+                && !now.isBefore(marketOpen) && !now.isAfter(marketClose.minusMinutes(10));
         boolean needsRefresh = isOldData
                 || isDuringMarketHours
                 || status.getIndexClose() == null

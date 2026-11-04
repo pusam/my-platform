@@ -27,6 +27,17 @@ public class MarketCalendarService {
      */
     public static final LocalTime MARKET_CLOSE = LocalTime.of(15, 40);
 
+    /**
+     * 장이 늦게 열리고 늦게 닫히는 날 — 크론은 그대로 두고 판정만 이 표를 따른다(2026-11-04). 마감은 {@link #MARKET_CLOSE} 와
+     * 같은 정의(접속매매 종료 + 10분). ⚠ 2026-11-19 수능일은 작년까지의 관례(10:00~16:30, 2025-11-13)로 넣었다 — KRX 공지가
+     * 나오면 대조할 것. 수능일은 해마다 날짜가 바뀌니 휴장일 표와 같은 주기로 갱신한다.
+     */
+    private static final java.util.Map<LocalDate, SessionHours> SHIFTED_SESSIONS = java.util.Map.of(
+            LocalDate.of(2026, 11, 19), new SessionHours(LocalTime.of(10, 0), LocalTime.of(16, 40)));
+
+    private record SessionHours(LocalTime open, LocalTime close) {
+    }
+
     /** 한국 고정(양력) 공휴일 + KRX 고정 휴장일 */
     private static final Set<MonthDay> KOREA_FIXED_HOLIDAYS = Set.of(
             MonthDay.of(1, 1),   // 신정
@@ -137,7 +148,24 @@ public class MarketCalendarService {
     /** 테스트 가능 오버로드 — 경계(15:30·15:31·15:40·15:41) 검증용. (P2-7) */
     public boolean isRegularSession(LocalDate date, LocalTime time) {
         if (isMarketClosed(date)) return false;
-        return !time.isBefore(MARKET_OPEN) && !time.isAfter(MARKET_CLOSE);
+        return !time.isBefore(marketOpenOf(date)) && !time.isAfter(marketCloseOf(date));
+    }
+
+    /** 그날 정규장 시작 — 평소 {@link #MARKET_OPEN}, 수능일처럼 밀리는 날은 표의 값. */
+    public LocalTime marketOpenOf(LocalDate date) {
+        SessionHours shifted = SHIFTED_SESSIONS.get(date);
+        return shifted != null ? shifted.open() : MARKET_OPEN;
+    }
+
+    /** 그날 정규장 종료(종가 버퍼 포함) — 평소 {@link #MARKET_CLOSE}, 수능일처럼 밀리는 날은 표의 값. */
+    public LocalTime marketCloseOf(LocalDate date) {
+        SessionHours shifted = SHIFTED_SESSIONS.get(date);
+        return shifted != null ? shifted.close() : MARKET_CLOSE;
+    }
+
+    /** 평소보다 늦게 닫히는 날인가 — 고정 시각 크론(15:50·16:00·16:30)이 장중에 돌게 되는 날이다. */
+    public boolean closesLate(LocalDate date) {
+        return marketCloseOf(date).isAfter(MARKET_CLOSE);
     }
 
     /** NXT 기준 표시·추천·캐시워밍 시간의 시작·끝(§2, 양 끝 포함). */
@@ -183,7 +211,7 @@ public class MarketCalendarService {
      */
     public LocalDate lastClosedTradingDay(java.time.LocalDateTime now) {
         LocalDate d = now.toLocalDate();
-        if (!isMarketClosed(d) && now.toLocalTime().isBefore(MARKET_CLOSE)) {
+        if (!isMarketClosed(d) && now.toLocalTime().isBefore(marketCloseOf(d))) {
             return minusTradingDays(d, 1);
         }
         if (isMarketClosed(d)) {

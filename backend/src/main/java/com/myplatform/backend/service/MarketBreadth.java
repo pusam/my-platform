@@ -109,7 +109,12 @@ public final class MarketBreadth {
 
     /** 지금(KST) 받는 등락 수가 그날 확정치인가. */
     public static boolean countsSettled(LocalTime nowKst) {
-        return nowKst != null && !nowKst.isBefore(COUNTS_SETTLED_AT);
+        return countsSettled(nowKst, null);
+    }
+
+    /** 그날 마감을 받는 판정 — null 이면 평소 기준. 수능일엔 16:30 크론이 아직 장 마감 전이라 16:45 재시도가 저장한다. */
+    public static boolean countsSettled(LocalTime nowKst, LocalTime marketClose) {
+        return nowKst != null && !nowKst.isBefore(marketClose != null ? marketClose : COUNTS_SETTLED_AT);
     }
 
     /** 판단 보류 문구 — 화면·브리핑이 같은 문장을 쓴다. */

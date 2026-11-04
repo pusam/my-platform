@@ -18,15 +18,25 @@ import java.util.List;
  */
 public final class InvestorDailyConfirmation {
 
-    /** 정규 수집 시각 — 이 시각 전에 저장된 그날 행은 장중 잠정치다. */
+    /** 정규 수집 시각 — 이 시각 전에 저장된 그날 행은 장중 잠정치다. 장이 늦게 닫히는 날은 {@link #confirmedFrom} 이 밀린다. */
     public static final LocalTime CONFIRMED_FROM = LocalTime.of(15, 50);
 
     private InvestorDailyConfirmation() {
     }
 
+    /** 그날 마감(MarketCalendarService.marketCloseOf)의 10분 뒤 — null 이면 평소 기준. */
+    public static LocalTime confirmedFrom(LocalTime marketClose) {
+        return marketClose == null ? CONFIRMED_FROM : marketClose.plusMinutes(10);
+    }
+
     /** 지금 오늘 값을 확정치로 받을 수 있는 시각인가. */
     public static boolean isConfirmedWindow(LocalDateTime now) {
-        return now != null && !now.toLocalTime().isBefore(CONFIRMED_FROM);
+        return isConfirmedWindow(now, null);
+    }
+
+    /** 그날 마감을 받는 판정 — 수능일엔 15:50 도 장중이다. */
+    public static boolean isConfirmedWindow(LocalDateTime now, LocalTime marketClose) {
+        return now != null && !now.toLocalTime().isBefore(confirmedFrom(marketClose));
     }
 
     /**
@@ -35,6 +45,11 @@ public final class InvestorDailyConfirmation {
      * @param summary {@code [investorType, MIN(createdAt)]} 행들 — 그날 투자자 유형별 최초 저장 시각
      */
     public static boolean isConfirmed(LocalDate tradeDate, List<Object[]> summary) {
+        return isConfirmed(tradeDate, summary, null);
+    }
+
+    /** 그날 마감을 받는 판정 — 수능일 15:50 에 저장된 행은 잠정치라 18:00 보완 수집이 다시 받는다. */
+    public static boolean isConfirmed(LocalDate tradeDate, List<Object[]> summary, LocalTime marketClose) {
         if (tradeDate == null || summary == null || summary.isEmpty()) return false;
         boolean foreign = false, institution = false;
         LocalDateTime earliest = null;
@@ -47,7 +62,7 @@ public final class InvestorDailyConfirmation {
         }
         // 저장 시각을 모르면 확정이라 단정하지 않는다 — 다시 받는 쪽이 안전하다(같은 날 값을 지우고 다시 넣는다).
         return foreign && institution && earliest != null
-                && !earliest.isBefore(tradeDate.atTime(CONFIRMED_FROM));
+                && !earliest.isBefore(tradeDate.atTime(confirmedFrom(marketClose)));
     }
 
     /** 행은 있는데 확정이 아닌가(잠정치·부분 수집) — 로그 사유용. */

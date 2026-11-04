@@ -1135,7 +1135,14 @@ public class StockDetailService {
      */
     private boolean isBeforeMarketHours() {
         LocalTime now = LocalTime.now(KST);
-        return now.isBefore(MARKET_PRE_OPEN_TIME);
+        return now.isBefore(preOpenTimeToday());
+    }
+
+    /** 장전 경계 — 평소 08:50, 장이 늦게 열리는 날(수능일)은 개장 10분 전. */
+    private LocalTime preOpenTimeToday() {
+        LocalTime open = marketCalendar != null ? marketCalendar.marketOpenOf(java.time.LocalDate.now(KST)) : null;
+        return open != null && open.isAfter(MarketCalendarService.MARKET_OPEN)
+                ? open.minusMinutes(10) : MARKET_PRE_OPEN_TIME;
     }
 
     /**

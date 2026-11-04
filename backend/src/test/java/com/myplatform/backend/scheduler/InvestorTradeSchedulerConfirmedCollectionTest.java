@@ -57,6 +57,29 @@ class InvestorTradeSchedulerConfirmedCollectionTest {
     }
 
     @Test
+    @DisplayName("재현: 장이 늦게 닫히는 날(수능일)엔 15:50 에 수집하지 않는다 — 장중 잠정치가 확정으로 굳는다(2026-11-04)")
+    void lateCloseDaySkipsTheFifteenFiftyRun() {
+        when(calendar.closesLate(any(LocalDate.class))).thenReturn(true);
+        when(calendar.marketCloseOf(any(LocalDate.class))).thenReturn(java.time.LocalTime.of(16, 40));
+
+        at(15, 50).collectAfterMarketClose();
+
+        verify(service, never()).collectInvestorTradeData(any());
+    }
+
+    @Test
+    @DisplayName("장이 늦게 닫히는 날 18:00 — 15:50 저장분은 확정이 아니라 다시 받는다")
+    void lateCloseDayEveningRecollectsProvisionalRows() {
+        when(calendar.marketCloseOf(any(LocalDate.class))).thenReturn(java.time.LocalTime.of(16, 40));
+        when(repo.summarizeByInvestorType(TODAY)).thenReturn(java.util.List.of(
+                new Object[]{"FOREIGN", TODAY.atTime(15, 50)}, new Object[]{"INSTITUTION", TODAY.atTime(15, 50)}));
+
+        at(18, 0).collectEvening();
+
+        verify(service).collectInvestorTradeData(TODAY);
+    }
+
+    @Test
     @DisplayName("장중(11:13) 부팅 — 오늘 행이 없어도 잠정 집계를 그날 일별 기록으로 저장하지 않는다")
     void intradayBootDoesNotStoreProvisionalAsDaily() {
         when(repo.existsByTradeDate(TODAY)).thenReturn(false);
