@@ -81,6 +81,26 @@ public class DartControllingFinancial {
     @Column(precision = 15, scale = 2)
     private BigDecimal totalEquity;
 
+    /** 매출액 — 분·반기는 연초부터 누적, 사업보고서는 연간(억원). null = 그 계정이 없었다(은행 등, V69). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal revenue;
+
+    /** 영업이익 — 분·반기는 연초부터 누적, 사업보고서는 연간(억원). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal operatingProfit;
+
+    /** 자산총계(억원). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal totalAssets;
+
+    /** 부채총계(억원). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal totalLiabilities;
+
+    /** 위 네 칸까지 읽은 행인가 — V69 전에 받은 행은 false 라 분기를 채울 종목만 다시 받는다. */
+    @Column(nullable = false)
+    private boolean incomeParsed;
+
     @Column(nullable = false)
     private LocalDateTime collectedAt;
 
@@ -91,5 +111,10 @@ public class DartControllingFinancial {
     /** TTM 계산 입력으로. */
     public ControllingEarnings.Report toReport() {
         return new ControllingEarnings.Report(key(), fsDiv, ctrlNetIncome, ctrlNetIncomePrev, ctrlEquity, filedOn);
+    }
+
+    /** 개별 분기 환산 입력으로 — 순이익은 비지배 포함(KIS 분기 원본의 thtr_ntin 과 같은 정의). */
+    DartQuarterly.Statement toStatement() {
+        return new DartQuarterly.Statement(key(), fsDiv, revenue, operatingProfit, totalNetIncome);
     }
 }

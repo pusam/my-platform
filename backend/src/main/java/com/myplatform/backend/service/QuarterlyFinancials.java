@@ -1,5 +1,7 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.entity.StockQuarterlyFinancial;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -165,8 +167,34 @@ public final class QuarterlyFinancials {
      * 읽어 한화엔진 매출이 실제의 약 1.5배가 된다. 하나라도 값이 있으면 실제 보고다(매출 없는 바이오의 적자 분기).
      */
     static boolean isBlankReport(Figures f) {
-        return f == null || (isZeroOrMissing(f.revenue()) && isZeroOrMissing(f.operatingProfit())
-                && isZeroOrMissing(f.netIncome()));
+        return f == null || isBlankReport(f.revenue(), f.operatingProfit(), f.netIncome());
+    }
+
+    public static boolean isBlankReport(BigDecimal revenue, BigDecimal operatingProfit, BigDecimal netIncome) {
+        return isZeroOrMissing(revenue) && isZeroOrMissing(operatingProfit) && isZeroOrMissing(netIncome);
+    }
+
+    /**
+     * 저장된 분기 행 → 개별 분기, 오래된 것부터 — 수집기·성장률 배치·실적 서프라이즈의 단일 입구(2026-11-05).
+     * DART 행은 이미 개별 분기라 누적 판정을 거치지 않고, 같은 기간이면 DART 가 이긴다. KIS 행은 {@link #usableIndividualQuarters}.
+     */
+    public static List<Figures> usableFromStored(List<StockQuarterlyFinancial> rows) {
+        List<Figures> kis = new ArrayList<>();
+        java.util.Map<String, Figures> byPeriod = new java.util.TreeMap<>();
+        if (rows == null) return new ArrayList<>();
+        for (StockQuarterlyFinancial q : rows) {
+            if (q != null && !q.isDart()) kis.add(toFigures(q));
+        }
+        for (Figures f : usableIndividualQuarters(kis)) byPeriod.put(f.fiscalPeriod(), f);
+        for (StockQuarterlyFinancial q : rows) {
+            if (q != null && q.isDart()) byPeriod.put(q.getFiscalPeriod(), toFigures(q));
+        }
+        return new ArrayList<>(byPeriod.values());
+    }
+
+    private static Figures toFigures(StockQuarterlyFinancial q) {
+        return new Figures(q.getFiscalPeriod(), q.getPeriodEnd(), q.getRevenue(), q.getOperatingProfit(),
+                q.getNetIncome(), q.isCumulative());
     }
 
     private static boolean isZeroOrMissing(BigDecimal v) {

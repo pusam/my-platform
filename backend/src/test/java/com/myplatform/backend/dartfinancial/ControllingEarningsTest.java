@@ -27,6 +27,76 @@ class ControllingEarningsTest {
 
     private static final ObjectMapper M = new ObjectMapper();
 
+    private static String incomeRow(String sj, String id, String name, String amount, String addAmount) {
+        return "{\"sj_div\":\"" + sj + "\",\"account_id\":\"" + id + "\",\"account_nm\":\"" + name + "\","
+                + "\"thstrm_amount\":\"" + amount + "\",\"thstrm_add_amount\":\"" + addAmount + "\"}";
+    }
+
+    @Nested
+    @DisplayName("매출·영업이익·자산·부채 — 분기를 KIS 가 주지 않는 회사를 채운다(2026-11-05)")
+    class StatementParsing {
+
+        @Test
+        @DisplayName("표준 계정 — 분·반기는 누적 칸, 자산·부채는 시점 값")
+        void standardAccounts() throws Exception {
+            String json = "[" + incomeRow("CIS", "ifrs-full_Revenue", "매출액", "100000000", "220000000000") + ","
+                    + incomeRow("CIS", "dart_OperatingIncomeLoss", "영업이익", "50000000", "70000000000") + ","
+                    + "{\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Assets\",\"thstrm_amount\":\"600000000000\"},"
+                    + "{\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Liabilities\",\"thstrm_amount\":\"100000000000\"}]";
+
+            ControllingEarnings.Statement s = ControllingEarnings.parseStatement(list(json), ReportCode.H1);
+
+            assertThat(s.revenue()).isEqualByComparingTo("2200");
+            assertThat(s.operatingProfit()).isEqualByComparingTo("700");
+            assertThat(s.totalAssets()).isEqualByComparingTo("6000");
+            assertThat(s.totalLiabilities()).isEqualByComparingTo("1000");
+        }
+
+        @Test
+        @DisplayName("사업보고서·1분기는 당기 칸 — 1분기는 누적 칸이 비어도 3개월이 곧 누적이다")
+        void annualAndFirstQuarter() throws Exception {
+            String json = "[" + incomeRow("IS", "ifrs-full_Revenue", "매출액", "400000000000", "") + "]";
+
+            assertThat(ControllingEarnings.parseStatement(list(json), ReportCode.FY).revenue()).isEqualByComparingTo("4000");
+            assertThat(ControllingEarnings.parseStatement(list(json), ReportCode.Q1).revenue()).isEqualByComparingTo("4000");
+            assertThat(ControllingEarnings.parseStatement(list(json), ReportCode.H1).revenue()).as("반기의 누적 칸이 비면 모른다").isNull();
+        }
+
+        @Test
+        @DisplayName("표준 계정이 없으면 정확히 같은 이름으로 — 공백 차이는 같은 이름이다")
+        void byExactName() throws Exception {
+            String json = "[" + incomeRow("CIS", "-표준계정코드 미사용-", "매 출 액", "100", "220000000000") + ","
+                    + incomeRow("CIS", "-표준계정코드 미사용-", "영업이익(손실)", "50", "-70000000000") + "]";
+
+            ControllingEarnings.Statement s = ControllingEarnings.parseStatement(list(json), ReportCode.H1);
+
+            assertThat(s.revenue()).isEqualByComparingTo("2200");
+            assertThat(s.operatingProfit()).isEqualByComparingTo("-700");
+            assertThat(ControllingEarnings.foundByName(list(json))).isTrue();
+        }
+
+        @Test
+        @DisplayName("'영업손실' 행은 쓰지 않는다 — 손실을 양수로 적는 행이라 흑자로 뒤집힌다. 상품매출액 같은 세부 행도 안 쓴다")
+        void lossLabelNotUsed() throws Exception {
+            String json = "[" + incomeRow("CIS", "-표준계정코드 미사용-", "영업손실", "50", "70000000000") + ","
+                    + incomeRow("CIS", "-표준계정코드 미사용-", "상품매출액", "50", "70000000000") + "]";
+
+            ControllingEarnings.Statement s = ControllingEarnings.parseStatement(list(json), ReportCode.H1);
+
+            assertThat(s.operatingProfit()).isNull();
+            assertThat(s.revenue()).isNull();
+        }
+
+        @Test
+        @DisplayName("빈 응답 — 전부 모른다")
+        void empty() throws Exception {
+            ControllingEarnings.Statement s = ControllingEarnings.parseStatement(list("[]"), ReportCode.H1);
+
+            assertThat(s.revenue()).isNull();
+            assertThat(s.totalLiabilities()).isNull();
+        }
+    }
+
     private static JsonNode list(String json) throws Exception {
         return M.readTree(json);
     }

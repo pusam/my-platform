@@ -41,6 +41,17 @@ public final class ControllingEarnings {
     static final String ID_NET_INCOME = "ifrs-full_ProfitLoss";
     static final String ID_CTRL_EQUITY = "ifrs-full_EquityAttributableToOwnersOfParent";
     static final String ID_EQUITY = "ifrs-full_Equity";
+    static final String ID_REVENUE = "ifrs-full_Revenue";
+    static final String ID_OPERATING_PROFIT = "dart_OperatingIncomeLoss";
+    static final String ID_ASSETS = "ifrs-full_Assets";
+    static final String ID_LIABILITIES = "ifrs-full_Liabilities";
+
+    /**
+     * 표준 계정을 안 쓰는 회사(account_id 가 '-표준계정코드 미사용-')의 행 — 이름이 정확히 같을 때만 쓴다. 지배주주 귀속 순이익과 달리
+     * 뜻이 갈리는 이름이 없다. '영업손실'은 넣지 않는다 — 손실을 양수로 적는 행이라 부호가 뒤집힌다.
+     */
+    private static final java.util.Set<String> REVENUE_NAMES = java.util.Set.of("매출액", "매출", "수익(매출액)", "영업수익");
+    private static final java.util.Set<String> OPERATING_PROFIT_NAMES = java.util.Set.of("영업이익", "영업이익(손실)", "영업손익");
 
     /** 정기보고서 코드 — 한 회계연도 안의 순서와 12월 결산 기준 제출 기한(기간 말 + 45일 / 사업보고서 + 90일). */
     public enum ReportCode {
@@ -96,6 +107,9 @@ public final class ControllingEarnings {
     public record Figures(BigDecimal ctrlNetIncome, BigDecimal ctrlNetIncomePrev, BigDecimal totalNetIncome,
                           BigDecimal ctrlEquity, BigDecimal totalEquity, LocalDate filedOn) {}
 
+    /** 보고서 한 건의 매출·영업이익(누적, 억원)과 자산·부채(시점, 억원) — 계정이 없으면 null. */
+    public record Statement(BigDecimal revenue, BigDecimal operatingProfit, BigDecimal totalAssets, BigDecimal totalLiabilities) {}
+
     /** 저장된 보고서 한 건 — TTM 계산의 입력. */
     public record Report(ReportKey key, String fsDiv, BigDecimal ctrlNetIncome, BigDecimal ctrlNetIncomePrev,
                          BigDecimal ctrlEquity, LocalDate filedOn) {}
@@ -123,6 +137,55 @@ public final class ControllingEarnings {
                 ctrlEq == null ? null : eok(ctrlEq.path("thstrm_amount").asText(null)),
                 totalEq == null ? null : eok(totalEq.path("thstrm_amount").asText(null)),
                 filedOn(list.get(0).path("rcept_no").asText(null)));
+    }
+
+    /**
+     * 같은 응답의 매출·영업이익·자산·부채(2026-11-05) — 분기를 KIS 가 주지 않는 회사를 채우는 데 쓴다({@link DartQuarterly}).
+     * 손익 행은 {@link #parse} 와 같이 IS 먼저, 없으면 CIS — 작은 회사는 포괄손익계산서 하나로 낸다.
+     */
+    public static Statement parseStatement(JsonNode list, ReportCode code) {
+        if (list == null || !list.isArray() || list.isEmpty()) return new Statement(null, null, null, null);
+        JsonNode revenue = incomeRow(list, ID_REVENUE);
+        if (revenue == null) revenue = incomeRowByName(list, REVENUE_NAMES);
+        JsonNode operating = incomeRow(list, ID_OPERATING_PROFIT);
+        if (operating == null) operating = incomeRowByName(list, OPERATING_PROFIT_NAMES);
+        JsonNode assets = balanceRow(list, ID_ASSETS);
+        JsonNode liabilities = balanceRow(list, ID_LIABILITIES);
+        return new Statement(cumulative(revenue, code), cumulative(operating, code),
+                assets == null ? null : eok(assets.path("thstrm_amount").asText(null)),
+                liabilities == null ? null : eok(liabilities.path("thstrm_amount").asText(null)));
+    }
+
+    /** 표준 계정 대신 이름으로 찾은 값이 있는 보고서인가 — 회차 요약의 '이름으로 찾음'. */
+    static boolean foundByName(JsonNode list) {
+        if (list == null || !list.isArray()) return false;
+        return (incomeRow(list, ID_REVENUE) == null && incomeRowByName(list, REVENUE_NAMES) != null)
+                || (incomeRow(list, ID_OPERATING_PROFIT) == null && incomeRowByName(list, OPERATING_PROFIT_NAMES) != null);
+    }
+
+    /** 손익 행의 계정 이름 앞부분 — 표준 계정을 못 찾았을 때 로그로 남긴다. */
+    static List<String> incomeAccounts(JsonNode list) {
+        List<String> out = new ArrayList<>();
+        if (list == null || !list.isArray()) return out;
+        for (JsonNode row : list) {
+            String sj = row.path("sj_div").asText();
+            if (("IS".equals(sj) || "CIS".equals(sj)) && out.size() < 10) {
+                out.add(row.path("account_nm").asText("") + "=" + row.path("account_id").asText(""));
+            }
+        }
+        return out;
+    }
+
+    private static JsonNode incomeRowByName(JsonNode list, java.util.Set<String> names) {
+        JsonNode cis = null;
+        for (JsonNode row : list) {
+            String name = row.path("account_nm").asText("").replace(" ", "");
+            if (!names.contains(name)) continue;
+            String sj = row.path("sj_div").asText();
+            if ("IS".equals(sj)) return row;
+            if ("CIS".equals(sj) && cis == null) cis = row;
+        }
+        return cis;
     }
 
     /**

@@ -33,6 +33,9 @@ public interface StockQuarterlyFinancialRepository extends JpaRepository<StockQu
             + "ORDER BY q.stockCode ASC, q.periodEnd ASC")
     List<StockQuarterlyFinancial> findAllSince(@Param("minPeriodEnd") LocalDate minPeriodEnd);
 
+    /** 출처별 행 수 — DART 채우기 부팅 따라잡기 판단용. */
+    long countBySource(String source);
+
     /** 커버리지 진단용 — 하한 이후 행을 가진 고유 종목 수. */
     @Query("SELECT COUNT(DISTINCT q.stockCode) FROM StockQuarterlyFinancial q WHERE q.periodEnd >= :minPeriodEnd")
     long countDistinctStocksSince(@Param("minPeriodEnd") LocalDate minPeriodEnd);

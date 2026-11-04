@@ -7,6 +7,7 @@ import com.myplatform.backend.dartfinancial.DartCompany;
 import com.myplatform.backend.dartfinancial.DartCompanyRepository;
 import com.myplatform.backend.dartfinancial.DartControllingFinancial;
 import com.myplatform.backend.dartfinancial.DartControllingFinancialRepository;
+import com.myplatform.backend.dartfinancial.DartQuarterly;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.entity.StockQuarterlyFinancial;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
@@ -182,6 +183,37 @@ public class StockFinancialDataCollector {
     }
 
 
+    /**
+     * DART 로 채운 분기의 최근 4분기 손익 {@code [매출, 영업이익, 순이익]} — DART 행이 없거나 4분기가 안 되거나 묵었으면 null.
+     * KIS 분기는 연결재무제표 회사만 이어서 준다(2026-11-04) — 나머지 회사는 이 값이 유일한 출처다.
+     */
+    BigDecimal[] dartQuarterlyTtm(String stockCode, LocalDate today) {
+        try {
+            List<StockQuarterlyFinancial> rows = quarterlyRepository.findByStockCodeOrderByPeriodEndDesc(stockCode);
+            if (rows == null || rows.stream().noneMatch(StockQuarterlyFinancial::isDart)) return null;
+            List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.usableFromStored(rows);
+            BigDecimal[] ttm = QuarterlyFinancials.ttmSum(individuals);
+            if (ttm == null || QuarterlyFinancials.isStale(individuals, today, EarningSurpriseService.QUARTER_MAX_AGE_DAYS)) {
+                return null;
+            }
+            return ttm;
+        } catch (Exception e) {
+            log.debug("[DART 분기] {} 조회 실패 — KIS 값으로: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /** DART 최신 보고서의 자본·자산·부채 — 없으면 null. */
+    DartQuarterly.Balance dartBalance(String stockCode, LocalDate today) {
+        try {
+            return DartQuarterly.latestBalance(
+                    dartControllingRepository.findByStockCodeAndStatus(stockCode, DartControllingFinancial.STATUS_OK), today);
+        } catch (Exception e) {
+            log.debug("[DART 재무상태표] {} 조회 실패 — KIS 값으로: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
     @Value("${kis.api.base-url:https://openapi.koreainvestment.com:9443}")
     private String baseUrl;
 
@@ -279,6 +311,15 @@ public class StockFinancialDataCollector {
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
+            // ★ DART 로 채운 종목은 그 4분기를 쓴다(2026-11-05) — KIS 분기가 끊긴 회사는 이것이 유일한 최근 실적이다
+            BigDecimal[] dartTtm = dartQuarterlyTtm(stockCode, LocalDate.now(clock));
+            if (dartTtm != null) {
+                revenue = dartTtm[0];
+                operatingProfit = dartTtm[1];
+                netIncome = dartTtm[2];
+                noteState("손익 TTM — DART 분기 사용");
+            }
+
             LocalDate today = LocalDate.now();
             Optional<StockFinancialData> sameDayRow = stockFinancialDataRepository.findByStockCodeAndReportDate(stockCode, today);
             StockFinancialData financialData = sameDayRow.orElse(new StockFinancialData());
@@ -328,7 +369,7 @@ public class StockFinancialDataCollector {
             // 같은 날 15:38 회차가 08:30 회차의 계산값을 0 으로 덮었다. 기존 행을 upsert 할 때도 그 칸은 건드리지 않는다.
 
             // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
-            BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
+            BigDecimal operatingMargin = dartTtm != null ? null : financialRatios.getOrDefault("operatingMargin", null);
             if ((operatingMargin == null || operatingMargin.compareTo(BigDecimal.ZERO) == 0)
                     && operatingProfit != null && revenue != null
                     && revenue.compareTo(BigDecimal.ZERO) > 0) {
@@ -363,6 +404,16 @@ public class StockFinancialDataCollector {
             }
             BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
             BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
+            BigDecimal debtRatio = financialRatios.get("debtRatio");
+            // DART 로 채운 종목, 또는 KIS 재무상태표가 없거나 묵은 종목은 DART 최신 보고서의 값으로(2026-11-05)
+            DartQuarterly.Balance dartBalance = dartTtm != null || totalEquity == null
+                    ? dartBalance(stockCode, LocalDate.now(clock)) : null;
+            if (dartBalance != null) {
+                totalEquity = dartBalance.totalEquity();
+                totalAssets = dartBalance.totalAssets();
+                totalDebt = dartBalance.totalLiabilities();
+                debtRatio = dartBalance.debtRatio();
+            }
             if (totalEquity != null) financialData.setTotalEquity(totalEquity);
             if (totalAssets != null) financialData.setTotalAssets(totalAssets);
             if (totalDebt != null) financialData.setTotalDebt(totalDebt);
@@ -371,7 +422,6 @@ public class StockFinancialDataCollector {
             //   이 경로는 저장하지 않았다. 9/28 까지는 23:00 재수집(은퇴)이 51종목만 채웠고 그 뒤로는 전 종목 NULL — 저평가 트랙·종합추천
             //   가치 점수의 부채 4점과 마법의 공식 '부채비율 200% 이하' 필터가 아무것도 하지 않았다. 0·음수는 파싱 실패(빈 문자열 → 0)라
             //   쓰지 않는다(PBR 0 과 같은 결측, §4c). 못 받은 회차는 같은 날 받아 둔 값을 지우지 않는다(위 재무상태표 칸과 같은 규칙).
-            BigDecimal debtRatio = financialRatios.get("debtRatio");
             if (debtRatio != null && debtRatio.signum() > 0) financialData.setDebtRatio(debtRatio);
 
             // ★ totalEquity 기반 BPS/PBR/ROE 재계산 (연결 기준)
@@ -863,12 +913,14 @@ public class StockFinancialDataCollector {
                                 .stockCode(stockCode)
                                 .fiscalPeriod(period)
                                 .build());
+                // DART 로 채운 분기는 덮지 않는다(2026-11-05) — 그 회사의 KIS 행은 대개 0·0·0 이다
+                if (row.isDart()) { skipped++; continue; }
                 row.setPeriodEnd(QuarterlyFinancials.periodEnd(ym));
                 row.setCumulative(isCumulative);
                 row.setRevenue(revenue);
                 row.setOperatingProfit(operatingProfit);
                 row.setNetIncome(netIncome);
-                row.setSource("KIS_INCOME_STMT");
+                row.setSource(StockQuarterlyFinancial.SOURCE_KIS);
                 row.setCollectedAt(now);
                 quarterlyRepository.save(row);
                 saved++;
@@ -1062,7 +1114,7 @@ public class StockFinancialDataCollector {
         return null;
     }
 
-    /** 분기 원본을 종목별 개별 분기로 — 누적(YTD)은 환산, 환산 불가 행은 빠진다({@link QuarterlyFinancials#toIndividualQuarters}). */
+    /** 분기 원본을 종목별 개별 분기로 — 누적(YTD)은 환산, 환산 불가 행은 빠지고 DART 행은 그대로({@link QuarterlyFinancials#usableFromStored}). */
     private Map<String, List<QuarterlyFinancials.Figures>> loadIndividualQuarters(LocalDate today) {
         List<StockQuarterlyFinancial> rows = quarterlyRepository.findAllSince(today.minusMonths(GROWTH_LOOKBACK_MONTHS));
         Map<String, List<QuarterlyFinancials.Figures>> out = new HashMap<>();
@@ -1070,11 +1122,7 @@ public class StockFinancialDataCollector {
         Map<String, List<StockQuarterlyFinancial>> byStock = rows.stream()
                 .collect(java.util.stream.Collectors.groupingBy(StockQuarterlyFinancial::getStockCode));
         for (Map.Entry<String, List<StockQuarterlyFinancial>> e : byStock.entrySet()) {
-            List<QuarterlyFinancials.Figures> raw = e.getValue().stream()
-                    .map(q -> new QuarterlyFinancials.Figures(q.getFiscalPeriod(), q.getPeriodEnd(),
-                            q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
-                    .collect(java.util.stream.Collectors.toList());
-            out.put(e.getKey(), QuarterlyFinancials.usableIndividualQuarters(raw));
+            out.put(e.getKey(), QuarterlyFinancials.usableFromStored(e.getValue()));
         }
         return out;
     }

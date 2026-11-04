@@ -44,6 +44,11 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class StockQuarterlyFinancial {
 
+    /** KIS 손익계산서 행 — 누적 여부는 {@link #cumulative} 로 기록하고 환산은 읽는 쪽에서. */
+    public static final String SOURCE_KIS = "KIS_INCOME_STMT";
+    /** DART 전체 재무제표로 만든 행(2026-11-05) — <b>이미 개별 분기</b>다. KIS 빈 행이 덮지 않는다. */
+    public static final String SOURCE_DART = "DART_FNLTT";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -75,7 +80,7 @@ public class StockQuarterlyFinancial {
     @Column(precision = 15, scale = 2)
     private BigDecimal netIncome;
 
-    /** 수집 출처 — 현재 {@code KIS_INCOME_STMT} 하나. 나중에 DART 를 붙이면 구분자가 된다. */
+    /** 수집 출처 — {@link #SOURCE_KIS} · {@link #SOURCE_DART}. */
     @Column(nullable = false, length = 20)
     private String source;
 
@@ -86,4 +91,9 @@ public class StockQuarterlyFinancial {
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
+
+    /** DART 로 채운 행인가 — 이미 개별 분기이고, KIS 수집이 덮어쓰지 않는다. */
+    public boolean isDart() {
+        return SOURCE_DART.equals(source);
+    }
 }

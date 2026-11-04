@@ -1,7 +1,10 @@
 package com.myplatform.backend.dartfinancial;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.dartfinancial.ControllingEarnings.ReportKey;
+import com.myplatform.backend.entity.StockQuarterlyFinancial;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.backend.repository.StockQuarterlyFinancialRepository;
 import com.myplatform.backend.service.DartService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,8 +21,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -40,6 +45,7 @@ class DartControllingFinancialServiceTest {
     private DartCompanyRepository companyRepo;
     private DartService dart;
     private StockFinancialDataRepository financialRepo;
+    private StockQuarterlyFinancialRepository quarterRepo;
     private RestTemplate rest;
     private DartControllingFinancialService service;
 
@@ -48,6 +54,10 @@ class DartControllingFinancialServiceTest {
     private final List<DartCompany> companies = new ArrayList<>();
     private final Map<String, String> responses = new HashMap<>();
     private final List<String> calls = new ArrayList<>();
+    /** 저장된 분기 행 — 기본은 universe() 종목의 KIS 분기가 다 있다(채우기 대상 아님). {@link #noKisQuarters} 종목은 비어 있다. */
+    private final List<StockQuarterlyFinancial> quarters = new ArrayList<>();
+    private final Set<String> noKisQuarters = new HashSet<>();
+    private List<String> universeCodes = List.of();
 
     @BeforeEach
     void setUp() {
@@ -55,12 +65,30 @@ class DartControllingFinancialServiceTest {
         companyRepo = mock(DartCompanyRepository.class);
         dart = mock(DartService.class);
         financialRepo = mock(StockFinancialDataRepository.class);
+        quarterRepo = mock(StockQuarterlyFinancialRepository.class);
         rest = mock(RestTemplate.class);
         Clock clock = Clock.fixed(LocalDate.of(2026, 9, 30).atTime(21, 30).atZone(KST).toInstant(), KST);
-        service = new DartControllingFinancialService(repo, companyRepo, dart, financialRepo, rest, new ObjectMapper(), clock);
+        service = new DartControllingFinancialService(repo, companyRepo, dart, financialRepo, quarterRepo, rest, new ObjectMapper(), clock);
         ReflectionTestUtils.setField(service, "dartApiKey", "test-key");
         service.callIntervalMillis = 0;
 
+        when(quarterRepo.findAllSince(any())).thenAnswer(inv -> {
+            List<StockQuarterlyFinancial> out = new ArrayList<>(quarters);
+            for (String code : universeCodes) {
+                if (noKisQuarters.contains(code)) continue;
+                for (ReportKey key : ControllingEarnings.candidates(LocalDate.of(2026, 9, 30), DartQuarterly.REPORTS_TO_KEEP)) {
+                    out.add(StockQuarterlyFinancial.builder().stockCode(code).fiscalPeriod(DartQuarterly.fiscalPeriod(key))
+                            .periodEnd(DartQuarterly.periodEnd(key)).revenue(java.math.BigDecimal.TEN)
+                            .source(StockQuarterlyFinancial.SOURCE_KIS).build());
+                }
+            }
+            return out;
+        });
+        when(quarterRepo.save(any(StockQuarterlyFinancial.class))).thenAnswer(inv -> {
+            StockQuarterlyFinancial q = inv.getArgument(0);
+            if (!quarters.contains(q)) quarters.add(q);
+            return q;
+        });
         when(repo.findAll()).thenAnswer(inv -> new ArrayList<>(saved));
         when(companyRepo.findAll()).thenAnswer(inv -> new ArrayList<>(companies));
         when(companyRepo.save(any(DartCompany.class))).thenAnswer(inv -> {
@@ -115,7 +143,188 @@ class DartControllingFinancialServiceTest {
     }
 
     private void universe(String... codes) {
+        universeCodes = List.of(codes);
         when(financialRepo.findAllStockCodes()).thenReturn(List.of(codes));
+    }
+
+    /** 별도재무제표 회사의 보고서 응답 — 금액은 원, 손익은 CIS(작은 회사는 포괄손익계산서 하나로 낸다), 분·반기 금액은 누적 칸. */
+    private static String statement(String rcept, String revenue, String operating, String net, String equity, String assets, String debt) {
+        String income = "\"thstrm_amount\":\"%1$s\",\"thstrm_add_amount\":\"%1$s\",\"frmtrm_amount\":\"0\",\"frmtrm_add_amount\":\"0\"";
+        return "{\"status\":\"000\",\"message\":\"정상\",\"list\":["
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"CIS\",\"account_id\":\"ifrs-full_Revenue\",\"account_nm\":\"매출액\"," + income.formatted(revenue) + "},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"CIS\",\"account_id\":\"dart_OperatingIncomeLoss\",\"account_nm\":\"영업이익\"," + income.formatted(operating) + "},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"CIS\",\"account_id\":\"ifrs-full_ProfitLoss\",\"account_nm\":\"당기순이익\"," + income.formatted(net) + "},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Equity\",\"thstrm_amount\":\"" + equity + "\"},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Assets\",\"thstrm_amount\":\"" + assets + "\"},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Liabilities\",\"thstrm_amount\":\"" + debt + "\"}]}";
+    }
+
+    /** 2024 반기 ~ 2026 반기 보고서 9건 — 억원 단위 누적(원으로 바꿔 넣는다). */
+    private void nineReports(String corp) {
+        String[][] rows = {
+                {"2026", "11012", "22000", "7000", "5000"}, {"2026", "11013", "10000", "3000", "2000"},
+                {"2025", "11011", "40000", "12000", "9000"}, {"2025", "11014", "30000", "9000", "7000"},
+                {"2025", "11012", "20000", "6000", "4500"}, {"2025", "11013", "9000", "2500", "2000"},
+                {"2024", "11011", "36000", "10000", "8000"}, {"2024", "11014", "27000", "7500", "6000"},
+                {"2024", "11012", "18000", "5000", "4000"}};
+        for (String[] r : rows) {
+            responses.put(corp + "/" + r[0] + "/" + r[1] + "/OFS", statement(r[0] + "0814000001",
+                    r[2] + "00000000", r[3] + "00000000", r[4] + "00000000",
+                    "5000000000000", "6000000000000", "1000000000000"));
+        }
+    }
+
+    private StockQuarterlyFinancial quarter(String period) {
+        return quarters.stream().filter(q -> q.getFiscalPeriod().equals(period)).findFirst().orElse(null);
+    }
+
+    @Test
+    @DisplayName("별도재무제표 회사(KIS 분기 없음) — 보고서 9건을 받아 개별 분기를 DART 행으로 저장한다(최근 4분기 매출 42,000억)")
+    void separateFilerQuartersFilled() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+
+        DartControllingFinancialService.Summary s = service.collect();
+
+        assertThat(s.fillStocks()).isEqualTo(1);
+        assertThat(calls.stream().filter(c -> c.endsWith("/OFS"))).hasSize(9);
+        assertThat(calls.stream().filter(c -> c.endsWith("/CFS"))).as("연결은 첫 보고서에서 한 번만 묻는다").hasSize(1);
+        assertThat(savedRow(2026, "11012").isIncomeParsed()).isTrue();
+        assertThat(savedRow(2026, "11012").getRevenue()).isEqualByComparingTo("22000");
+        assertThat(savedRow(2026, "11012").getTotalLiabilities()).isEqualByComparingTo("10000");
+
+        assertThat(quarter("202606").getRevenue()).isEqualByComparingTo("12000");     // 22,000 − 10,000
+        assertThat(quarter("202603").getOperatingProfit()).isEqualByComparingTo("3000");
+        assertThat(quarter("202512").getNetIncome()).isEqualByComparingTo("2000");    // 9,000 − 7,000
+        assertThat(quarter("202409").getRevenue()).isEqualByComparingTo("9000");
+        assertThat(quarter("202406")).as("앞 누적(2024 1분기)이 없어 2분기를 모른다").isNull();
+        assertThat(quarters).allMatch(q -> StockQuarterlyFinancial.SOURCE_DART.equals(q.getSource()) && !q.isCumulative());
+        assertThat(quarters).extracting(StockQuarterlyFinancial::getStockCode).containsOnly("058470");
+    }
+
+    @Test
+    @DisplayName("이미 채운 종목 — 다음 회차는 받을 것도 쓸 것도 없다(같은 값을 다시 쓰지 않는다)")
+    void secondRunIsQuiet() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        service.collect();
+        int callsBefore = calls.size();
+        java.time.LocalDateTime firstWrite = quarter("202606").getCollectedAt();
+
+        DartControllingFinancialService.Summary s = service.collect();
+
+        assertThat(calls).hasSize(callsBefore);
+        assertThat(s.quarterRows()).isZero();
+        assertThat(quarter("202606").getCollectedAt()).isEqualTo(firstWrite);
+    }
+
+    @Test
+    @DisplayName("KIS 빈 행(0·0·0)은 같은 자리에서 DART 행이 된다 — 유일 키가 기간이라 새 행을 넣으면 저장이 깨진다")
+    void blankKisRowBecomesDartRow() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        StockQuarterlyFinancial blank = StockQuarterlyFinancial.builder().stockCode("058470").fiscalPeriod("202606")
+                .periodEnd(LocalDate.of(2026, 6, 30)).cumulative(true).revenue(java.math.BigDecimal.ZERO)
+                .operatingProfit(java.math.BigDecimal.ZERO).netIncome(java.math.BigDecimal.ZERO)
+                .source(StockQuarterlyFinancial.SOURCE_KIS).build();
+        quarters.add(blank);
+
+        service.collect();
+
+        assertThat(quarters.stream().filter(q -> q.getFiscalPeriod().equals("202606"))).hasSize(1).containsExactly(blank);
+        assertThat(blank.isDart()).isTrue();
+        assertThat(blank.isCumulative()).isFalse();
+        assertThat(blank.getRevenue()).isEqualByComparingTo("12000");
+    }
+
+    @Test
+    @DisplayName("V69 전에 받은 보고서는 대상 종목만 다시 받는다 — 매출·영업이익이 비어 있어서")
+    void oldRowsAreRefetchedForTargets() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        storedCompany("058470", "12");
+        DartControllingFinancial old = stored("058470", 2026, "11012", DartControllingFinancial.STATUS_OK, LocalDate.of(2026, 9, 1));
+        old.setFsDiv("OFS");
+        saved.add(old);
+
+        service.collect();
+
+        assertThat(calls).contains("00123456/2026/11012/OFS");
+        assertThat(old.isIncomeParsed()).isTrue();
+        assertThat(old.getRevenue()).isEqualByComparingTo("22000");
+    }
+
+    @Test
+    @DisplayName("없는 보고서를 만나면 멈춘다 — 상장 전 보고서를 하나씩 헛호출하지 않는다")
+    void stopsAtMissingReport() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        responses.remove("00123456/2025/11014/OFS");
+
+        service.collect();
+
+        assertThat(calls).contains("00123456/2025/11014/CFS", "00123456/2025/11014/OFS");
+        assertThat(calls).noneMatch(c -> c.contains("/2025/11012/") || c.contains("/2024/"));
+        assertThat(quarter("202606").getRevenue()).as("끊기기 전 분기는 저장한다").isEqualByComparingTo("12000");
+    }
+
+    @Test
+    @DisplayName("12월 결산이 아니면 채우지 않는다 — 보고서를 달력 분기로 옮기는 규칙이 12월 기준이다")
+    void nonDecemberNotFilled() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        responses.put("company/00123456", "{\"status\":\"000\",\"acc_mt\":\"03\"}");
+
+        DartControllingFinancialService.Summary s = service.collect();
+
+        assertThat(s.fillStocks()).isZero();
+        assertThat(quarters).isEmpty();
+    }
+
+    @Test
+    @DisplayName("KIS 분기가 다 있는 회사는 채우지 않는다 — 호출은 종전처럼 두 건")
+    void completeKisNotFilled() {
+        universe("023590");
+        corp("023590", "00176914");
+        responses.put("00176914/2026/11012/CFS", cfs("20260814003900", "492382928525", "248744902085", "3883281985289"));
+        responses.put("00176914/2025/11011/CFS", cfs("20260318001606", "505182368263", "355835455442", "3446435267021"));
+
+        DartControllingFinancialService.Summary s = service.collect();
+
+        assertThat(s.fillStocks()).isZero();
+        assertThat(calls).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("부팅 따라잡기 — 보고서 표가 차 있어도 DART 분기 행이 하나도 없으면(V69 직후) 한 번 돈다")
+    void catchUpRunsWhenNoDartRows() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        when(repo.count()).thenReturn(100L);
+        when(companyRepo.count()).thenReturn(100L);
+        when(dart.isCorpCodeLoaded()).thenReturn(true);
+        when(quarterRepo.countBySource(StockQuarterlyFinancial.SOURCE_DART)).thenReturn(0L, 8L);
+
+        service.catchUpOnStartup();
+        assertThat(quarters).isNotEmpty();
+
+        int callsBefore = calls.size();
+        service.catchUpOnStartup();
+        assertThat(calls).hasSize(callsBefore);
     }
 
     private void corp(String stock, String corp) {

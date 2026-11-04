@@ -133,13 +133,7 @@ public class EarningSurpriseService {
 
         int stale = 0, notEnough = 0, seasonal = 0, noYearAgo = 0;
         for (Map.Entry<String, List<StockQuarterlyFinancial>> e : byStock.entrySet()) {
-            List<QuarterlyFinancials.Figures> raw = e.getValue().stream()
-                    .map(q -> new QuarterlyFinancials.Figures(
-                            q.getFiscalPeriod(), q.getPeriodEnd(),
-                            q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
-                    .collect(Collectors.toList());
-
-            List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.usableIndividualQuarters(raw);
+            List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.usableFromStored(e.getValue());
             QuarterlyFinancials.Figures[] pair = QuarterlyFinancials.latestAdjacentPair(individuals);
             if (pair == null) { notEnough++; continue; }
 
@@ -650,12 +644,7 @@ public class EarningSurpriseService {
                     .collect(Collectors.groupingBy(StockQuarterlyFinancial::getStockCode));
 
             for (Map.Entry<String, List<StockQuarterlyFinancial>> e : byStock.entrySet()) {
-                List<QuarterlyFinancials.Figures> raw = e.getValue().stream()
-                        .map(q -> new QuarterlyFinancials.Figures(
-                                q.getFiscalPeriod(), q.getPeriodEnd(),
-                                q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
-                        .collect(Collectors.toList());
-                List<QuarterlyFinancials.Figures> ind = QuarterlyFinancials.usableIndividualQuarters(raw);
+                List<QuarterlyFinancials.Figures> ind = QuarterlyFinancials.usableFromStored(e.getValue());
 
                 QuarterlyFinancials.Figures[] pair = QuarterlyFinancials.latestAdjacentPair(ind);
                 if (pair == null) continue;
