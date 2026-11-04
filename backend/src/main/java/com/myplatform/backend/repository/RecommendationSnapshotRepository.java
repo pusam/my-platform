@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -23,7 +24,8 @@ public interface RecommendationSnapshotRepository extends JpaRepository<Recommen
             "ORDER BY r.rankOrder ASC")
     List<RecommendationSnapshot> findPreviousSnapshot(@Param("before") LocalDateTime before);
 
-    /** 오래된 스냅샷 정리 (7일 이전) */
+    /** 오래된 스냅샷 정리 (7일 이전) — 호출하는 마감 크론에 트랜잭션이 없다(2026-11-04), 여기서 연다. */
+    @Transactional
     @Modifying
     @Query("DELETE FROM RecommendationSnapshot r WHERE r.snapshotAt < :cutoff")
     void deleteOlderThan(@Param("cutoff") LocalDateTime cutoff);

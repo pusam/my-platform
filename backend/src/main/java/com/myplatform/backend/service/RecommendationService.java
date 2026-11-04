@@ -387,11 +387,15 @@ public class RecommendationService {
         return new Top5Response(items, dataTime, realtime, deltaMap);
     }
 
-    /** 장중 스냅샷 (11:30, 14:00, 17:00) — 장중 흐름 변화 히스토리 */
+    /**
+     * 장중 스냅샷 (11:30, 14:00, 17:00) — 장중 흐름 변화 히스토리.
+     *
+     * <p>계산 전체를 한 트랜잭션으로 묶지 않는다(2026-11-04, 마감 스냅샷도 같다) — 묶으면 636종목 × 재무 10행이 한 세션에 쌓여 조회마다 Hibernate 가 그 전부를
+     * 변경 검사한다(11/4 '가치' 단계 33초, 이 트랜잭션이 없는 회차는 2초). DB 연결도 DART·KIS 호출 동안 잡혔다. 저장·시그널 기록은 각자 트랜잭션이 있다.
+     */
     @Scheduled(scheduler = "batchScheduler", cron = "0 30 11 * * MON-FRI", zone = "Asia/Seoul")
     @Scheduled(scheduler = "batchScheduler", cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
     @Scheduled(scheduler = "batchScheduler", cron = "0 0 17 * * MON-FRI", zone = "Asia/Seoul")
-    @Transactional
     public void saveIntradaySnapshot() {
         // 휴장일 가드(2026-08-21, cron 시각 불변) — 없으면 평일 공휴일에 스냅샷+signal_outcome 유령
         // 기록이 쌓인다(8/17 광복절 대체휴일에 실발생, 시세는 멎어 있는데 시그널·대조군 행이 생겼다).
@@ -410,7 +414,6 @@ public class RecommendationService {
      * 열어 두면 그 종목만 기록됐다.
      */
     @Scheduled(scheduler = "batchScheduler", cron = "0 5 20 * * MON-FRI", zone = "Asia/Seoul")
-    @Transactional
     public void saveClosingSnapshot() {
         if (marketCalendar.isMarketClosed()) { log.debug("[종합추천] 휴장일 — 마감 스냅샷 스킵"); return; }
         log.info("[종합추천] 마감 스냅샷 저장 시작");
