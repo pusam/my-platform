@@ -55,6 +55,13 @@ describe('BuyChecklistModal — 참고 항목', () => {
     expect(w.findAll('li.item')[2].find('.item-threshold').text()).toBe('기준 ≥ 3일')
   })
 
+  it('재현: 봇이 이 목록을 검증한다고 말하지 않는다 — 봇은 복합 신호·종합 결론을 보지 않는다(2026-11-04)', async () => {
+    const w = await mountModal()
+    const hint = w.find('.modal-footer .hint').text()
+    expect(hint).not.toContain('봇이 진입 전에 검증')
+    expect(hint).toContain('봇은 이 판정을 쓰지 않습니다')
+  })
+
   it('하단 안내가 참고 항목은 판정에 쓰지 않는다고 밝힌다', async () => {
     const w = await mountModal()
     expect(w.find('.modal-footer .hint').text()).toContain('참고')

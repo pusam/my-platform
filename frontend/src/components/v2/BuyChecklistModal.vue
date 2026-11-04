@@ -48,7 +48,7 @@
         </ul>
 
         <div class="modal-footer">
-          <span class="hint">이 체크리스트는 자동매매 봇이 진입 전에 검증하는 룰을 노출한 것입니다. ℹ️ 참고 항목은 판정에 쓰지 않습니다.</span>
+          <span class="hint">이 체크리스트는 매수 전 확인용입니다. 자동매매 봇은 이 판정을 쓰지 않습니다(봇의 진입 조건은 따로 있습니다). ℹ️ 참고 항목은 판정에 쓰지 않습니다.</span>
           <button class="journal-btn" @click="showJournal = true"
                   title="수동 매수 기록 (실주문 아님 — 신호 스냅샷 + 3거래일 평가)">
             📔 매수 기록

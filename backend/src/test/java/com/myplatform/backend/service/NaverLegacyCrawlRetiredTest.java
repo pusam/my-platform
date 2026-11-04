@@ -30,6 +30,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class NaverLegacyCrawlRetiredTest {
 
     @Test
+    @DisplayName("종목 상세 수급의 네이버 폴백은 은퇴했다 — 11/3~4 41회 시도 0회 성공, 화면을 열어 둔 동안 15초마다 헛요청·WARN")
+    void stockDetailHasNoNaverInvestorFallback() {
+        assertThat(Arrays.stream(StockDetailService.class.getDeclaredMethods())
+                .map(java.lang.reflect.Method::getName))
+                .doesNotContain("fetchInvestorFromNaver", "isEmptySupplyDemand");
+    }
+
+    @Test
     @DisplayName("크롤러 클래스는 지워졌다 — 되살리지 말 것")
     void crawlerClassIsGone() {
         assertThatThrownBy(() -> Class.forName("com.myplatform.backend.service.FinancialDataCrawlerService"))

@@ -159,6 +159,7 @@ class BuyChecklistServiceTest {
 
         // 가산 3개 모두 통과해도 필수 1개 실패면 즉시 NOT_RECOMMENDED
         assertThat(result.getRecommendation()).isEqualTo(Recommendation.NOT_RECOMMENDED);
+        assertThat(result.getSummary()).contains("필수 항목 미통과");
     }
 
     @Test
@@ -202,6 +203,8 @@ class BuyChecklistServiceTest {
 
         // 필수만 통과는 진입 근거 부족 → NOT_RECOMMENDED
         assertThat(result.getRecommendation()).isEqualTo(Recommendation.NOT_RECOMMENDED);
+        // 어느 쪽인지 말한다 — 예전 문구는 '필수 미통과 또는 가산 0/3'이라 통과한 필수까지 의심하게 했다(2026-11-04)
+        assertThat(result.getSummary()).contains("가산 신호가 없습니다").doesNotContain("미통과");
     }
 
     @Test

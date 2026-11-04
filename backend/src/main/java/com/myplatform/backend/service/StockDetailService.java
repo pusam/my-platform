@@ -177,15 +177,6 @@ public class StockDetailService {
             // 수급 정보 - 장 마감 여부에 따라 다른 소스 사용
             SupplyDemand supplyDemand = supplyFuture.get(30, TimeUnit.SECONDS);
 
-            // 수급 데이터 없거나 전부 0이면 네이버 폴백 (단, 장전에는 스킵 → 0 유지)
-            if (!isBeforeMarket && (supplyDemand == null || isEmptySupplyDemand(supplyDemand))) {
-                log.info("[StockDetail] 수급 데이터 없거나 비어있음 - 네이버 투자자 매매동향 폴백 시도");
-                SupplyDemand naverSupply = fetchInvestorFromNaver(stockCode);
-                if (naverSupply != null && !isEmptySupplyDemand(naverSupply)) {
-                    supplyDemand = naverSupply;
-                }
-            }
-
             if (supplyDemand != null) {
                 // ★ 데이터 출처 표시 — 장이 닫힌 날은 시각과 무관하게 '휴장'(2026-10-19)
                 supplyDemand.setDataSource(supplySource(closedToday, isBeforeMarket, isAfterMarket));
@@ -348,12 +339,6 @@ public class StockDetailService {
 
             // 수급 처리
             SupplyDemand supplyDemand = supplyFuture.get(15, TimeUnit.SECONDS);
-            if (!isBeforeMarket && (supplyDemand == null || isEmptySupplyDemand(supplyDemand))) {
-                try {
-                    SupplyDemand naverSupply = fetchInvestorFromNaver(stockCode);
-                    if (naverSupply != null && !isEmptySupplyDemand(naverSupply)) supplyDemand = naverSupply;
-                } catch (Exception e) { /* skip */ }
-            }
             if (supplyDemand != null) {
                 supplyDemand.setDataSource(supplySource(closedToday, isBeforeMarket, isAfterMarket));
                 supplyDemand.setInvestorDataExpected(investorDataExpected(closedToday, LocalTime.now(KST)));
@@ -1391,85 +1376,6 @@ public class StockDetailService {
                 .bps(naverData.getBps())
                 .marketCap(marketCapBillion)
                 .build();
-    }
-
-    /**
-     * 수급 데이터가 비어있는지 확인 (외국인/기관 모두 0)
-     */
-    private boolean isEmptySupplyDemand(SupplyDemand sd) {
-        if (sd == null) return true;
-
-        boolean foreignZero = sd.getForeignNetBuy() == null
-                || sd.getForeignNetBuy().compareTo(BigDecimal.ZERO) == 0;
-        boolean instZero = sd.getInstNetBuy() == null
-                || sd.getInstNetBuy().compareTo(BigDecimal.ZERO) == 0;
-
-        return foreignZero && instZero;
-    }
-
-    /**
-     * 네이버 투자자 매매동향 크롤링 (외국인/기관 순매매)
-     * URL: https://finance.naver.com/item/frgn.naver?code={stockCode}
-     */
-    private SupplyDemand fetchInvestorFromNaver(String stockCode) {
-        try {
-            String url = "https://finance.naver.com/item/frgn.naver?code=" + stockCode;
-            Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .referrer("https://finance.naver.com/")
-                    .timeout(10000)
-                    .get();
-
-            // table.type2 내 tbody tr에서 최신 거래일 데이터 추출
-            Elements rows = doc.select("table.type2 tbody tr");
-
-            for (Element row : rows) {
-                Elements tds = row.select("td");
-                if (tds.size() < 9) continue;
-
-                // 날짜가 있는 유효 데이터 행인지 확인
-                String dateText = tds.get(0).text().trim();
-                if (dateText.isEmpty() || !dateText.contains(".")) continue;
-
-                // 컬럼: 날짜 | 종가 | 전일비 | 등락률 | 거래량 | 기관순매매량 | 외국인순매매량 | ...
-                BigDecimal closePrice = parseNaverNumber(tds.get(1).text());
-                BigDecimal instNetShares = parseNaverNumber(tds.get(5).text()); // 기관 순매매량 (주)
-                BigDecimal foreignNetShares = parseNaverNumber(tds.get(6).text()); // 외국인 순매매량 (주)
-
-                if (closePrice == null || closePrice.compareTo(BigDecimal.ZERO) == 0) continue;
-
-                // 주수 × 종가 ÷ 1억 → 억원 변환
-                BigDecimal instNetBuy = BigDecimal.ZERO;
-                BigDecimal foreignNetBuy = BigDecimal.ZERO;
-
-                if (instNetShares != null) {
-                    instNetBuy = instNetShares.multiply(closePrice)
-                            .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
-                }
-                if (foreignNetShares != null) {
-                    foreignNetBuy = foreignNetShares.multiply(closePrice)
-                            .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
-                }
-
-                log.info("[StockDetail] 네이버 투자자 매매동향 ({}) - 기관: {}억, 외국인: {}억",
-                        dateText, instNetBuy, foreignNetBuy);
-
-                // 네이버 표엔 체결강도·프로그램이 없다 — 모름(null). 예전엔 체결강도 100·프로그램 0 을 채웠다(§4c).
-                return SupplyDemand.builder()
-                        .volumePower(null)
-                        .volumeSignal("NEUTRAL")
-                        .foreignNetBuy(foreignNetBuy)
-                        .instNetBuy(instNetBuy)
-                        .programNetBuy(null)
-                        .programTrend("FLAT")
-                        .build();
-            }
-
-            log.warn("[StockDetail] 네이버 투자자 매매동향 파싱 실패 - 유효 데이터 행 없음");
-        } catch (Exception e) {
-            log.warn("[StockDetail] 네이버 투자자 매매동향 크롤링 실패: {}", e.getMessage());
-        }
-        return null;
     }
 
     /**

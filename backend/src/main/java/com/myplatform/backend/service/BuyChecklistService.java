@@ -85,7 +85,7 @@ public class BuyChecklistService {
         int informational = (int) items.stream().filter(ChecklistItem::isInformational).count();
         int decidable = items.size() - informational - missing;
         Recommendation recommendation = decideRecommendation(items);
-        String summary = summary(recommendation, passed, decidable, missing);
+        String summary = summary(recommendation, passed, decidable, missing, requiredAllPassed(items));
 
         return BuyChecklistDto.builder()
                 .stockCode(stockCode)
@@ -376,16 +376,20 @@ public class BuyChecklistService {
      */
     private static final java.util.Set<String> REQUIRED_KEYS = java.util.Set.of("tradable");
 
-    private Recommendation decideRecommendation(List<ChecklistItem> items) {
-        // 필수 항목 검사 — 1개라도 fail 이면 즉시 NOT_RECOMMENDED.
-        // 단 dataMissing(미수집)은 판정 불가이지 미충족이 아님 — 결측을 근거로 차단하지 않는다
-        // (§4c, 봇 isHighShortSellingStock 결측=통과와 동일 극성).
-        boolean requiredAllPassed = items.stream()
+    /** 필수 항목이 모두 통과했는가 — 결측(dataMissing)은 판정에서 뺀다. */
+    private boolean requiredAllPassed(List<ChecklistItem> items) {
+        return items.stream()
                 .filter(i -> !i.isInformational())
                 .filter(i -> REQUIRED_KEYS.contains(i.getKey()))
                 .filter(i -> !i.isDataMissing())
                 .allMatch(ChecklistItem::isPassed);
-        if (!requiredAllPassed) {
+    }
+
+    private Recommendation decideRecommendation(List<ChecklistItem> items) {
+        // 필수 항목 검사 — 1개라도 fail 이면 즉시 NOT_RECOMMENDED.
+        // 단 dataMissing(미수집)은 판정 불가이지 미충족이 아님 — 결측을 근거로 차단하지 않는다
+        // (§4c, 봇 isHighShortSellingStock 결측=통과와 동일 극성).
+        if (!requiredAllPassed(items)) {
             return Recommendation.NOT_RECOMMENDED;
         }
         // 가산 항목 충족 개수
@@ -407,14 +411,16 @@ public class BuyChecklistService {
      * <b>"4/5 충족 — 필수+가산 전부 통과"</b> 같은 자기모순이 화면에 떴다(2026-08-05 감사).
      * 판정 자체는 이미 미수집을 제외하고 있었으므로(§4c) 문구·분모만 사실에 맞춘다.
      */
-    private String summary(Recommendation r, int passed, int decidable, int missing) {
+    private String summary(Recommendation r, int passed, int decidable, int missing, boolean requiredPassed) {
         String base = passed + "/" + decidable + " 충족";
         String tail = missing > 0 ? " (판정 불가 " + missing + "개 제외)" : "";
         return switch (r) {
             case STRONG -> base + tail + " — 판정 가능한 필수+가산 전부 통과. 진입 권장.";
             case MODERATE -> base + tail + " — 가산 2/3. 포지션 분할 권장.";
             case CAUTION -> base + tail + " — 가산 1/3. 미충족 항목 확인 후 신중 진입.";
-            case NOT_RECOMMENDED -> base + tail + " — 필수 미통과 또는 가산 0/3. 진입 비권장.";
+            case NOT_RECOMMENDED -> base + tail + (requiredPassed
+                    ? " — 필수는 통과했지만 가산 신호가 없습니다. 진입 비권장."
+                    : " — 필수 항목 미통과. 진입 비권장.");
         };
     }
 }
