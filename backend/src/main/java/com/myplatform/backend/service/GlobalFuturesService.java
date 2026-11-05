@@ -323,9 +323,18 @@ public class GlobalFuturesService {
      */
     public Map<String, Object> getKospiImpactAnalysis() {
         List<FuturesQuote> quotes = getAllFuturesQuotes();
-        Map<String, Object> analysis = analyzeImpact(quotes);
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+        Map<String, Object> analysis = analyzeImpact(quotes, now, lastUsSession(now));
         analysis.put("fearGreed", getFearGreedIndex());
         return analysis;
+    }
+
+    /** 코스피가 아직 반영하지 못한 직전 미국 세션 — 그 시간대가 아니거나 시세가 없으면 비어 있다. */
+    private LastUsSession lastUsSession(LocalDateTime kstNow) {
+        if (!usCloseNotYetInKospi(kstNow)) return LastUsSession.NONE;
+        DayOfWeek day = kstNow.getDayOfWeek();
+        return new LastUsSession(OvernightUsMarketService.sessionRateOrNull(getFuturesQuote("NDX"), day),
+                OvernightUsMarketService.sessionRateOrNull(getFuturesQuote("SPX"), day));
     }
 
     /** 가중 지표 수 — 나스닥100·S&P500·WTI·달러/원·VIX. */
@@ -357,6 +366,31 @@ public class GlobalFuturesService {
             new java.util.concurrent.atomic.AtomicReference<>("");
 
     Map<String, Object> analyzeImpact(List<FuturesQuote> quotes, LocalDateTime kstNow) {
+        return analyzeImpact(quotes, kstNow, LastUsSession.NONE);
+    }
+
+    /**
+     * 직전 미국 세션의 현물 지수 등락률 — 모르면 null. 선물은 새 CME 세션 기준이라 간밤 낙폭을 담지 못한다(2026-11-06: 나스닥100 현물
+     * −6.36% 인 아침에 선물 −0.52% → '보합 출발 예상').
+     */
+    record LastUsSession(Double ndxRate, Double spxRate) {
+        static final LastUsSession NONE = new LastUsSession(null, null);
+    }
+
+    /** 미국 장이 끝난 뒤 코스피가 아직 안 열렸나 — 평일 05:00~09:00, 토 05:00 부터 월 09:00 까지. 순수 함수. */
+    static boolean usCloseNotYetInKospi(LocalDateTime kstNow) {
+        LocalTime t = kstNow.toLocalTime();
+        LocalTime usClosed = LocalTime.of(5, 0);
+        LocalTime kospiOpen = LocalTime.of(9, 0);
+        return switch (kstNow.getDayOfWeek()) {
+            case SUNDAY -> true;
+            case SATURDAY -> !t.isBefore(usClosed);
+            case MONDAY -> t.isBefore(kospiOpen);
+            default -> !t.isBefore(usClosed) && t.isBefore(kospiOpen);
+        };
+    }
+
+    Map<String, Object> analyzeImpact(List<FuturesQuote> quotes, LocalDateTime kstNow, LastUsSession lastSession) {
         Map<String, Object> analysis = new LinkedHashMap<>();
 
         // 종목별 추출
@@ -369,22 +403,22 @@ public class GlobalFuturesService {
         double weightedScore = 50.0;
         List<Map<String, Object>> riskFactors = new ArrayList<>();
 
-        // 1) 나스닥100 선물 (가중치 35%)
+        // 1) 나스닥100 (가중치 35%) — 코스피가 아직 반영 못 한 미국 세션이 있으면 그 현물 등락률, 아니면 선물
         FuturesQuote nq = quoteMap.get("NQ");
-        if (nq != null && nq.getChangeRate() != null) {
-            double nqRate = nq.getChangeRate().doubleValue();
+        Double nqRate = lastSession.ndxRate() != null ? lastSession.ndxRate() : rateOf(nq);
+        if (nqRate != null) {
             double nqContrib = clampContrib(nqRate * 7.0); // ±1% → ±7점
             weightedScore += nqContrib * 0.35;
-            riskFactors.add(createFactor("나스닥100", nqRate, indexFactorSignal(nqRate), 35));
+            riskFactors.add(createFactor(lastSession.ndxRate() != null ? "나스닥100 간밤" : "나스닥100", nqRate, indexFactorSignal(nqRate), 35));
         }
 
-        // 2) S&P500 선물 (가중치 15%)
+        // 2) S&P500 (가중치 15%) — 같은 규칙
         FuturesQuote es = quoteMap.get("ES");
-        if (es != null && es.getChangeRate() != null) {
-            double esRate = es.getChangeRate().doubleValue();
+        Double esRate = lastSession.spxRate() != null ? lastSession.spxRate() : rateOf(es);
+        if (esRate != null) {
             double esContrib = clampContrib(esRate * 6.0);
             weightedScore += esContrib * 0.15;
-            riskFactors.add(createFactor("S&P500", esRate, indexFactorSignal(esRate), 15));
+            riskFactors.add(createFactor(lastSession.spxRate() != null ? "S&P500 간밤" : "S&P500", esRate, indexFactorSignal(esRate), 15));
         }
 
         // 3) WTI 원유 (가중치 15%) - 유가 급등은 코스피에 악재
@@ -548,12 +582,9 @@ public class GlobalFuturesService {
         }
 
         // 조건 4: 나스닥 -3% 이상 폭락
-        if (nq != null && nq.getChangeRate() != null) {
-            double nqRate = nq.getChangeRate().doubleValue();
-            if (nqRate <= -3.0) {
-                thresholdOverride = true;
-                overrideReasons.add(String.format("나스닥 %.1f%% 폭락", nqRate));
-            }
+        if (nqRate != null && nqRate <= -3.0) {
+            thresholdOverride = true;
+            overrideReasons.add(String.format(lastSession.ndxRate() != null ? "나스닥 간밤 %.1f%% 폭락" : "나스닥 %.1f%% 폭락", nqRate));
         }
 
         // 등급 + 코멘트 결정
@@ -567,7 +598,7 @@ public class GlobalFuturesService {
             alertLevel = "CRISIS";
             impactScore = 3; // 게이지 바 좌측 극단
             String reasons = String.join(" + ", overrideReasons);
-            comment = buildComment(quoteMap, "폭락 경계 — " + reasons);
+            comment = buildComment(quoteMap, "폭락 경계 — " + reasons, lastSession);
             log.warn("[코스피 전망] 임계값 오버라이드 발동: {}", reasons);
         } else if (riskFactors.isEmpty()) {
             impact = null;
@@ -577,31 +608,31 @@ public class GlobalFuturesService {
         } else if (impactScore <= 20) {
             impact = "NEGATIVE";
             alertLevel = "EXTREME_NEGATIVE";
-            comment = buildComment(quoteMap, "극심한 하방 변동성 경고");
+            comment = buildComment(quoteMap, "극심한 하방 변동성 경고", lastSession);
         } else if (impactScore <= 35) {
             impact = "NEGATIVE";
             alertLevel = "NEGATIVE";
-            comment = buildComment(quoteMap, "코스피 하방 압력 주의");
+            comment = buildComment(quoteMap, "코스피 하방 압력 주의", lastSession);
         } else if (impactScore <= 45) {
             impact = "NEGATIVE";
             alertLevel = "WEAK_NEGATIVE";
-            comment = buildComment(quoteMap, directionHeadline("소폭 약세", kstNow));
+            comment = buildComment(quoteMap, directionHeadline("소폭 약세", kstNow), lastSession);
         } else if (impactScore <= 55) {
             impact = "NEUTRAL";
             alertLevel = "NEUTRAL";
-            comment = buildComment(quoteMap, directionHeadline("보합", kstNow));
+            comment = buildComment(quoteMap, directionHeadline("보합", kstNow), lastSession);
         } else if (impactScore <= 65) {
             impact = "POSITIVE";
             alertLevel = "WEAK_POSITIVE";
-            comment = buildComment(quoteMap, directionHeadline("소폭 강세", kstNow));
+            comment = buildComment(quoteMap, directionHeadline("소폭 강세", kstNow), lastSession);
         } else if (impactScore <= 80) {
             impact = "POSITIVE";
             alertLevel = "POSITIVE";
-            comment = buildComment(quoteMap, "코스피 긍정적 흐름 예상");
+            comment = buildComment(quoteMap, "코스피 긍정적 흐름 예상", lastSession);
         } else {
             impact = "POSITIVE";
             alertLevel = "EXTREME_POSITIVE";
-            comment = buildComment(quoteMap, "강한 상승 모멘텀 예상");
+            comment = buildComment(quoteMap, "강한 상승 모멘텀 예상", lastSession);
         }
 
         // 일부 지표만 받았으면 몇 개로 계산했는지 밝힌다 — 빠진 지표는 0(중립)으로 더해진 셈이다
@@ -641,6 +672,10 @@ public class GlobalFuturesService {
         return Math.max(-20, Math.min(20, value));
     }
 
+    private static Double rateOf(FuturesQuote q) {
+        return q != null && q.getChangeRate() != null ? q.getChangeRate().doubleValue() : null;
+    }
+
     private Map<String, Object> createFactor(String name, double changeRate, String signal, int weight) {
         Map<String, Object> factor = new LinkedHashMap<>();
         factor.put("name", name);
@@ -672,11 +707,13 @@ public class GlobalFuturesService {
         return price != null && price.abs().compareTo(BigDecimal.TEN) < 0 ? 4 : 2;
     }
 
-    private String buildComment(Map<String, FuturesQuote> quoteMap, String headline) {
+    private String buildComment(Map<String, FuturesQuote> quoteMap, String headline, LastUsSession lastSession) {
         StringBuilder sb = new StringBuilder(headline).append(".");
 
         FuturesQuote nq = quoteMap.get("NQ");
-        if (nq != null && nq.getChangeRate() != null) {
+        if (lastSession.ndxRate() != null) {
+            sb.append(String.format(" 간밤 나스닥 %+.2f%%", lastSession.ndxRate()));
+        } else if (nq != null && nq.getChangeRate() != null) {
             // NQ 는 나스닥 100 선물 — 지수(^NDX)와 다른 값이다(아시아 시간에도 움직인다)
             sb.append(String.format(" 나스닥 선물 %+.2f%%", nq.getChangeRate().doubleValue()));
         }
