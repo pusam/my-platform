@@ -957,7 +957,7 @@ public class MarketTimingService {
      * - 시장이 과열 또는 공포 구간일 때 알림
      * - 스케줄러에서 데이터 수집 후 호출 권장
      *
-     * @param onlyExtreme true면 과열/극심한공포일 때만 알림, false면 항상 알림
+     * @param onlyExtreme true면 과열/극심한공포/폭락일 때만 알림, false면 항상 알림
      * @return 알림 발송 여부
      */
     public boolean sendMarketStatusAlert(boolean onlyExtreme) {
@@ -974,7 +974,8 @@ public class MarketTimingService {
 
         // 극단적 상황만 알림하는 경우
         if (onlyExtreme) {
-            if (condition != MarketCondition.OVERHEATED && condition != MarketCondition.EXTREME_FEAR) {
+            if (condition != MarketCondition.OVERHEATED && condition != MarketCondition.EXTREME_FEAR
+                    && condition != MarketCondition.CRASH) {
                 log.info("시장 상태가 정상 범위이므로 알림 발송 생략 - condition: {}", condition);
                 return false;
             }
