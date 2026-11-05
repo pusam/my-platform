@@ -329,6 +329,11 @@ public class GlobalFuturesService {
         return analysis;
     }
 
+    /** 코스피가 아직 반영하지 못한 미국 세션의 나스닥100 현물 등락률 — 그 시간대가 아니거나 모르면 null. */
+    public Double lastNdxSessionRate() {
+        return lastUsSession(LocalDateTime.now(ZoneId.of("Asia/Seoul"))).ndxRate();
+    }
+
     /** 코스피가 아직 반영하지 못한 직전 미국 세션 — 그 시간대가 아니거나 시세가 없으면 비어 있다. */
     private LastUsSession lastUsSession(LocalDateTime kstNow) {
         if (!usCloseNotYetInKospi(kstNow)) return LastUsSession.NONE;

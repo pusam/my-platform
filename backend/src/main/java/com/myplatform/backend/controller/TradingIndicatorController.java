@@ -1,6 +1,7 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.TradingIndicatorDto.*;
+import com.myplatform.backend.service.GlobalFuturesService;
 import com.myplatform.backend.service.GlobalMarketService;
 import com.myplatform.backend.service.SectorAnalysisService;
 import com.myplatform.backend.service.TechnicalIndicatorService;
@@ -37,6 +38,7 @@ public class TradingIndicatorController {
 
     private final VwapService vwapService;
     private final GlobalMarketService globalMarketService;
+    private final GlobalFuturesService globalFuturesService;
     private final SectorAnalysisService sectorAnalysisService;
     private final TechnicalIndicatorService technicalIndicatorService;
 
@@ -88,23 +90,39 @@ public class TradingIndicatorController {
     @GetMapping("/global/halt-check")
     @Operation(
         summary = "글로벌 악재 필터 체크",
-        description = "나스닥 선물 기준 매수 보류 여부 확인\n\n" +
-                     "- true: 매수 보류 (나스닥 -0.5% 이하)\n" +
-                     "- false: 정상 (매수 허용)"
+        description = "나스닥 선물 기준 매수 보류 여부 확인 — 코스피 개장 전엔 간밤 나스닥100 현물도 본다\n\n" +
+                     "- true: 매수 보류 (나스닥 -1.0% 이하)\n" +
+                     "- false: 이 필터가 막을 이유를 못 찾음"
     )
     public ResponseEntity<Map<String, Object>> checkGlobalHalt() {
         log.info("글로벌 악재 필터 체크 API 호출");
-        boolean shouldHalt = globalMarketService.shouldHaltBuying();
+        GlobalHaltView view = globalHaltView(globalMarketService.shouldHaltBuying(), globalFuturesService.lastNdxSessionRate());
         NasdaqFuturesResult nasdaq = globalMarketService.getNasdaqFutures();
 
         Map<String, Object> result = new HashMap<>();
-        result.put("shouldHaltBuying", shouldHalt);
+        result.put("shouldHaltBuying", view.shouldHalt());
         result.put("nasdaqData", nasdaq);
-        result.put("message", shouldHalt
-                ? "⚠️ 글로벌 리스크 감지! 매수 보류 권장"
-                : "✅ 글로벌 시장 정상. 매수 가능");
+        result.put("message", view.message());
 
         return ResponseEntity.ok(buildSuccessResponse(result));
+    }
+
+    record GlobalHaltView(boolean shouldHalt, String message) {}
+
+    /**
+     * 글로벌 악재 필터 화면 — 코스피 개장 전엔 간밤 나스닥도 본다. 선물 등락률은 새 CME 세션 기준이라 간밤 낙폭을 담지 못해, 나스닥 −6.36% 인 아침에
+     * '글로벌 시장 정상. 매수 가능'이었다(2026-11-06). 봇 필터({@link GlobalMarketService#shouldHaltBuying})는 매매 규칙이라 그대로다.
+     * '매수 가능'이라 하지 않는다 — 이 필터가 막을 이유를 못 찾았다는 뜻일 뿐이다. 순수 함수.
+     *
+     * @param lastNdxSessionRate 코스피가 아직 반영 못 한 미국 세션의 나스닥100 등락률. 없으면 null
+     */
+    static GlobalHaltView globalHaltView(boolean futuresHalt, Double lastNdxSessionRate) {
+        if (GlobalMarketService.atHaltLevel(lastNdxSessionRate)) {
+            return new GlobalHaltView(true, String.format("⚠️ 간밤 나스닥 %+.2f%% — 코스피 개장 전 매수 보류 권장", lastNdxSessionRate));
+        }
+        return new GlobalHaltView(futuresHalt, futuresHalt
+                ? "⚠️ 글로벌 리스크 감지! 매수 보류 권장"
+                : "✅ 나스닥 선물 기준 악재 신호 없음");
     }
 
     // ========== 3. 주도 섹터 랭킹 ==========

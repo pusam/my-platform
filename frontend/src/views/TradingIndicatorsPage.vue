@@ -78,7 +78,7 @@
               <div class="halt-status">
                 <span v-if="!haltCheck" class="status-unknown">확인 불가 — 필터 상태를 불러오지 못했습니다</span>
                 <span v-else-if="haltCheck.shouldHaltBuying" class="status-danger">⚠️ 매수 보류</span>
-                <span v-else class="status-safe">✅ 글로벌 악재 신호 없음</span>
+                <span v-else class="status-safe">✅ 악재 신호 없음</span>
               </div>
               <p class="halt-message">{{ haltCheck?.message }}</p>
             </div>

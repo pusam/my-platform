@@ -83,10 +83,15 @@ public class GlobalMarketService {
 
     /**
      * 글로벌 악재 필터 체크
-     * 나스닥 선물이 -0.5% 이하면 매수 보류
+     * 나스닥 선물이 -1.0% 이하면 매수 보류
      *
      * @return true = 매수 보류, false = 정상
      */
+    /** 매수 보류 수준의 하락인가 — 모르면 false. 순수 함수. */
+    public static boolean atHaltLevel(Double changeRate) {
+        return changeRate != null && BigDecimal.valueOf(changeRate).compareTo(HALT_THRESHOLD) <= 0;
+    }
+
     public boolean shouldHaltBuying() {
         NasdaqFuturesResult nasdaq = getNasdaqFutures();
         if (nasdaq == null || nasdaq.getChangeRate() == null) {
