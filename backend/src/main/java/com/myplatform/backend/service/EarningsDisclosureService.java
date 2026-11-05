@@ -50,38 +50,6 @@ public class EarningsDisclosureService {
             "영업실적", "실적"
     );
 
-    // 종목코드 ↔ DART 기업코드 매핑 (주요 종목)
-    private static final Map<String, String> STOCK_TO_CORP = new LinkedHashMap<>();
-    static {
-        STOCK_TO_CORP.put("005930", "00126380");  // 삼성전자
-        STOCK_TO_CORP.put("000660", "00164779");  // SK하이닉스
-        STOCK_TO_CORP.put("373220", "01711413");  // LG에너지솔루션
-        STOCK_TO_CORP.put("207940", "00917503");  // 삼성바이오로직스
-        STOCK_TO_CORP.put("005380", "00164742");  // 현대차
-        STOCK_TO_CORP.put("000270", "00164529");  // 기아
-        STOCK_TO_CORP.put("068270", "00421045");  // 셀트리온
-        STOCK_TO_CORP.put("005490", "00117631");  // POSCO홀딩스
-        STOCK_TO_CORP.put("035420", "00266961");  // NAVER
-        STOCK_TO_CORP.put("035720", "01011885");  // 카카오
-        STOCK_TO_CORP.put("006400", "00126186");  // 삼성SDI
-        STOCK_TO_CORP.put("051910", "00356361");  // LG화학
-        STOCK_TO_CORP.put("012330", "00164788");  // 현대모비스
-        STOCK_TO_CORP.put("028260", "00126263");  // 삼성물산
-        STOCK_TO_CORP.put("105560", "00688996");  // KB금융
-        STOCK_TO_CORP.put("055550", "00382199");  // 신한지주
-        STOCK_TO_CORP.put("086790", "00547583");  // 하나금융지주
-        STOCK_TO_CORP.put("003550", "00155856");  // LG
-        // SK corp_code = 00181712 (2026-07-21 DART 회사검색 실측 확정). 이전엔 LG전자 코드(00401731)가
-        // 중복 매핑돼 findStockCode 역조회가 LG전자 공시를 SK 로 오귀속했다.
-        STOCK_TO_CORP.put("034730", "00181712");  // SK
-        STOCK_TO_CORP.put("066570", "00401731");  // LG전자
-        STOCK_TO_CORP.put("033780", "00401335");  // KT&G
-        STOCK_TO_CORP.put("018260", "00126571");  // 삼성에스디에스
-        STOCK_TO_CORP.put("009150", "00164645");  // 삼성전기
-        STOCK_TO_CORP.put("096770", "00631518");  // SK이노베이션
-        STOCK_TO_CORP.put("015760", "00155913");  // 한국전력
-    }
-
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -201,7 +169,7 @@ public class EarningsDisclosureService {
         EarningsDisclosure disclosure = EarningsDisclosure.builder()
                 .corpCode(corpCode)
                 .corpName(corpName)
-                .stockCode(findStockCode(corpCode))
+                .stockCode(stockCodeOf(item))
                 .reportNm(reportNm)
                 .rceptNo(rceptNo)
                 .rceptDt(getTextValue(item, "rcept_dt"))
@@ -267,15 +235,22 @@ public class EarningsDisclosureService {
     }
 
     /**
-     * 기업코드로 종목코드 역매핑
+     * 공시의 종목코드 — DART 공시 목록 응답에 이미 온다. 비상장은 비어 온다(null). 순수.
+     * 예전엔 손으로 적은 회사코드 표(25개 중 13개가 틀렸다)로 되짚어서 삼성에스디에스 공시가 삼성SDI 로, HMM 공시가 삼성전기로 붙었고,
+     * 표에 없는 회사 99% 는 종목이 비었다(2026-11-05).
      */
-    private String findStockCode(String corpCode) {
-        if (corpCode == null) return null;
-        return STOCK_TO_CORP.entrySet().stream()
-                .filter(e -> e.getValue().equals(corpCode))
-                .map(Map.Entry::getKey)
-                .findFirst()
-                .orElse(null);
+    static String stockCodeOf(JsonNode item) {
+        String code = item.path("stock_code").asText("").trim();
+        return code.isEmpty() ? null : code;
+    }
+
+    /**
+     * 이 공시가 관심종목인가. 종목코드가 있으면 코드로만 고른다 — 이름 포함으로 고르면 '카카오' 관심종목에 카카오게임즈 공시가 붙는다.
+     * 코드가 없는 옛 행만 이름으로 고른다. 순수.
+     */
+    static boolean isWatched(String stockCode, String corpName, Set<String> watchedNames, Set<String> watchedCodes) {
+        if (stockCode != null) return watchedCodes.contains(stockCode);
+        return corpName != null && watchedNames.stream().anyMatch(corpName::contains);
     }
 
     // ======================== 조회 API ========================
@@ -403,10 +378,7 @@ public class EarningsDisclosureService {
 
         int notified = 0;
         for (EarningsDisclosure d : todayDisclosures) {
-            boolean isWatchlistStock = watchlistNames.stream().anyMatch(name -> d.getCorpName().contains(name))
-                    || (d.getStockCode() != null && watchlistCodes.contains(d.getStockCode()));
-
-            if (isWatchlistStock) {
+            if (isWatched(d.getStockCode(), d.getCorpName(), watchlistNames, watchlistCodes)) {
                 sendEarningsAlert(d);
                 notified++;
             }
