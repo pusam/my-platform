@@ -38,6 +38,14 @@ class NaverLegacyCrawlRetiredTest {
     }
 
     @Test
+    @DisplayName("종목 상세의 죽은 페이지 읽기도 은퇴했다 — 네이버 메인(배당·목표주가)·기업개요·FnGuide. 배당·목표주가는 NaverConsensusService")
+    void stockDetailHasNoDeadPageReads() {
+        assertThat(Arrays.stream(StockDetailService.class.getDeclaredMethods()).map(Method::getName))
+                .doesNotContain("fetchNaverMainPage", "fetchFnGuideMetrics", "fetchNaverListedShares",
+                        "enrichWithDividendYieldFromDoc", "enrichWithConsensusTargetFromDoc");
+    }
+
+    @Test
     @DisplayName("크롤러 클래스는 지워졌다 — 되살리지 말 것")
     void crawlerClassIsGone() {
         assertThatThrownBy(() -> Class.forName("com.myplatform.backend.service.FinancialDataCrawlerService"))

@@ -13,10 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -67,6 +63,10 @@ public class StockDetailService {
     // 휴장일 판정 — 수급 출처·AI 분석 세션 이름(2026-10-19). 생성자 순서를 바꾸지 않으려고 필드 주입 — 없으면(단위 테스트) 모른다 = 휴장으로 보지 않는다.
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private MarketCalendarService marketCalendar;
+
+    // 배당수익률·증권사 목표주가(2026-11-05). 생성자 순서를 바꾸지 않으려고 필드 주입.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private NaverConsensusService naverConsensusService;
 
     // Gemini 차트 해석 캐시 — 종목별 10분. 매 조회마다 LLM 호출하지 않게.
     private static final String GEMINI_CHART_CACHE = "geminiChartAnalysis";
@@ -221,13 +221,11 @@ public class StockDetailService {
                     financial != null ? financial.getPbr() : null);
         }
 
-        // ★ 네이버 크롤링 (배당수익률 + 목표주가) + Forward 지표 + 태그
-        Document naverMainDoc = fetchNaverMainPage(stockCode);
+        // ★ 배당수익률 + 목표주가(네이버 증권 응답) + Forward 지표 + 태그
+        NaverConsensusService.Snapshot naverConsensus = fetchNaverConsensus(stockCode);
 
-        // 네이버 메인 페이지 PER/PBR/EPS/BPS는 JavaScript 동적 로딩이라 Jsoup 스크래핑 불가
-        // → TTM 계산(정확한 네이버 상장주식수 사용) 결과를 그대로 사용
         if (financial != null) {
-            enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
+            applyDividendYield(financial, naverConsensus);
             enrichWithForwardMetrics(stockCode, financial, builder.build().getPrice());
             financial.setInvestmentTags(generateInvestmentTags(financial, stockName));
         }
@@ -262,8 +260,8 @@ public class StockDetailService {
             // 폴백 경로에도 규칙 기반 차트 시그널 주입
             if (aiAnalysis != null) aiAnalysis.setChartSignals(chartSignalService.detect(dto));
         }
-        // ★ 목표주가 컨센서스 (위에서 이미 크롤링한 doc 재사용)
-        enrichWithConsensusTargetFromDoc(aiAnalysis, naverMainDoc, stockCode, dto.getPrice());
+        // ★ 목표주가 컨센서스 (위에서 받은 응답 재사용)
+        applyConsensusTarget(aiAnalysis, naverConsensus, dto.getPrice());
         dto.setAiAnalysis(aiAnalysis);
 
         long elapsed = System.currentTimeMillis() - startTime;
@@ -399,22 +397,22 @@ public class StockDetailService {
                 CompletableFuture.supplyAsync(() -> cacheService.getCachedPeerData(
                         stockCode, () -> fetchPeerData(stockCode, finalStockName)), stockDetailExecutor);
 
-        // 네이버 크롤링 (배당수익률 + Forward 지표 + 목표주가) — Heavy로 이동
+        // 배당수익률 + Forward 지표 + 목표주가 — Heavy로 이동
         CompletableFuture<Map<String, Object>> naverEnrichFuture =
                 CompletableFuture.supplyAsync(() -> {
                     Map<String, Object> enrichData = new HashMap<>();
                     try {
-                        Document naverMainDoc = fetchNaverMainPage(stockCode);
+                        NaverConsensusService.Snapshot naverConsensus = fetchNaverConsensus(stockCode);
                         FinancialInfo financial = fetchFinancialInfo(stockCode, null);
                         if (financial != null) {
-                            enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
+                            applyDividendYield(financial, naverConsensus);
                             enrichWithForwardMetrics(stockCode, financial, finalPriceInfo);
                             financial.setInvestmentTags(generateInvestmentTags(financial, finalStockName));
                         }
                         enrichData.put("financial", financial);
-                        enrichData.put("naverDoc", naverMainDoc);
+                        enrichData.put("naverConsensus", naverConsensus);
                     } catch (Exception e) {
-                        log.warn("[StockDetail:Heavy] 네이버 크롤링 실패: {}", e.getMessage());
+                        log.warn("[StockDetail:Heavy] 재무 보강 실패: {}", e.getMessage());
                     }
                     return enrichData;
                 }, stockDetailExecutor);
@@ -443,8 +441,7 @@ public class StockDetailService {
 
             AiAnalysis aiAnalysis = aiFuture.get(60, TimeUnit.SECONDS);
             if (aiAnalysis != null) {
-                Document naverDoc = (Document) naverEnrich.get("naverDoc");
-                enrichWithConsensusTargetFromDoc(aiAnalysis, naverDoc, stockCode, finalPriceInfo);
+                applyConsensusTarget(aiAnalysis, (NaverConsensusService.Snapshot) naverEnrich.get("naverConsensus"), finalPriceInfo);
             }
             result.put("aiAnalysis", aiAnalysis);
 
@@ -477,7 +474,7 @@ public class StockDetailService {
     private Map<String, Object> fetchPeerData(String stockCode, String stockName) {
         Map<String, Object> result = new HashMap<>();
         try {
-            // 피어 비교용 재무정보는 FnGuide 기반 rich 버전 사용 (ROE/배당까지 필요)
+            // 피어 비교용 재무정보 (ROE 까지 필요)
             // getCachedPeerData 자체가 cacheService 래퍼로 캐시되므로, 내부 직접 호출 OK
             FinancialInfo financial = fetchFinancialInfo(stockCode, null);
 
@@ -676,10 +673,8 @@ public class StockDetailService {
     }
 
     /**
-     * 재무 정보 조회 — TTM 연결 재무제표 기준으로 통일
-     *
-     * 1순위: FnGuide (PER/PBR/EPS/BPS/ROE/영업이익률/부채비율 — 연결 기준)
-     * 2순위: KIS API (시가총액/외국인지분 + FnGuide 실패 시 폴백)
+     * 재무 정보 조회 — KIS 현재가 API(시가총액·외국인지분·최근 결산 EPS/BPS) + 재무 표(ROE·영업이익률·부채비율).
+     * 1순위였던 FnGuide 는 주소가 사라져 404 이다(2026-11-05 은퇴) — 조회마다 실패하고 이 경로로 떨어지고 있었다.
      */
     private FinancialInfo fetchFinancialInfo(String stockCode, JsonNode priceData) {
         try {
@@ -696,35 +691,12 @@ public class StockDetailService {
             Long marketCap = parseLong(output.get("hts_avls"));
             BigDecimal foreignOwnership = parseBigDecimal(output.get("hts_frgn_ehrt"));
 
-            // ★★★ 1순위: FnGuide에서 PER/PBR/EPS/BPS/ROE 등 전체 재무지표 조회
             BigDecimal per = null, pbr = null, eps = null, bps = null;
             BigDecimal roe = null, operatingMargin = null, netMargin = null, debtRatio = null;
 
-            try {
-                Map<String, BigDecimal> fnData = fetchFnGuideMetrics(stockCode);
-                if (fnData != null && !fnData.isEmpty()) {
-                    eps = fnData.get("eps");
-                    bps = fnData.get("bps");
-                    per = fnData.get("per");
-                    pbr = fnData.get("pbr");
-                    roe = fnData.get("roe");
-                    operatingMargin = fnData.get("operatingMargin");
-                    netMargin = fnData.get("netMargin");
-                    debtRatio = fnData.get("debtRatio");
-
-                    log.info("[StockDetail] {} ★FnGuide 1순위: PER={}, PBR={}, EPS={}, BPS={}, ROE={}",
-                            stockCode, per, pbr, eps, bps, roe);
-                }
-            } catch (Exception e) {
-                log.warn("[StockDetail] {} FnGuide 조회 실패: {}", stockCode, e.getMessage());
-            }
-
-            // ★ 2순위 폴백: FnGuide 실패 시 KIS 데이터 사용
-            if (eps == null) {
-                eps = parseBigDecimal(output.get("eps"));
-                log.info("[StockDetail] {} EPS 폴백 → KIS: {}", stockCode, eps);
-            }
-            if (bps == null) bps = parseBigDecimal(output.get("bps"));
+            // KIS 현재가 API 의 최근 결산 EPS·BPS
+            eps = parseBigDecimal(output.get("eps"));
+            bps = parseBigDecimal(output.get("bps"));
 
             // ★ 3순위: PER/PBR 직접 계산 (주가 ÷ EPS = PER, 주가 ÷ BPS = PBR)
             if (per == null && currentPrice != null && eps != null && eps.compareTo(BigDecimal.ZERO) > 0) {
@@ -739,7 +711,7 @@ public class StockDetailService {
             if (per == null) per = parseBigDecimal(output.get("per"));
             if (pbr == null) pbr = parseBigDecimal(output.get("pbr"));
 
-            // ROE/마진 폴백: FnGuide 실패 시 DB 데이터 사용
+            // ROE/마진: 재무 표
             if (roe == null || operatingMargin == null || debtRatio == null) {
                 try {
                     List<StockFinancialData> dbDataList = FinancialRowSynthesizer.excludeFutureDated(
@@ -1385,436 +1357,27 @@ public class StockDetailService {
                 .build();
     }
 
-    /**
-     * 네이버 페이지 숫자 파싱 (쉼표, +/- 처리)
-     */
-    private BigDecimal parseNaverNumber(String text) {
-        if (text == null || text.trim().isEmpty()) return null;
-        try {
-            String cleaned = text.trim()
-                    .replace(",", "")
-                    .replace("+", "")
-                    .replace("\u00A0", ""); // non-breaking space
-            if (cleaned.isEmpty() || cleaned.equals("-")) return BigDecimal.ZERO;
-            return new BigDecimal(cleaned);
-        } catch (Exception e) {
-            return null;
-        }
+    // ========== 배당수익률·증권사 목표주가 (네이버 증권 응답, 표시 전용) ==========
+
+    private NaverConsensusService.Snapshot fetchNaverConsensus(String stockCode) {
+        return naverConsensusService == null ? null : naverConsensusService.fetch(stockCode);
     }
 
-    // ========== 네이버 상장주식수 크롤링 ==========
-
-    /**
-     * 네이버 기업개요 페이지에서 상장주식수 크롤링
-     * URL: https://finance.naver.com/item/coinfo.naver?code={stockCode}
-     * HTML: <th>상장주식수</th><td><em>46,290,951</em></td>
-     */
-    private BigDecimal fetchNaverListedShares(String stockCode) {
-        try {
-            Document doc = Jsoup.connect("https://finance.naver.com/item/coinfo.naver?code=" + stockCode)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .referrer("https://finance.naver.com/")
-                    .timeout(10000)
-                    .get();
-
-            Element th = doc.selectFirst("th:contains(상장주식수)");
-            if (th != null) {
-                Element td = th.nextElementSibling();
-                if (td != null) {
-                    Element em = td.selectFirst("em");
-                    String text = (em != null) ? em.text() : td.text();
-                    BigDecimal shares = parseNaverNumber(text);
-                    if (shares != null && shares.compareTo(BigDecimal.ZERO) > 0) {
-                        log.info("[StockDetail] {} 네이버 상장주식수: {}", stockCode, shares);
-                        return shares;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[StockDetail] {} 네이버 상장주식수 크롤링 실패: {}", stockCode, e.getMessage());
-        }
-        return null;
+    /** 모르면 비워 둔다 — 화면이 칸을 숨긴다. */
+    private static void applyDividendYield(FinancialInfo financial, NaverConsensusService.Snapshot naver) {
+        if (financial == null || financial.getDividendYield() != null || naver == null) return;
+        financial.setDividendYield(naver.dividendYield());
     }
 
-    // ========== FnGuide 재무지표 크롤링 (1순위 소스) ==========
-
-    /**
-     * FnGuide에서 PER/PBR/EPS/BPS/ROE/영업이익률/부채비율 조회 (IFRS 연결 기준)
-     * URL: https://comp.fnguide.com/SVO2/ASP/SVD_main.asp?pGB=1&gicode=A{code}
-     * HTML 구조: div#highlight_D_A 내 테이블에서 최신 연간 데이터 추출
-     */
-    private Map<String, BigDecimal> fetchFnGuideMetrics(String stockCode) {
-        try {
-            String url = "https://comp.fnguide.com/SVO2/ASP/SVD_main.asp?pGB=1&gicode=A" + stockCode;
-            Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .referrer("https://comp.fnguide.com/")
-                    .timeout(15000)
-                    .get();
-
-            Map<String, BigDecimal> metrics = new HashMap<>();
-
-            // ★ 상단 박스에서 PER, PBR 추출 (trailing 기준 — 가장 신뢰도 높음)
-            // 구조: <a id="h_per">PER</a> ... <dd>59.91</dd>
-            BigDecimal topPer = extractFnGuideTopValue(doc, "h_per");
-            BigDecimal topPbr = extractFnGuideTopValue(doc, "h_pbr");
-
-            // ★ highlight_D_A (IFRS 연결, Annual) 테이블에서 최신 결산 EPS/BPS/ROE 등
-            Element highlightTable = doc.selectFirst("div#highlight_D_A table");
-            if (highlightTable != null) {
-                // 헤더에서 최신 실적 연도 컬럼 인덱스 찾기 (E 추정치 제외)
-                Elements headerCells = highlightTable.select("thead tr.td_gapcolor2 th");
-                int latestCol = -1;
-                for (int i = 0; i < headerCells.size(); i++) {
-                    String headerText = headerCells.get(i).text().trim();
-                    // Annual 영역(앞 4개)에서 (E) 아닌 최신 컬럼
-                    if (i < 4 && !headerText.contains("(E)") && headerText.matches("\\d{4}/\\d{2}")) {
-                        latestCol = i;
-                    }
-                }
-                if (latestCol < 0) latestCol = 2; // 기본값: 3번째 Annual 컬럼
-
-                log.info("[StockDetail] {} FnGuide 최신 결산 컬럼: {} (인덱스: {})",
-                        stockCode, latestCol < headerCells.size() ? headerCells.get(latestCol).text() : "?", latestCol);
-
-                // 각 행에서 데이터 추출 (BPS/ROE/마진/부채비율은 Annual 테이블 사용)
-                BigDecimal issuedShares = null; // 발행주식수 (천주) - 보통주만
-                BigDecimal tableEps = null; // FnGuide 테이블 EPS(원) 직접값
-
-                Elements rows = highlightTable.select("tbody tr");
-                for (Element row : rows) {
-                    String label = row.selectFirst("th") != null ? row.selectFirst("th").text().trim() : "";
-                    Elements tds = row.select("td");
-                    if (tds.size() <= latestCol) continue;
-
-                    String cellText = tds.get(latestCol).text().trim();
-                    BigDecimal value = parseFnGuideNumber(cellText);
-                    if (value == null) continue;
-
-                    if (label.startsWith("발행주식수") && label.contains("보통주")) {
-                        // 보통주 발행주식수만 사용 (우선주 제외)
-                        issuedShares = value;
-                    } else if (label.startsWith("발행주식수") && issuedShares == null) {
-                        // "보통주" 명시 없으면 첫 번째 발행주식수 행 사용 (폴백)
-                        issuedShares = value;
-                    } else if (label.startsWith("EPS") && label.contains("원")) {
-                        // EPS(원) 행 직접 읽기
-                        tableEps = value;
-                    } else if (label.startsWith("BPS")) {
-                        metrics.put("bps", value);
-                    } else if (label.startsWith("PER")) {
-                        if (topPer == null) metrics.put("per", value);
-                    } else if (label.startsWith("PBR")) {
-                        if (topPbr == null) metrics.put("pbr", value);
-                    } else if (label.contains("ROE")) {
-                        metrics.put("roe", value);
-                    } else if (label.contains("영업이익률")) {
-                        metrics.put("operatingMargin", value);
-                    } else if (label.contains("지배주주순이익률")) {
-                        metrics.put("netMargin", value);
-                    } else if (label.contains("부채비율")) {
-                        metrics.put("debtRatio", value);
-                    }
-                }
-
-                // FnGuide 테이블에 EPS(원) 행이 있으면 우선 사용 (연결 지배지분 기준)
-                if (tableEps != null) {
-                    metrics.put("eps", tableEps);
-                    log.info("[StockDetail] {} EPS FnGuide 테이블 직접값: {}", stockCode, tableEps);
-                }
-
-                // ★ EPS TTM 계산 (테이블 EPS 없을 때만): highlight_D_Q (분기) 테이블에서 최근 4분기 지배주주순이익 합산
-                if (tableEps != null) {
-                    log.info("[StockDetail] {} 테이블 EPS 있음 → TTM 계산 스킵", stockCode);
-                }
-                BigDecimal ttmNetIncome = null;
-                Element quarterTable = doc.selectFirst("div#highlight_D_Q table");
-                if (quarterTable != null) {
-                    // 분기 헤더에서 실적 확정 컬럼 인덱스들 찾기 (E 추정치 제외)
-                    Elements qHeaderCells = quarterTable.select("thead tr.td_gapcolor2 th");
-                    List<Integer> actualQCols = new ArrayList<>();
-                    for (int i = 0; i < qHeaderCells.size(); i++) {
-                        String hText = qHeaderCells.get(i).text().trim();
-                        if (!hText.contains("(E)") && hText.matches("\\d{4}/\\d{2}")) {
-                            actualQCols.add(i);
-                        }
-                    }
-                    // 최근 4분기 (뒤에서 4개)
-                    int startIdx = Math.max(0, actualQCols.size() - 4);
-                    List<Integer> last4Cols = actualQCols.subList(startIdx, actualQCols.size());
-
-                    if (!last4Cols.isEmpty()) {
-                        log.info("[StockDetail] {} TTM 분기 컬럼: {}", stockCode,
-                                last4Cols.stream().map(ci -> ci < qHeaderCells.size() ? qHeaderCells.get(ci).text() : "?")
-                                        .collect(java.util.stream.Collectors.joining(", ")));
-
-                        Elements qRows = quarterTable.select("tbody tr");
-                        for (Element qRow : qRows) {
-                            String qLabel = qRow.selectFirst("th") != null ? qRow.selectFirst("th").text().trim() : "";
-                            if (qLabel.contains("지배주주순이익") && !qLabel.contains("률") && !qLabel.contains("비지배")) {
-                                Elements qTds = qRow.select("td");
-                                BigDecimal sum = BigDecimal.ZERO;
-                                int validCount = 0;
-                                for (int colIdx : last4Cols) {
-                                    if (colIdx < qTds.size()) {
-                                        BigDecimal qVal = parseFnGuideNumber(qTds.get(colIdx).text().trim());
-                                        if (qVal != null) {
-                                            sum = sum.add(qVal);
-                                            validCount++;
-                                        }
-                                    }
-                                }
-                                if (validCount >= 4) {
-                                    ttmNetIncome = sum;
-                                    log.info("[StockDetail] {} TTM 지배주주순이익: {}억원 ({}분기 합산)",
-                                            stockCode, ttmNetIncome, validCount);
-                                } else {
-                                    log.warn("[StockDetail] {} TTM 분기 데이터 부족: {}개/4개", stockCode, validCount);
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // ★ EPS = TTM 지배주주순이익(억원) × 1억 / 발행주식수(천주 × 1,000)
-                // 테이블 EPS가 없을 때만 TTM 계산 사용
-                if (tableEps == null && ttmNetIncome != null && issuedShares != null
-                        && issuedShares.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal calcEps = ttmNetIncome
-                            .multiply(new BigDecimal("100000000"))  // 억원 → 원
-                            .divide(issuedShares.multiply(new BigDecimal("1000")), 0, RoundingMode.HALF_UP);  // 천주 → 주
-                    metrics.put("eps", calcEps);
-                    log.info("[StockDetail] {} EPS TTM 폴백 계산: {} (TTM순이익: {}억 ÷ 발행주식수: {}천주)",
-                            stockCode, calcEps, ttmNetIncome, issuedShares);
-                }
-            }
-
-            // 상단 PER/PBR이 있으면 우선 사용 (trailing 기준)
-            if (topPer != null && topPer.compareTo(new BigDecimal("1000")) < 0) {
-                metrics.put("per", topPer);
-            }
-            if (topPbr != null && topPbr.compareTo(new BigDecimal("100")) < 0) {
-                metrics.put("pbr", topPbr);
-            }
-
-            // ★ PER/PBR 다단계 검증
-            BigDecimal fnEps = metrics.get("eps");
-            BigDecimal fnBps = metrics.get("bps");
-            BigDecimal fnPer = metrics.get("per");
-            BigDecimal fnPbr = metrics.get("pbr");
-
-            // 검증 1: 절대 상한 — 1000/100 이상이면 날짜값 오파싱
-            boolean perInvalid = (fnPer != null && fnPer.compareTo(new BigDecimal("1000")) >= 0);
-            boolean pbrInvalid = (fnPbr != null && fnPbr.compareTo(new BigDecimal("100")) >= 0);
-
-            // 검증 2: 음수 PER인데 EPS가 양수 → 오파싱 (적자기업의 음수PER은 EPS도 음수여야 함)
-            if (fnPer != null && fnPer.compareTo(BigDecimal.ZERO) < 0
-                    && fnEps != null && fnEps.compareTo(BigDecimal.ZERO) > 0) {
-                log.warn("[StockDetail] {} PER 음수({})인데 EPS 양수({}) → 오파싱 판정",
-                        stockCode, fnPer, fnEps);
-                perInvalid = true;
-            }
-
-            // 검증 3: PBR 음수인데 BPS 양수 → 오파싱
-            if (fnPbr != null && fnPbr.compareTo(BigDecimal.ZERO) < 0
-                    && fnBps != null && fnBps.compareTo(BigDecimal.ZERO) > 0) {
-                log.warn("[StockDetail] {} PBR 음수({})인데 BPS 양수({}) → 오파싱 판정",
-                        stockCode, fnPbr, fnBps);
-                pbrInvalid = true;
-            }
-
-            // 검증 4: EPS·BPS 기반 역산 교차검증 (PER×EPS ≈ PBR×BPS 일관성 체크)
-            if (fnPer != null && fnEps != null && fnPbr != null && fnBps != null
-                    && fnEps.compareTo(BigDecimal.ZERO) != 0 && fnBps.compareTo(BigDecimal.ZERO) != 0) {
-                BigDecimal impliedPriceByPer = fnPer.multiply(fnEps);
-                BigDecimal impliedPriceByPbr = fnPbr.multiply(fnBps);
-                if (impliedPriceByPer.compareTo(BigDecimal.ZERO) > 0 && impliedPriceByPbr.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal priceRatio = impliedPriceByPer.divide(impliedPriceByPbr, 2, RoundingMode.HALF_UP);
-                    if (priceRatio.compareTo(new BigDecimal("3")) > 0 || priceRatio.compareTo(new BigDecimal("0.33")) < 0) {
-                        log.warn("[StockDetail] {} PER×EPS({}) vs PBR×BPS({}) 3배 이상 괴리 → 직접 계산",
-                                stockCode, impliedPriceByPer, impliedPriceByPbr);
-                        perInvalid = true;
-                        pbrInvalid = true;
-                    }
-                }
-            }
-
-            if (perInvalid || pbrInvalid) {
-                log.warn("[StockDetail] {} FnGuide PER/PBR 이상값 감지 (PER={}, PBR={}, perInvalid={}, pbrInvalid={}) → 직접 계산",
-                        stockCode, fnPer, fnPbr, perInvalid, pbrInvalid);
-                if (perInvalid) metrics.remove("per");
-                if (pbrInvalid) metrics.remove("pbr");
-            }
-
-            log.info("[StockDetail] {} FnGuide RAW: PER={}, PBR={}, EPS={}, BPS={}, ROE={}, 영업이익률={}, 부채비율={}",
-                    stockCode,
-                    metrics.get("per"), metrics.get("pbr"),
-                    metrics.get("eps"), metrics.get("bps"),
-                    metrics.get("roe"), metrics.get("operatingMargin"),
-                    metrics.get("debtRatio"));
-
-            return metrics.isEmpty() ? null : metrics;
-
-        } catch (Exception e) {
-            log.warn("[StockDetail] {} FnGuide 크롤링 실패: {}", stockCode, e.getMessage());
-        }
-        return null;
-    }
-
-    /**
-     * FnGuide 상단 박스에서 PER/PBR 값 추출
-     * HTML 구조: <a id="h_per">PER</a> 뒤의 <dd>59.91</dd>
-     */
-    private BigDecimal extractFnGuideTopValue(Document doc, String anchorId) {
-        try {
-            Element anchor = doc.selectFirst("a#" + anchorId);
-            if (anchor != null) {
-                // anchor의 부모(li 또는 div)에서 dd 값 추출
-                Element parent = anchor.parent();
-                while (parent != null && !parent.tagName().equals("div") && !parent.tagName().equals("li")) {
-                    parent = parent.parent();
-                }
-                if (parent != null) {
-                    Element dd = parent.selectFirst("dd");
-                    if (dd != null) {
-                        return parseFnGuideNumber(dd.text().trim());
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[StockDetail] FnGuide 상단 {} 추출 실패: {}", anchorId, e.getMessage());
-        }
-        return null;
-    }
-
-    private BigDecimal parseFnGuideNumber(String text) {
-        if (text == null || text.isBlank() || text.equals("&nbsp;") || text.equals("N/A")) return null;
-        try {
-            String cleaned = text.replaceAll("[^0-9.\\-]", "");
-            if (cleaned.isEmpty()) return null;
-            return new BigDecimal(cleaned);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    // ========== 목표주가 컨센서스 ==========
-
-    /**
-     * 네이버 금융 메인 페이지 1회 크롤링 (배당수익률 + 목표주가 공용)
-     */
-    private Document fetchNaverMainPage(String stockCode) {
-        try {
-            return Jsoup.connect("https://finance.naver.com/item/main.naver?code=" + stockCode)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .referrer("https://finance.naver.com/")
-                    .timeout(10000)
-                    .get();
-        } catch (Exception e) {
-            log.warn("[StockDetail] 네이버 메인 페이지 크롤링 실패 [{}]: {}", stockCode, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 네이버 금융에서 목표주가 컨센서스 추출
-     * HTML 구조: <th>투자의견|목표주가</th><td><span><em>4.00</em>매수</span> | <em>654,231</em></td>
-     * → td 안의 em 중 값이 1,000 이상인 것이 목표주가
-     */
-    private void enrichWithConsensusTargetFromDoc(AiAnalysis aiAnalysis, Document doc, String stockCode, PriceInfo priceInfo) {
-        if (aiAnalysis == null || doc == null) return;
-        try {
-            // 전략 1: th:contains(목표주가) → 형제 td → em 중 큰 값
-            Element opinionTh = doc.selectFirst("th:contains(목표주가)");
-            if (opinionTh != null) {
-                Element opinionTd = opinionTh.nextElementSibling();
-                if (opinionTd != null) {
-                    Elements ems = opinionTd.select("em");
-                    log.debug("[목표주가 파싱] {} - td 내 em {} 개: {}",
-                            stockCode, ems.size(), ems.eachText());
-
-                    // em 값 중 1000 이상인 가장 큰 값 = 목표주가 (4.00 같은 점수 제외)
-                    BigDecimal targetPrice = null;
-                    for (Element em : ems) {
-                        BigDecimal val = parseNaverNumber(em.text());
-                        if (val != null && val.compareTo(new BigDecimal("1000")) > 0) {
-                            if (targetPrice == null || val.compareTo(targetPrice) > 0) {
-                                targetPrice = val;
-                            }
-                        }
-                    }
-
-                    if (targetPrice != null && targetPrice.compareTo(new BigDecimal("100000000")) < 0) {
-                        aiAnalysis.setConsensusTargetPrice(targetPrice);
-                        aiAnalysis.setConsensusSource("네이버 금융 (FnGuide)");
-
-                        if (priceInfo != null && priceInfo.getCurrentPrice() != null
-                                && priceInfo.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
-                            BigDecimal upside = targetPrice.subtract(priceInfo.getCurrentPrice())
-                                    .divide(priceInfo.getCurrentPrice(), 4, RoundingMode.HALF_UP)
-                                    .multiply(new BigDecimal("100"))
-                                    .setScale(1, RoundingMode.HALF_UP);
-                            aiAnalysis.setTargetUpside(upside);
-                        }
-                        log.info("[StockDetail] 목표주가 컨센서스: {} → {}원 (상승여력: {}%)",
-                                stockCode, targetPrice, aiAnalysis.getTargetUpside());
-                    } else {
-                        log.warn("[목표주가 파싱] {} - 유효한 목표주가 없음 (em 값: {})",
-                                stockCode, ems.eachText());
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("[StockDetail] 목표주가 파싱 실패 [{}]: {}", stockCode, e.getMessage());
-        }
-    }
-
-    /**
-     * 네이버 금융에서 배당수익률 추출
-     * HTML 구조: <em id="_dvr">1.97</em>% (또는 th:contains(배당수익률) → td > em)
-     * 정상 범위: 0 < 배당수익률 < 30%
-     */
-    private void enrichWithDividendYieldFromDoc(FinancialInfo financial, Document doc, String stockCode) {
-        if (financial == null || financial.getDividendYield() != null || doc == null) return;
-        try {
-            BigDecimal divYield = null;
-
-            // 전략 1: ID 기반 — em[id=_dvr] (Jsoup에서 _로 시작하는 ID는 속성 셀렉터가 안전)
-            Element dvrEl = doc.selectFirst("em[id=_dvr]");
-            if (dvrEl != null) {
-                divYield = parseNaverNumber(dvrEl.text());
-                log.debug("[배당수익률 파싱] {} - em[id=_dvr] 원본값: '{}' → parsed: {}",
-                        stockCode, dvrEl.text(), divYield);
-            }
-
-            // 전략 2: 폴백 — th:contains(배당수익률) → td > em
-            if (divYield == null) {
-                Element divTh = doc.selectFirst("th:contains(배당수익률)");
-                if (divTh != null) {
-                    Element divTd = divTh.nextElementSibling();
-                    if (divTd != null) {
-                        Element em = divTd.selectFirst("em");
-                        if (em != null) {
-                            divYield = parseNaverNumber(em.text());
-                            log.debug("[배당수익률 파싱] {} - th 폴백 원본값: '{}' → parsed: {}",
-                                    stockCode, em.text(), divYield);
-                        }
-                    }
-                }
-            }
-
-            // 범위 검증: 0 < 배당수익률 < 30% (세계 최고 배당주도 20% 안넘음)
-            if (divYield != null && divYield.compareTo(BigDecimal.ZERO) > 0
-                    && divYield.compareTo(new BigDecimal("30")) < 0) {
-                financial.setDividendYield(divYield);
-                log.info("[StockDetail] 배당수익률: {} → {}%", stockCode, divYield);
-            } else if (divYield != null) {
-                log.warn("[배당수익률 파싱] {} - 범위 초과로 무시: {}% (정상범위: 0~30%)",
-                        stockCode, divYield);
-            }
-        } catch (Exception e) {
-            log.warn("[StockDetail] 배당수익률 파싱 실패 [{}]: {}", stockCode, e.getMessage());
+    static void applyConsensusTarget(AiAnalysis aiAnalysis, NaverConsensusService.Snapshot naver, PriceInfo priceInfo) {
+        if (aiAnalysis == null || naver == null || naver.targetPrice() == null) return;
+        aiAnalysis.setConsensusTargetPrice(naver.targetPrice());
+        aiAnalysis.setConsensusSource(naver.sourceLabel());
+        if (priceInfo != null && priceInfo.getCurrentPrice() != null && priceInfo.getCurrentPrice().signum() > 0) {
+            aiAnalysis.setTargetUpside(naver.targetPrice().subtract(priceInfo.getCurrentPrice())
+                    .divide(priceInfo.getCurrentPrice(), 4, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"))
+                    .setScale(1, RoundingMode.HALF_UP));
         }
     }
 
