@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.StockDetailDto.*;
+import com.myplatform.backend.util.DailyBarRules;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -121,9 +122,12 @@ public class StockDetailCacheService {
             java.util.List<CandlePoint> allCandles = new java.util.ArrayList<>();
             java.util.List<VolumePoint> allVolumes = new java.util.ArrayList<>();
             java.util.List<java.math.BigDecimal> allCloses = new java.util.ArrayList<>();
+            java.time.LocalDate today = java.time.LocalDate.now(KST);
 
             for (JsonNode item : rows) {
                 String date = item.has("stck_bsop_date") ? item.get("stck_bsop_date").asText() : "";
+                Long volume = parseLong(item.get("acml_vol"));
+                if (DailyBarRules.isUntradedToday(date, volume, today)) continue;   // 장 시작 전 자리 봉 — 전일 종가가 이평에 한 번 더 들어갔다
                 java.math.BigDecimal close = parseBigDecimal(item.get("stck_clpr"));
 
                 allCandles.add(CandlePoint.builder()
@@ -136,7 +140,7 @@ public class StockDetailCacheService {
 
                 allVolumes.add(VolumePoint.builder()
                         .date(date)
-                        .volume(parseLong(item.get("acml_vol")))
+                        .volume(volume)
                         .build());
 
                 allCloses.add(close);

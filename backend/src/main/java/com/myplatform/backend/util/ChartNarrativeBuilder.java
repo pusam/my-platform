@@ -26,6 +26,9 @@ import java.util.Locale;
  */
 public final class ChartNarrativeBuilder {
 
+    /** 마지막 봉이 오늘 거래가 있는 봉일 때의 이격 기준. */
+    public static final String TODAY_BASIS = "오늘 시세 기준";
+
     /** [잠정] 하단 터치가 이 봉 수 이내면 "최근 눌림을 받아냈다"로 본다. */
     public static final int RECENT_TOUCH_BARS = 5;
     /** [잠정] %B 가 이 값을 넘으면 상단 이탈(과열) 경계. */
@@ -75,13 +78,18 @@ public final class ChartNarrativeBuilder {
      * @param disparityPct  20일선 이격도(%). null 이면 해당 문장 생략
      */
     public static Narrative build(Metrics metrics, OverheadSupply overhead, Double disparityPct) {
+        return build(metrics, overhead, disparityPct, TODAY_BASIS);
+    }
+
+    /** @param disparityBasis 이격도를 잰 기준 — 장 시작 전·휴장일엔 마지막 봉의 종가다(오늘 시세가 아니다) */
+    public static Narrative build(Metrics metrics, OverheadSupply overhead, Double disparityPct, String disparityBasis) {
         if (metrics == null) {
             return new Narrative(List.of(), Verdict.UNKNOWN,
                     "일봉 데이터가 충분하지 않아 차트 판단을 하지 않습니다.");
         }
 
         List<Section> sections = new ArrayList<>();
-        addPosition(sections, metrics, disparityPct);
+        addPosition(sections, metrics, disparityPct, disparityBasis);
         addBounce(sections, metrics);
         addOverhead(sections, overhead);
         addCandle(sections, metrics);
@@ -92,7 +100,7 @@ public final class ChartNarrativeBuilder {
 
     // ========== ① 지금 위치 ==========
 
-    private static void addPosition(List<Section> sections, Metrics m, Double disparityPct) {
+    private static void addPosition(List<Section> sections, Metrics m, Double disparityPct, String disparityBasis) {
         List<String> lines = new ArrayList<>();
         double pb = m.percentB();
 
@@ -121,7 +129,7 @@ public final class ChartNarrativeBuilder {
 
         if (disparityPct != null && Double.isFinite(disparityPct)) {
             // 오늘 시세(KIS 일봉의 오늘 형성 캔들) 기준 — 종목 진단의 '20일선' 칸은 직전 확정 종가 기준이라 값이 다를 수 있다(2026-10-07)
-            lines.add(String.format(Locale.KOREA, "20일선 대비 %+.1f%% 이격입니다(오늘 시세 기준).", disparityPct));
+            lines.add(String.format(Locale.KOREA, "20일선 대비 %+.1f%% 이격입니다(%s).", disparityPct, disparityBasis));
         }
 
         sections.add(new Section("지금 위치", lines));

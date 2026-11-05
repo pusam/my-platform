@@ -6,6 +6,7 @@ import com.myplatform.backend.dto.ChartPatternDto;
 import com.myplatform.backend.dto.SupportResistanceDto;
 import com.myplatform.backend.dto.VolumeProfileDto;
 import com.myplatform.backend.util.ChartNarrativeBuilder;
+import com.myplatform.backend.util.DailyBarRules;
 import com.myplatform.backend.util.PullbackEntryCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,7 @@ public class ChartPatternService {
     private static final BigDecimal HEAD_PROMINENCE_MIN = new BigDecimal("0.05");
 
     private static final DateTimeFormatter KIS_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
 
     /**
      * 종목 차트 패턴 검출 (메인 엔트리). 30분 캐시.
@@ -97,10 +99,13 @@ public class ChartPatternService {
                 return Collections.emptyList();
             }
             List<Candle> out = new ArrayList<>();
+            LocalDate today = LocalDate.now(KST);
             for (JsonNode row : resp.get("output2")) {
                 String dateStr = row.path("stck_bsop_date").asText("");
                 if (dateStr.isEmpty()) continue;
                 try {
+                    // 장 시작 전 자리 봉 — 전일 종가가 '오늘 시세'로 읽혔다(2026-11-06)
+                    if (DailyBarRules.isUntradedToday(dateStr, parseLong(row.path("acml_vol").asText()), today)) continue;
                     Candle c = new Candle(
                             LocalDate.parse(dateStr, KIS_DATE),
                             parseDecimal(row.path("stck_oprc").asText()),
@@ -773,7 +778,7 @@ public class ChartPatternService {
 
         PullbackEntryCalculator.Metrics metrics = PullbackEntryCalculator.compute(bars);
         ChartNarrativeBuilder.Narrative narrative = ChartNarrativeBuilder.build(
-                metrics, resolveOverheadSupply(stockCode, candles), resolveDisparityPct(candles));
+                metrics, resolveOverheadSupply(stockCode, candles), resolveDisparityPct(candles), disparityBasis(candles));
 
         List<ChartNarrativeDto.Section> sections = new ArrayList<>();
         for (ChartNarrativeBuilder.Section s : narrative.sections()) {
@@ -810,6 +815,14 @@ public class ChartPatternService {
     }
 
     /** 20일선 이격도(%). 일봉 부족이면 null — 해당 문장만 빠진다. */
+    /** 이격 문장의 기준 — 마지막 봉이 오늘이면 오늘 시세, 아니면(장 시작 전·휴장일) 그 봉의 종가. */
+    private static String disparityBasis(List<Candle> candles) {
+        if (candles.isEmpty()) return ChartNarrativeBuilder.TODAY_BASIS;
+        LocalDate last = candles.get(candles.size() - 1).date;
+        return last.equals(LocalDate.now(KST)) ? ChartNarrativeBuilder.TODAY_BASIS
+                : last.format(DateTimeFormatter.ofPattern("MM/dd")) + " 종가 기준";
+    }
+
     private Double resolveDisparityPct(List<Candle> candles) {
         if (candles.size() < NARRATIVE_MA_PERIOD) return null;
 
