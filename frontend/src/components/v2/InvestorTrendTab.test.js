@@ -70,6 +70,68 @@ describe('InvestorTrendTab (P-IA 분리)', () => {
     expect(w.findAll('.inv-daily-card')).toHaveLength(1)
   })
 
+  it('재현: 장 시작 전엔 어제 장중 기록이 온다 — \'(오늘)\'이라 하지 않는다(2026-11-06)', async () => {
+    mockGet.mockImplementation((url, opts) => {
+      if (url === '/investor/stock/005930') return Promise.resolve(ok({ dailyTrades: [] }))
+      if (opts?.params?.investorType === 'FOREIGN') return Promise.resolve(ok([
+        { snapshotTime: '09:30:00', snapshotDate: '2026-11-05', previousSession: true, currentRank: 1, netBuyAmount: 2659.56 }
+      ]))
+      return Promise.resolve(ok([]))
+    })
+    const w = mountTab()
+    await flushPromises()
+    expect(w.find('.inv-section-title').text()).toContain('(11/05)')
+    expect(w.find('.inv-section-title').text()).not.toContain('오늘')
+  })
+
+  it('오늘 스냅샷이면 종전대로 (오늘)', async () => {
+    mockGet.mockImplementation((url, opts) => {
+      if (url === '/investor/stock/005930') return Promise.resolve(ok({ dailyTrades: [] }))
+      if (opts?.params?.investorType === 'FOREIGN') return Promise.resolve(ok([
+        { snapshotTime: '10:30:00', snapshotDate: '2026-11-06', previousSession: false, currentRank: 1, netBuyAmount: 10 }
+      ]))
+      return Promise.resolve(ok([]))
+    })
+    const w = mountTab()
+    await flushPromises()
+    expect(w.find('.inv-section-title').text()).toContain('(오늘)')
+  })
+
+  it('안내 문구는 확정치 구간을 말한다 — 없는 종목은 순위에 든 날만이라고', async () => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/investor/stock/005930') return Promise.resolve(ok({ dailyTrades: [], confirmedFrom: '2026-09-21' }))
+      return Promise.resolve(ok([]))
+    })
+    let w = mountTab()
+    await flushPromises()
+    expect(w.find('.inv-info-banner').text()).toContain('09/21 이후는 종목별 확정치')
+
+    mockGet.mockImplementation((url) => {
+      if (url === '/investor/stock/005930') return Promise.resolve(ok({ dailyTrades: [] }))
+      return Promise.resolve(ok([]))
+    })
+    w = mountTab()
+    await flushPromises()
+    expect(w.find('.inv-info-banner').text()).toContain('순위(하루 상위 30)에 든 날의 기록만')
+    expect(w.text()).not.toContain('20위')
+  })
+
+  it('확정치 날은 매수·매도 금액이 없다 — 줄을 만들지 않는다', async () => {
+    mockGet.mockImplementation((url) => {
+      if (url === '/investor/stock/005930') return Promise.resolve(ok({
+        dailyTrades: [{ tradeDate: '2026-11-05', closePrice: 293500,
+          foreign: { netBuyAmount: -34.01 }, institution: { netBuyAmount: 352.71 }, pension: { netBuyAmount: 127.17 } }]
+      }))
+      return Promise.resolve(ok([]))
+    })
+    const w = mountTab()
+    await flushPromises()
+    const card = w.find('.inv-daily-card').text()
+    expect(card).toContain('순매수')
+    expect(card).not.toContain('매수:  -')
+    expect(w.findAll('.inv-amount-row')).toHaveLength(3)
+  })
+
   it('stockCode 없으면 조회 안 함', async () => {
     mockGet.mockResolvedValue(ok([]))
     mountTab({ stockCode: '' })

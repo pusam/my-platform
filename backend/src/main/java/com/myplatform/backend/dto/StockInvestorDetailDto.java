@@ -23,6 +23,9 @@ public class StockInvestorDetailDto {
     // 일자별 투자자 매매 데이터
     private List<DailyInvestorTrade> dailyTrades;
 
+    /** 이 날짜부터는 일별 값이 종목별 확정치다 — 그 전은 순위(하루 상위 30)에 든 날만 있다. 표에 없는 종목은 null. */
+    private java.time.LocalDate confirmedFrom;
+
     @Data
     @Builder
     @NoArgsConstructor

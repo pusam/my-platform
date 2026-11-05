@@ -14,7 +14,7 @@
       <!-- 안내 문구 -->
       <div class="inv-info-banner">
         <span>💡</span>
-        <span>이 데이터는 당일 순매수/매도 상위 20위 내에 진입한 날의 기록만 조회됩니다.</span>
+        <span>{{ invDataNote }}</span>
       </div>
 
       <!-- 주가 vs 누적 순매수 추이 차트 -->
@@ -40,7 +40,7 @@
 
       <!-- 장중 수급 추이 -->
       <div v-if="invHasSurgeData" class="inv-section">
-        <h2 class="inv-section-title">📈 장중 수급 추이 (오늘)</h2>
+        <h2 class="inv-section-title">📈 장중 수급 추이 ({{ invSurgeDayLabel }})</h2>
         <div class="inv-investor-tabs">
           <button v-for="type in invInvestorTypes" :key="type.value"
                   :class="['inv-tab-btn', { active: invSelectedInvestor === type.value }]"
@@ -98,11 +98,11 @@
               ]" :key="inv.key" class="inv-investor-item" :style="{ borderLeftColor: inv.color }">
                 <div class="inv-investor-label">{{ inv.icon }} {{ inv.label }}</div>
                 <div class="inv-amounts">
-                  <div class="inv-amount-row">
+                  <div v-if="day[inv.key]?.buyAmount != null" class="inv-amount-row">
                     <span class="label">매수:</span>
                     <span class="value">{{ invFormatAmount(day[inv.key]?.buyAmount) }}</span>
                   </div>
-                  <div class="inv-amount-row">
+                  <div v-if="day[inv.key]?.sellAmount != null" class="inv-amount-row">
                     <span class="label">매도:</span>
                     <span class="value">{{ invFormatAmount(day[inv.key]?.sellAmount) }}</span>
                   </div>
@@ -121,7 +121,7 @@
 
       <div v-if="!invHasSurgeData && !invHasChartData && !investorLoading" class="inv-no-data">
         <p>💡 해당 종목의 투자자 매매 데이터가 없습니다.</p>
-        <p class="hint">상위 50개 종목에 포함된 경우에만 데이터가 수집됩니다.</p>
+        <p class="hint">추천 후보이거나 순위(하루 상위 30)에 든 종목만 수집됩니다.</p>
       </div>
     </template>
   </div>
@@ -171,6 +171,23 @@ const invHasSurgeData = computed(() =>
 const invCurrentSurgeTrend = computed(() =>
   invSurgeTrend.value[invSelectedInvestor.value] || []
 );
+
+// 오늘 스냅샷이 없으면 서버가 최근 거래일 값을 준다 — '오늘'이라 하면 어제 장중 기록이 오늘 일처럼 읽힌다(2026-11-06)
+const invSurgeDayLabel = computed(() => {
+  const t = invSurgeTrend.value;
+  const item = invCurrentSurgeTrend.value[0] || t.FOREIGN[0] || t.INSTITUTION[0] || t.PENSION[0];
+  if (!item?.previousSession || typeof item.snapshotDate !== 'string') return '오늘';
+  const [, month, day] = item.snapshotDate.split('-');
+  return `${month}/${day}`;
+});
+
+// 일별 값의 출처 — 확정치가 있는 날과 순위에 든 날만 있는 구간을 나눠 말한다(2026-11-06)
+const invDataNote = computed(() => {
+  const from = invStockData.value?.confirmedFrom;
+  if (typeof from !== 'string') return '이 종목은 순위(하루 상위 30)에 든 날의 기록만 있습니다 — 누적이 실제와 다를 수 있습니다.';
+  const [, month, day] = from.split('-');
+  return `${month}/${day} 이후는 종목별 확정치입니다. 그 전은 순위(하루 상위 30)에 든 날의 기록만 있어 누적이 실제와 다를 수 있습니다.`;
+});
 
 const invHasChartData = computed(() =>
   invStockData.value?.dailyTrades?.length > 0

@@ -39,6 +39,10 @@ public class InvestorTradeService {
     private final KoreaInvestmentService koreaInvestmentService;
     private final RedisCacheService redisCacheService;
     private final MarketCalendarService marketCalendarService;
+
+    /** 종목별 수급 확정치 — 있으면 종목 상세 일별 값이 이 표를 읽는다. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.myplatform.backend.repository.InvestorStockDailyRepository investorStockDailyRepository;
     /** 자기 자신(프록시) — @Transactional/@CacheEvict 가 붙은 메서드를 내부에서 호출할 때 사용.
      *  같은 클래스 내부 직접 호출은 프록시를 안 거쳐 어노테이션이 통째로 무시된다. */
     private final org.springframework.beans.factory.ObjectProvider<InvestorTradeService> selfProvider;
@@ -221,14 +225,14 @@ public class InvestorTradeService {
 
         List<InvestorDailyTrade> trades = investorTradeRepository
                 .findByStockCodeAndDateRange(stockCode, startDate, endDate);
+        List<com.myplatform.backend.entity.InvestorStockDaily> confirmed = confirmedRows(stockCode, startDate, endDate);
 
-        if (trades.isEmpty()) {
+        if (trades.isEmpty() && confirmed.isEmpty()) {
             return null;
         }
 
-        // 종목 정보
-        InvestorDailyTrade firstTrade = trades.get(0);
-        String stockName = firstTrade.getStockName();
+        // 종목 정보 — 확정치 표엔 이름이 없다
+        String stockName = trades.isEmpty() ? null : trades.get(0).getStockName();
 
         // 일자별로 그룹화
         Map<LocalDate, List<InvestorDailyTrade>> tradesByDate = trades.stream()
@@ -266,8 +270,49 @@ public class InvestorTradeService {
         return StockInvestorDetailDto.builder()
                 .stockCode(stockCode)
                 .stockName(stockName)
-                .dailyTrades(dailyTrades)
+                .dailyTrades(overlayConfirmed(dailyTrades, confirmed))
+                .confirmedFrom(confirmed.stream().map(com.myplatform.backend.entity.InvestorStockDaily::getTradeDate)
+                        .min(LocalDate::compareTo).orElse(null))
                 .build();
+    }
+
+    /** 종목별 확정치 — 조회가 실패하면 순위 행만으로 간다. */
+    private List<com.myplatform.backend.entity.InvestorStockDaily> confirmedRows(String stockCode, LocalDate from, LocalDate to) {
+        if (investorStockDailyRepository == null) return List.of();
+        try {
+            return investorStockDailyRepository.findByStockCodeAndTradeDateBetween(stockCode, from, to);
+        } catch (Exception e) {
+            log.warn("[투자자 상세] {} 확정치 조회 실패 — 순위 행으로 보인다: {}", stockCode, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 확정치가 있는 날은 그 값으로 — 순위 행은 그 종목이 상위 30 에 든 날만 있어 표·누적 그래프에 구멍이 났다(2026-11-06). 순수 함수.
+     * 확정치엔 순매수만 있어 매수·매도는 모른다(null). 개인은 확정치에 없어 순위 행 그대로다.
+     */
+    static List<StockInvestorDetailDto.DailyInvestorTrade> overlayConfirmed(
+            List<StockInvestorDetailDto.DailyInvestorTrade> rankDays,
+            List<com.myplatform.backend.entity.InvestorStockDaily> confirmed) {
+        java.util.TreeMap<LocalDate, StockInvestorDetailDto.DailyInvestorTrade> byDate =
+                new java.util.TreeMap<>(java.util.Comparator.reverseOrder());
+        for (StockInvestorDetailDto.DailyInvestorTrade d : rankDays) byDate.put(d.getTradeDate(), d);
+        for (com.myplatform.backend.entity.InvestorStockDaily c : confirmed) {
+            StockInvestorDetailDto.DailyInvestorTrade rank = byDate.get(c.getTradeDate());
+            byDate.put(c.getTradeDate(), StockInvestorDetailDto.DailyInvestorTrade.builder()
+                    .tradeDate(c.getTradeDate())
+                    .closePrice(c.getClosePrice() != null ? c.getClosePrice() : rank != null ? rank.getClosePrice() : null)
+                    .foreign(netOnly(c.getForeignNet()))
+                    .institution(netOnly(c.getInstitutionNet()))
+                    .pension(netOnly(c.getPensionNet()))
+                    .individual(rank != null ? rank.getIndividual() : null)
+                    .build());
+        }
+        return new ArrayList<>(byDate.values());
+    }
+
+    private static StockInvestorDetailDto.InvestorTradeSummary netOnly(BigDecimal net) {
+        return net == null ? null : StockInvestorDetailDto.InvestorTradeSummary.builder().netBuyAmount(net).build();
     }
 
     /**
