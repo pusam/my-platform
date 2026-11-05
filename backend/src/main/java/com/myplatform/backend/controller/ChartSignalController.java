@@ -53,7 +53,7 @@ public class ChartSignalController {
     }
 
     /**
-     * 섹터 상대강도('덜 빠지는 섹터') — SectorStockConfig 16섹터 구성원 합성지수 vs KOSPI.
+     * 섹터 상대강도('덜 빠지는 섹터') — SectorStockConfig 섹터 구성원 합성지수 vs KOSPI.
      * 발굴 유니버스 필터/배지용. 미검증 보조 시그널.
      */
     @GetMapping("/sector-strength")

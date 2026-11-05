@@ -110,7 +110,7 @@ public class QuantTaController {
 
     @GetMapping("/strong-sectors")
     @Operation(summary = "오늘 강세 섹터 (avg 등락률 +0.5%+)",
-            description = "16개 섹터 평균 등락률 desc. 강세 섹터당 안 종목 top 3 함께. 30분 캐시.")
+            description = "섹터별 평균 등락률 desc. 강세 섹터당 안 종목 top 3 함께. 30분 캐시.")
     public ResponseEntity<Map<String, Object>> strongSectors() {
         Map<String, Object> response = new HashMap<>();
         try {

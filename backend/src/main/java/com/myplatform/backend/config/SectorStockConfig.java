@@ -55,6 +55,45 @@ public class SectorStockConfig {
      * 종목명 매핑 초기화
      */
     private void initStockNames() {
+        // 2026-11-05 섹터 표 정정으로 들어온 종목
+        stockNameMap.put("277810", "레인보우로보틱스");
+        stockNameMap.put("454910", "두산로보틱스");
+        stockNameMap.put("108490", "로보티즈");
+        stockNameMap.put("056080", "유진로봇");
+        stockNameMap.put("090360", "로보스타");
+        stockNameMap.put("058610", "에스피지");
+        stockNameMap.put("348340", "뉴로메카");
+        stockNameMap.put("304100", "솔트룩스");
+        stockNameMap.put("402030", "코난테크놀로지");
+        stockNameMap.put("108860", "셀바스AI");
+        stockNameMap.put("066970", "엘앤에프");
+        stockNameMap.put("450080", "에코프로머티");
+        stockNameMap.put("005070", "코스모신소재");
+        stockNameMap.put("052690", "한전기술");
+        stockNameMap.put("051600", "한전KPS");
+        stockNameMap.put("015760", "한국전력");
+        stockNameMap.put("105840", "우진");
+        stockNameMap.put("083650", "비에이치아이");
+        stockNameMap.put("032820", "우리기술");
+        stockNameMap.put("094820", "일진파워");
+        stockNameMap.put("006910", "보성파워텍");
+        stockNameMap.put("082740", "한화엔진");
+        stockNameMap.put("065450", "빅텍");
+        stockNameMap.put("035760", "CJ ENM");
+        stockNameMap.put("253450", "스튜디오드래곤");
+        stockNameMap.put("034120", "SBS");
+        stockNameMap.put("079160", "CJ CGV");
+        stockNameMap.put("002350", "넥센타이어");
+        stockNameMap.put("028050", "삼성E&A");
+        stockNameMap.put("012630", "HDC");
+        stockNameMap.put("120110", "코오롱인더");
+        stockNameMap.put("460860", "동국제강");
+        stockNameMap.put("001430", "세아베스틸지주");
+        stockNameMap.put("306200", "세아제강");
+        stockNameMap.put("001440", "대한전선");
+        stockNameMap.put("062040", "산일전기");
+        stockNameMap.put("033100", "제룡전기");
+
         // 반도체
         stockNameMap.put("005930", "삼성전자");
         stockNameMap.put("000660", "SK하이닉스");
@@ -81,9 +120,9 @@ public class SectorStockConfig {
 
         // 로봇/AI
         stockNameMap.put("267260", "HD현대일렉트릭");
-        stockNameMap.put("336370", "솔트룩스");
+        stockNameMap.put("336370", "솔루스첨단소재");
         stockNameMap.put("090460", "비에이치");
-        stockNameMap.put("443060", "레인보우로보틱스");
+        stockNameMap.put("443060", "HD현대마린솔루션");
         stockNameMap.put("377300", "카카오페이");
         stockNameMap.put("035420", "NAVER");
         stockNameMap.put("298040", "효성중공업");
@@ -183,7 +222,7 @@ public class SectorStockConfig {
         stockNameMap.put("009150", "삼성전기");
         stockNameMap.put("010950", "S-Oil");
         stockNameMap.put("078930", "GS");
-        stockNameMap.put("051630", "진에어");
+        stockNameMap.put("051630", "진양화학");
         stockNameMap.put("003550", "LG");
         stockNameMap.put("003490", "대한항공");
         stockNameMap.put("180640", "한진칼");
@@ -212,8 +251,8 @@ public class SectorStockConfig {
         stockNameMap.put("005490", "POSCO홀딩스");
         stockNameMap.put("004020", "현대제철");
         stockNameMap.put("010130", "고려아연");
-        stockNameMap.put("001230", "동국제강");
-        stockNameMap.put("103590", "일진머티리얼즈");
+        stockNameMap.put("001230", "동국홀딩스");
+        stockNameMap.put("103590", "일진전기");
         stockNameMap.put("058430", "포스코스틸리온");
         stockNameMap.put("008350", "남선알미늄");
         stockNameMap.put("014680", "한솔케미칼");
@@ -256,6 +295,9 @@ public class SectorStockConfig {
             )
         ));
 
+        // 섹터 표를 고칠 땐 코드를 네이버 이름·업종과 대조할 것(2026-11-05) — 주석의 이름과 코드가 달라도 아무 데서도 안 걸린다
+        // (로봇/AI 의 '레인보우로보틱스' 칸이 HD현대마린솔루션이었고, 그 섹터에 로봇주가 하나도 없었다). 시장 국면 입력이라 표본 경계다.
+
         // 2. 2차전지 (전고체)
         sectors.put("BATTERY", new SectorInfo(
             "BATTERY",
@@ -268,10 +310,10 @@ public class SectorStockConfig {
                 "086520", // 에코프로
                 "247540", // 에코프로비엠
                 "003670", // 포스코퓨처엠
-                "005387", // 현대차2우B
-                "012330", // 현대모비스
                 "096770", // SK이노베이션
-                "064350"  // 현대로템
+                "066970", // 엘앤에프
+                "450080", // 에코프로머티
+                "005070"  // 코스모신소재
             )
         ));
 
@@ -281,16 +323,16 @@ public class SectorStockConfig {
             "로봇/AI",
             "#F59E0B",
             Arrays.asList(
-                "267260", // HD현대일렉트릭
-                "336370", // 솔트룩스
-                "090460", // 비에이치
-                "443060", // 레인보우로보틱스
-                "377300", // 카카오페이
-                "035420", // NAVER
-                "298040", // 효성중공업
-                "281820", // 케이씨텍
-                "078600", // 대주전자재료
-                "042660"  // 한화오션
+                "277810", // 레인보우로보틱스
+                "454910", // 두산로보틱스
+                "108490", // 로보티즈
+                "056080", // 유진로봇
+                "090360", // 로보스타
+                "058610", // 에스피지
+                "348340", // 뉴로메카
+                "304100", // 솔트룩스
+                "402030", // 코난테크놀로지
+                "108860"  // 셀바스AI
             )
         ));
 
@@ -300,31 +342,30 @@ public class SectorStockConfig {
             "원전/SMR",
             "#F87171",
             Arrays.asList(
-                "009540", // 한국조선해양
-                "267260", // HD현대일렉트릭
                 "034020", // 두산에너빌리티
-                "112610", // 씨에스윈드
-                "298040", // 효성중공업
-                "042660", // 한화오션
-                "010120", // LS ELECTRIC
-                "003490", // 대한항공
-                "011790", // SKC
-                "006260"  // LS
+                "052690", // 한전기술
+                "051600", // 한전KPS
+                "015760", // 한국전력
+                "105840", // 우진
+                "083650", // 비에이치아이
+                "032820", // 우리기술
+                "094820", // 일진파워
+                "006910"  // 보성파워텍
             )
         ));
 
-        // 5. 조선
+        // 5. 조선/해운 — 해운사가 3곳이라 이름표를 맞췄다(2026-11-05)
         sectors.put("SHIPBUILDING", new SectorInfo(
             "SHIPBUILDING",
-            "조선",
+            "조선/해운",
             "#60A5FA",
             Arrays.asList(
                 "009540", // 한국조선해양
                 "010140", // 삼성중공업
                 "042660", // 한화오션
                 "267250", // HD현대
-                "267260", // HD현대일렉트릭
-                "009830", // 한화솔루션
+                "443060", // HD현대마린솔루션
+                "082740", // 한화엔진
                 "329180", // HD현대중공업
                 "003280", // 흥아해운
                 "011200", // HMM
@@ -347,7 +388,7 @@ public class SectorStockConfig {
                 "272210", // 한화시스템
                 "042660", // 한화오션
                 "009540", // 한국조선해양
-                "004490"  // 세방전지
+                "065450"  // 빅텍
             )
         ));
 
@@ -382,10 +423,10 @@ public class SectorStockConfig {
                 "035900", // JYP Ent.
                 "035420", // NAVER
                 "035720", // 카카오
-                "068270", // 셀트리온
-                "053800", // 안랩
-                "293490", // 카카오게임즈
-                "263750"  // 펄어비스
+                "035760", // CJ ENM
+                "253450", // 스튜디오드래곤
+                "034120", // SBS
+                "079160"  // CJ CGV
             )
         ));
 
@@ -403,7 +444,7 @@ public class SectorStockConfig {
                 "204320", // 만도
                 "161390", // 한국타이어앤테크놀로지
                 "064350", // 현대로템
-                "001740", // SK네트웍스
+                "002350", // 넥센타이어
                 "004490"  // 세방전지
             )
         ));
@@ -439,8 +480,8 @@ public class SectorStockConfig {
                 "047040", // 대우건설
                 "294870", // HDC현대산업개발
                 "000210", // DL
-                "001120", // LX인터내셔널
-                "034730", // SK
+                "028050", // 삼성E&A
+                "012630", // HDC
                 "375500", // DL이앤씨
                 "009410"  // 태영건설
             )
@@ -457,10 +498,10 @@ public class SectorStockConfig {
                 "011780", // 금호석유
                 "009830", // 한화솔루션
                 "006120", // SK디스커버리
-                "009150", // 삼성전기
+                "014680", // 한솔케미칼
                 "010950", // S-Oil
                 "078930", // GS
-                "003550", // LG
+                "120110", // 코오롱인더
                 "011790"  // SKC
             )
         ));
@@ -510,12 +551,12 @@ public class SectorStockConfig {
                 "005490", // POSCO홀딩스
                 "004020", // 현대제철
                 "010130", // 고려아연
-                "001230", // 동국제강
-                "103590", // 일진머티리얼즈
-                "003670", // 포스코퓨처엠
+                "001230", // 동국홀딩스
+                "460860", // 동국제강
+                "001430", // 세아베스틸지주
                 "008350", // 남선알미늄
-                "014680", // 한솔케미칼
-                "016380", // KG동부제철
+                "306200", // 세아제강
+                "016380", // KG스틸
                 "004890"  // 동일산업
             )
         ));
@@ -536,6 +577,23 @@ public class SectorStockConfig {
                 "194480", // 데브시스터즈
                 "225570", // 넥슨게임즈
                 "069080"  // 웹젠
+            )
+        ));
+
+        // 17. 전력기기 — 원전·로봇·조선 칸에 흩어져 있던 대형주의 제자리(2026-11-05). 색은 틴트 위 글씨 대비를 위 주석대로 재서 넣었다.
+        sectors.put("POWER", new SectorInfo(
+            "POWER",
+            "전력기기",
+            "#FACC15",
+            Arrays.asList(
+                "267260", // HD현대일렉트릭
+                "298040", // 효성중공업
+                "010120", // LS ELECTRIC
+                "006260", // LS
+                "103590", // 일진전기
+                "001440", // 대한전선
+                "062040", // 산일전기
+                "033100"  // 제룡전기
             )
         ));
     }
