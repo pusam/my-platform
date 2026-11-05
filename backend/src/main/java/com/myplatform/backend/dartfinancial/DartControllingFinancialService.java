@@ -225,7 +225,7 @@ public class DartControllingFinancialService {
                 if (DartControllingFinancial.STATUS_BAD_SCALE.equals(row.getStatus())) continue;
                 break;
             }
-            Outcome out = fetchAndStore(run, code, corpCode, key, preferredFsDiv(reports), row, reports);
+            Outcome out = fetchAndStore(run, code, corpCode, key, preferredFsDiv(reports, key), row, reports);
             if (out == Outcome.UNUSABLE) continue;
             if (out != Outcome.OK) break;
         }
@@ -292,17 +292,21 @@ public class DartControllingFinancialService {
         }
     }
 
-    /** 이미 받은 보고서의 연결/별도 구분 — 별도만 내는 회사에 매번 연결부터 물어 호출을 낭비하지 않게. */
-    private static String preferredFsDiv(Map<ReportKey, DartControllingFinancial> stored) {
+    /**
+     * 이 보고서를 연결·별도 중 어느 쪽부터 물을까 — 바로 다음(더 새로운) 보고서의 구분이고, 더 새로운 보고서가 없으면 null(연결부터).
+     * 별도만 내는 회사에 옛 보고서마다 연결을 묻지 않으면서, 연중에 연결을 시작한 회사를 별도로 읽지 않는다(2026-11-05) — 예전엔 저장된 아무
+     * 행의 구분을 따라 한화엔진 같은 회사가 전부 별도가 됐다. 새 보고서는 회사당 한 번 연결을 더 묻는다.
+     */
+    private static String preferredFsDiv(Map<ReportKey, DartControllingFinancial> stored, ReportKey key) {
         return stored.values().stream()
-                .filter(r -> DartControllingFinancial.STATUS_OK.equals(r.getStatus()) && r.getFsDiv() != null)
-                .map(DartControllingFinancial::getFsDiv).findFirst().orElse(null);
+                .filter(r -> DartControllingFinancial.STATUS_OK.equals(r.getStatus()) && r.getFsDiv() != null
+                        && r.key().compareTo(key) > 0)
+                .min(java.util.Comparator.comparing(DartControllingFinancial::key))
+                .map(DartControllingFinancial::getFsDiv).orElse(null);
     }
 
     private void collectStock(Run run, String code, String corpCode, Map<ReportKey, DartControllingFinancial> stored,
                               List<ReportKey> candidates) {
-        String preferredFs = preferredFsDiv(stored);
-
         ReportKey latest = null;
         int fetches = 0;
         for (ReportKey key : candidates) {
@@ -313,7 +317,7 @@ public class DartControllingFinancialService {
             }
             if (row != null && !retryDue(row, run.today)) continue;
             if (fetches++ >= MAX_LATEST_FETCHES_PER_STOCK) return;
-            Outcome out = fetchAndStore(run, code, corpCode, key, preferredFs, row, stored);
+            Outcome out = fetchAndStore(run, code, corpCode, key, preferredFsDiv(stored, key), row, stored);
             if (out == Outcome.OK) {
                 latest = key;
                 break;
@@ -324,7 +328,7 @@ public class DartControllingFinancialService {
         ReportKey prior = latest.priorAnnual();
         DartControllingFinancial priorRow = stored.get(prior);
         if (priorRow == null || (!DartControllingFinancial.STATUS_OK.equals(priorRow.getStatus()) && retryDue(priorRow, run.today))) {
-            fetchAndStore(run, code, corpCode, prior, preferredFsDiv(stored), priorRow, stored);
+            fetchAndStore(run, code, corpCode, prior, preferredFsDiv(stored, prior), priorRow, stored);
         }
     }
 

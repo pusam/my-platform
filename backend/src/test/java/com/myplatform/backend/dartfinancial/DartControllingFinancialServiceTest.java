@@ -340,6 +340,34 @@ class DartControllingFinancialServiceTest {
     }
 
     @Test
+    @DisplayName("재현(한화엔진형): 연중에 연결을 시작한 회사 — 옛 보고서가 별도로 저장돼 있어도 가장 새 보고서는 연결부터 묻는다")
+    void newestReportAsksConsolidatedFirst() {
+        universe("082740");
+        corp("082740", "00123456");
+        noKisQuarters.add("082740");
+        storedCompany("082740", "12");
+        DartControllingFinancial older = stored("082740", 2025, "11014", DartControllingFinancial.STATUS_OK, LocalDate.of(2026, 9, 1));
+        older.setFsDiv("OFS");
+        saved.add(older);
+        nineReports("00123456");
+        // 2026 반기·2025 연간은 연결이 있다(별도도 있다), 2025 3분기부터 옛 보고서는 별도뿐
+        responses.put("00123456/2026/11012/CFS", statement("20260814000001", "707459000000", "89290000000", "86100000000",
+                "5000000000000", "6000000000000", "1000000000000"));
+        responses.put("00123456/2026/11013/CFS", statement("20260515000001", "345239000000", "51379000000", "40000000000",
+                "5000000000000", "6000000000000", "1000000000000"));
+        responses.put("00123456/2025/11011/CFS", statement("20260320000001", "1371057000000", "130066000000", "173800000000",
+                "5000000000000", "6000000000000", "1000000000000"));
+
+        service.collect();
+
+        assertThat(savedRow(2026, "11012").getFsDiv()).isEqualTo("CFS");
+        assertThat(savedRow(2026, "11012").getRevenue()).isEqualByComparingTo("7074.59");
+        assertThat(savedRow(2026, "11013").getFsDiv()).as("바로 다음 보고서의 구분을 따른다").isEqualTo("CFS");
+        assertThat(savedRow(2025, "11011").getFsDiv()).isEqualTo("CFS");
+        assertThat(savedRow(2025, "11014").getFsDiv()).as("연결이 없던 때는 별도").isEqualTo("OFS");
+    }
+
+    @Test
     @DisplayName("KIS 분기가 다 있는 회사는 채우지 않는다 — 호출은 종전처럼 두 건")
     void completeKisNotFilled() {
         universe("023590");
