@@ -2485,6 +2485,9 @@ public class RecommendationService {
         log.debug("[종합추천] 기술: {}건 계산, {}건 폴백, {}건 스킵(봉 노후 {})", calc, fallback, skip, stale);
         this.lastTechnicalStale = stale;
 
+        // 거래정지·상폐 종목은 받아도 결과에서 빠진다 — 상폐 코드는 봉이 영영 안 생겨 계산마다 다시 예약됐다(2026-11-05 실측 6종목, DART 행으로 후보 풀에 들어온다)
+        needsCollection.removeIf(code -> !stockStatusService.isActive(code));
+
         // 부족 종목 비동기 수집 (다음 calculate() 호출 시 사용 가능). 앞 계산이 예약해 아직 받는 중인 종목은 다시 예약하지 않는다.
         if (!needsCollection.isEmpty()) {
             List<String> toCollect = new ArrayList<>();

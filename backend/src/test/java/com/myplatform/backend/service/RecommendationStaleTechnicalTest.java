@@ -18,9 +18,11 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -142,6 +144,24 @@ class RecommendationStaleTechnicalTest {
     }
 
     @Test
+    @DisplayName("재현: 상장폐지 코드는 봉이 영영 안 생기는데 계산마다 다시 받았다 — 거래정지·상폐 종목은 받지 않는다(어차피 결과에서 빠진다)")
+    void inactiveCodesAreNotCollected() {
+        StockAnalysisService analysis = mock(StockAnalysisService.class);
+        RecommendationService service = service(analysis);
+        when(repo(service).findByStockCodesSince(anyList(), any())).thenReturn(List.of());
+        StockStatusService status = (StockStatusService) ReflectionTestUtils.getField(service, "stockStatusService");
+        when(status.isActive("082640")).thenReturn(false);   // 동양생명 — 11/5 운영에서 5분마다 예약되던 코드
+
+        ReflectionTestUtils.invokeMethod(service, "scoreTechnical",
+                new LinkedHashMap<>(Map.of("082640", new StockScore("082640", "동양생명"),
+                        "005930", new StockScore("005930", "삼성전자"))));
+
+        verify(analysis, timeout(2000)).collectPriceHistory("005930");
+        waitUntilIdle(service);
+        verify(analysis, never()).collectPriceHistory("082640");
+    }
+
+    @Test
     @DisplayName("봉 안 생긴 종목 목록은 정렬된다(같은 목록 비교) · 경고에는 앞 10개만")
     void notFreshCodesAreSortedAndPreviewed() {
         LocalDate cutoff = LocalDate.of(2026, 11, 2);
@@ -182,6 +202,9 @@ class RecommendationStaleTechnicalTest {
         ReflectionTestUtils.setField(service, "marketCalendar", CALENDAR);
         ReflectionTestUtils.setField(service, "priceHistoryCollecting", java.util.concurrent.ConcurrentHashMap.newKeySet());
         ReflectionTestUtils.setField(service, "lastStaleCollectKey", new java.util.concurrent.atomic.AtomicReference<>(""));
+        StockStatusService status = mock(StockStatusService.class);
+        when(status.isActive(anyString())).thenReturn(true);
+        ReflectionTestUtils.setField(service, "stockStatusService", status);
         return service;
     }
 
