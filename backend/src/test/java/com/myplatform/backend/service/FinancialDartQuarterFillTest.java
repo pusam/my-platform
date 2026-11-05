@@ -107,6 +107,24 @@ class FinancialDartQuarterFillTest {
     }
 
     @Test
+    @DisplayName("보고서 비교 칸으로 만든 4분기가 분기 행 합보다 먼저다 — 연중 연결 전환·재분류에도 맞다")
+    void reportsWinOverQuarterRows() {
+        dartQuarters();
+        when(dartRepo.findByStockCodeAndStatus("058470", DartControllingFinancial.STATUS_OK)).thenReturn(List.of(
+                DartControllingFinancial.builder().bsnsYear(2025).reprtCode("11011").fsDiv("CFS").incomeParsed(true)
+                        .revenue(new BigDecimal("13710.57")).operatingProfit(new BigDecimal("1300.66")).totalNetIncome(new BigDecimal("1738")).build(),
+                DartControllingFinancial.builder().bsnsYear(2026).reprtCode("11012").fsDiv("CFS").incomeParsed(true)
+                        .filedOn(LocalDate.of(2026, 8, 14)).status(DartControllingFinancial.STATUS_OK)
+                        .revenue(new BigDecimal("7074.59")).operatingProfit(new BigDecimal("892.90")).totalNetIncome(new BigDecimal("861"))
+                        .revenuePrev(new BigDecimal("7058.82")).operatingProfitPrev(new BigDecimal("560.88")).totalNetIncomePrev(new BigDecimal("500")).build()));
+
+        collector.collectStockFinancialDataSimple("058470");
+
+        assertThat(today.getRevenue()).isEqualByComparingTo("13726.34");
+        assertThat(today.getOperatingProfit()).isEqualByComparingTo("1632.68");
+    }
+
+    @Test
     @DisplayName("KIS 재무상태표가 없으면 DART 최신 보고서의 자본·자산·부채로 — 부채비율 4점을 잃지 않는다")
     void dartBalanceFillsDebtRatio() {
         dartQuarters();

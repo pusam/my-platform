@@ -117,6 +117,75 @@ class DartQuarterlyTest {
     }
 
     @Test
+    @DisplayName("재현(188260 실측): 재분류로 누적 매출이 줄면 그 분기를 모른다 — 2025 연간 153.54 < 3분기 누적 202.93 → 4분기 −49억이 아니다")
+    void reclassifiedCumulativeIsUnknown() {
+        List<Quarter> out = DartQuarterly.individualQuarters(List.of(
+                st(2025, ReportCode.Q3, "OFS", "202.93", "-25.90", "-40"),
+                st(2025, ReportCode.FY, "OFS", "153.54", "-43.74", "-72"),
+                st(2026, ReportCode.Q1, "OFS", "33.10", "-8.72", "-9")));
+
+        assertThat(out).extracting(Quarter::fiscalPeriod).containsExactly("202603");
+    }
+
+    private static DartControllingFinancial report(int year, String reprt, String fs, String revenue, String operating, String net,
+                                                   String revenuePrev, String operatingPrev, String netPrev) {
+        return DartControllingFinancial.builder().bsnsYear(year).reprtCode(reprt).fsDiv(fs).incomeParsed(true)
+                .revenue(d(revenue)).operatingProfit(d(operating)).totalNetIncome(d(net))
+                .revenuePrev(d(revenuePrev)).operatingProfitPrev(d(operatingPrev)).totalNetIncomePrev(d(netPrev)).build();
+    }
+
+    @Test
+    @DisplayName("최근 4분기 = 최신 누적 + 직전 연간 − 전년 동기 누적 — 한화엔진: 분기 합은 2025 3분기(별도)·연간(연결)이 달라 못 만든다")
+    void ttmFromReportsAcrossBasisChange() {
+        BigDecimal[] ttm = DartQuarterly.ttm(List.of(
+                report(2025, "11014", "OFS", "10032.28", "827.19", "600", null, null, null),
+                report(2025, "11011", "CFS", "13710.57", "1300.66", "1738", null, null, null),
+                report(2026, "11012", "CFS", "7074.59", "892.90", "861", "7058.82", "560.88", "500")), TODAY);
+
+        assertThat(ttm[0]).isEqualByComparingTo("13726.34");   // 7,074.59 + 13,710.57 − 7,058.82
+        assertThat(ttm[1]).isEqualByComparingTo("1632.68");
+        assertThat(ttm[2]).isEqualByComparingTo("2099");
+    }
+
+    @Test
+    @DisplayName("재분류해도 맞다 — 전년 동기를 최신 보고서의 비교 칸에서 읽어 옛 누적(162억)을 쓰지 않는다")
+    void ttmUsesRestatedComparative() {
+        BigDecimal[] ttm = DartQuarterly.ttm(List.of(
+                report(2025, "11012", "OFS", "162.43", "-16.82", "-20", null, null, null),
+                report(2025, "11011", "OFS", "153.54", "-43.74", "-72", null, null, null),
+                report(2026, "11012", "OFS", "71.23", "-12.77", "-15", "81.00", "-21.00", "-25")), TODAY);
+
+        assertThat(ttm[0]).isEqualByComparingTo("143.77");
+    }
+
+    @Test
+    @DisplayName("최신이 사업보고서면 그 연간값 · §4c — 연결/별도가 다르거나 짝이 없거나 묵었으면 모른다 · 없는 칸은 그 칸만 모른다")
+    void ttmEdges() {
+        DartControllingFinancial fy = report(2025, "11011", "OFS", "400", "40", "30", null, null, null);
+        assertThat(DartQuarterly.ttm(List.of(fy), LocalDate.of(2026, 4, 1))[0]).isEqualByComparingTo("400");
+        assertThat(DartQuarterly.ttm(List.of(fy), TODAY)).as("2025 말 분기는 200일 넘었다").isNull();
+
+        DartControllingFinancial h1 = report(2026, "11012", "CFS", "220", "70", "50", "200", "60", "40");
+        assertThat(DartQuarterly.ttm(List.of(h1), TODAY)).as("직전 연간이 없다").isNull();
+        assertThat(DartQuarterly.ttm(List.of(fy, h1), TODAY)).as("연결/별도가 다르다").isNull();
+
+        DartControllingFinancial sameBasis = report(2026, "11012", "OFS", "220", "70", "50", null, "60", "40");
+        BigDecimal[] partial = DartQuarterly.ttm(List.of(fy, sameBasis), TODAY);
+        assertThat(partial[0]).as("비교 칸이 없는 항목만 모른다").isNull();
+        assertThat(partial[1]).isEqualByComparingTo("50");
+        assertThat(DartQuarterly.ttm(List.of(), TODAY)).isNull();
+    }
+
+    @Test
+    @DisplayName("재현(진코스텍 실측): 자본 26조·시총 363억 — 단위를 잘못 공시한 보고서. 저 PBR 회사(87배)는 걸리지 않는다")
+    void scaleSuspect() {
+        assertThat(DartQuarterly.scaleSuspect(d("264212.03"), d("363"))).isTrue();
+        assertThat(DartQuarterly.scaleSuspect(d("8721.7"), d("100"))).isFalse();
+        assertThat(DartQuarterly.scaleSuspect(d("264212.03"), null)).as("시가총액을 모르면 판단하지 않는다").isFalse();
+        assertThat(DartQuarterly.scaleSuspect(null, d("363"))).isFalse();
+    }
+
+    @Test
     @DisplayName("채울 종목 — KIS 분기가 끊긴 회사(0·0·0 행뿐) · 분기 행이 아예 없는 회사")
     void blankKisRowsNeedFill() {
         List<ReportKey> keys = ControllingEarnings.candidates(TODAY, DartQuarterly.REPORTS_TO_KEEP);

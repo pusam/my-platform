@@ -184,13 +184,17 @@ public class StockFinancialDataCollector {
 
 
     /**
-     * DART 로 채운 분기의 최근 4분기 손익 {@code [매출, 영업이익, 순이익]} — DART 행이 없거나 4분기가 안 되거나 묵었으면 null.
+     * DART 로 채운 종목의 최근 4분기 손익 {@code [매출, 영업이익, 순이익]} — DART 행이 없으면 null. 보고서의 최신 누적 + 직전 연간 − 전년 동기
+     * 누적({@link DartQuarterly#ttm})이 먼저고, 그걸 못 만들면 분기 행 합. 둘 다 안 되거나 묵었으면 null.
      * KIS 분기는 연결재무제표 회사만 이어서 준다(2026-11-04) — 나머지 회사는 이 값이 유일한 출처다.
      */
     BigDecimal[] dartQuarterlyTtm(String stockCode, LocalDate today) {
         try {
             List<StockQuarterlyFinancial> rows = quarterlyRepository.findByStockCodeOrderByPeriodEndDesc(stockCode);
             if (rows == null || rows.stream().noneMatch(StockQuarterlyFinancial::isDart)) return null;
+            BigDecimal[] fromReports = DartQuarterly.ttm(
+                    dartControllingRepository.findByStockCodeAndStatus(stockCode, DartControllingFinancial.STATUS_OK), today);
+            if (fromReports != null) return fromReports;
             List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.usableFromStored(rows);
             BigDecimal[] ttm = QuarterlyFinancials.ttmSum(individuals);
             if (ttm == null || QuarterlyFinancials.isStale(individuals, today, EarningSurpriseService.QUARTER_MAX_AGE_DAYS)) {

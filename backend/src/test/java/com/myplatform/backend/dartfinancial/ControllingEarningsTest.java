@@ -53,6 +53,17 @@ class ControllingEarningsTest {
         }
 
         @Test
+        @DisplayName("전년 동기 누적은 이 보고서 자신의 비교 칸 — 분·반기는 누적 칸, 사업보고서는 전기 칸")
+        void priorPeriodColumns() throws Exception {
+            String row = "{\"sj_div\":\"CIS\",\"account_id\":\"ifrs-full_Revenue\",\"account_nm\":\"매출액\","
+                    + "\"thstrm_amount\":\"100000000\",\"thstrm_add_amount\":\"220000000000\","
+                    + "\"frmtrm_amount\":\"300000000000\",\"frmtrm_add_amount\":\"200000000000\"}";
+
+            assertThat(ControllingEarnings.parseStatement(list("[" + row + "]"), ReportCode.H1).revenuePrev()).isEqualByComparingTo("2000");
+            assertThat(ControllingEarnings.parseStatement(list("[" + row + "]"), ReportCode.FY).revenuePrev()).isEqualByComparingTo("3000");
+        }
+
+        @Test
         @DisplayName("사업보고서·1분기는 당기 칸 — 1분기는 누적 칸이 비어도 3개월이 곧 누적이다")
         void annualAndFirstQuarter() throws Exception {
             String json = "[" + incomeRow("IS", "ifrs-full_Revenue", "매출액", "400000000000", "") + "]";

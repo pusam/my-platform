@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -294,6 +295,51 @@ class DartControllingFinancialServiceTest {
     }
 
     @Test
+    @DisplayName("재현(진코스텍): 단위를 잘못 공시한 보고서는 금액을 저장하지 않고 건너뛴다 — 다른 보고서는 받고, 그 보고서로 만든 분기는 지운다")
+    void badScaleReportIsSkipped() {
+        universe("250030");
+        corp("250030", "00123456");
+        noKisQuarters.add("250030");
+        nineReports("00123456");
+        // 시가총액 363억 — 2026 반기 자본이 26조로 온다
+        when(financialRepo.findLatestMarketCaps()).thenReturn(java.util.Collections.singletonList(
+                new Object[]{"250030", new java.math.BigDecimal("363")}));
+        responses.put("00123456/2026/11012/OFS", statement("20260814000001", "30959868000000000", "3460394000000000", "2941897000000000",
+                "26421203000000000", "60392734000000000", "1000000000000"));
+        // 다른 보고서는 정상 규모 — 자본 200억
+        for (String k : List.of("2026/11013", "2025/11011", "2025/11014", "2025/11012", "2025/11013", "2024/11011", "2024/11014", "2024/11012")) {
+            responses.put("00123456/" + k + "/OFS", responses.get("00123456/" + k + "/OFS").replace("\"5000000000000\"", "\"20000000000\""));
+        }
+        StockQuarterlyFinancial wrong = StockQuarterlyFinancial.builder().stockCode("250030").fiscalPeriod("202606")
+                .periodEnd(LocalDate.of(2026, 6, 30)).revenue(new java.math.BigDecimal("309463"))
+                .source(StockQuarterlyFinancial.SOURCE_DART).build();
+        quarters.add(wrong);
+
+        DartControllingFinancialService.Summary s = service.collect();
+
+        DartControllingFinancial bad = savedRow(2026, "11012");
+        assertThat(bad.getStatus()).isEqualTo(DartControllingFinancial.STATUS_BAD_SCALE);
+        assertThat(bad.getCtrlNetIncome()).isNull();
+        assertThat(bad.getRevenue()).isNull();
+        assertThat(bad.getFsDiv()).isEqualTo("OFS");
+        assertThat(savedRow(2024, "11012").isIncomeParsed()).as("건너뛰고 옛 보고서까지 받는다").isTrue();
+        assertThat(quarter("202603").getRevenue()).isEqualByComparingTo("10000");
+        verify(quarterRepo).delete(wrong);
+        assertThat(s.ok()).isEqualTo(8);
+    }
+
+    @Test
+    @DisplayName("단위가 틀린 보고서는 일주일 뒤 다시 본다 — 회사가 정정하면 잡는다. 외화 재무제표는 다시 묻지 않는다")
+    void badScaleIsRetried() {
+        DartControllingFinancial bad = stored("250030", 2026, "11012", DartControllingFinancial.STATUS_BAD_SCALE, LocalDate.of(2026, 9, 20));
+        DartControllingFinancial foreign = stored("241560", 2026, "11012", DartControllingFinancial.STATUS_NON_KRW, LocalDate.of(2026, 9, 1));
+
+        assertThat(DartControllingFinancialService.retryDue(bad, LocalDate.of(2026, 9, 26))).isFalse();
+        assertThat(DartControllingFinancialService.retryDue(bad, LocalDate.of(2026, 9, 27))).isTrue();
+        assertThat(DartControllingFinancialService.retryDue(foreign, LocalDate.of(2026, 9, 27))).isFalse();
+    }
+
+    @Test
     @DisplayName("KIS 분기가 다 있는 회사는 채우지 않는다 — 호출은 종전처럼 두 건")
     void completeKisNotFilled() {
         universe("023590");
@@ -318,9 +364,31 @@ class DartControllingFinancialServiceTest {
         when(companyRepo.count()).thenReturn(100L);
         when(dart.isCorpCodeLoaded()).thenReturn(true);
         when(quarterRepo.countBySource(StockQuarterlyFinancial.SOURCE_DART)).thenReturn(0L, 8L);
+        when(repo.countByRevenuePrevIsNotNull()).thenReturn(8L);
 
         service.catchUpOnStartup();
         assertThat(quarters).isNotEmpty();
+
+        int callsBefore = calls.size();
+        service.catchUpOnStartup();
+        assertThat(calls).hasSize(callsBefore);
+    }
+
+    @Test
+    @DisplayName("부팅 따라잡기 — 비교 칸이 하나도 없으면(V71 직후) 한 번 돈다, 받은 뒤엔 안 돈다")
+    void catchUpRunsAfterV71() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        when(repo.count()).thenReturn(100L);
+        when(companyRepo.count()).thenReturn(100L);
+        when(dart.isCorpCodeLoaded()).thenReturn(true);
+        when(quarterRepo.countBySource(StockQuarterlyFinancial.SOURCE_DART)).thenReturn(8L);
+        when(repo.countByRevenuePrevIsNotNull()).thenReturn(0L, 8L);
+
+        service.catchUpOnStartup();
+        assertThat(calls).isNotEmpty();
 
         int callsBefore = calls.size();
         service.catchUpOnStartup();

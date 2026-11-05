@@ -88,7 +88,7 @@ public class DartControllingFinancialService {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    enum Outcome { OK, NO_DATA, FAILED, ABORT }
+    enum Outcome { OK, NO_DATA, UNUSABLE, FAILED, ABORT }
 
     /** 한 회차 결과 — 요약 로그와 테스트용. */
     public record Summary(int stocks, int calls, int ok, int noData, int failed, int skippedNoCorp, String abortReason,
@@ -110,8 +110,10 @@ public class DartControllingFinancialService {
         try {
             // 보고서 표나 결산월 표가 비었으면(첫 배포·V65 직후) 한 번 채운다 — 결산월이 없으면 순이익을 못 만든다.
             // DART 분기 행이 하나도 없어도(V69 직후) 한 번 — 별도재무제표 회사는 이 회차가 끝나야 실적이 생긴다.
+            // 비교 칸이 하나도 없어도(V71 직후) 한 번 — 최근 4분기를 그 칸으로 만든다.
             if (repository.count() > 0 && companyRepository.count() > 0
-                    && quarterlyRepository.countBySource(StockQuarterlyFinancial.SOURCE_DART) > 0) return;
+                    && quarterlyRepository.countBySource(StockQuarterlyFinancial.SOURCE_DART) > 0
+                    && repository.countByRevenuePrevIsNotNull() > 0) return;
             for (int i = 0; i < CORP_CODE_WAIT_POLLS && !dartService.isCorpCodeLoaded(); i++) {
                 Thread.sleep(corpCodePollMillis);
             }
@@ -162,6 +164,9 @@ public class DartControllingFinancialService {
                         .collect(Collectors.groupingBy(StockQuarterlyFinancial::getStockCode));
 
         Run run = new Run(today);
+        for (Object[] row : stockFinancialDataRepository.findLatestMarketCaps()) {
+            run.marketCaps.put((String) row[0], (java.math.BigDecimal) row[1]);
+        }
         for (String code : new LinkedHashSet<>(stockFinancialDataRepository.findAllStockCodes())) {
             if (run.abortReason != null) break;
             if (run.calls >= MAX_CALLS_PER_RUN) {
@@ -200,14 +205,14 @@ public class DartControllingFinancialService {
                     run.abortReason == null ? "완료" : "예산 소진(다음 회차가 잇는다)",
                     s.stocks(), s.calls(), s.ok(), s.noData(), s.failed(), s.skippedNoCorp());
         }
-        log.info("[DART 분기] 채운 종목 {} · 분기 행 저장 {} · 받은 보고서 {}건 중 매출 없음 {} · 영업이익 없음 {} · 이름으로 찾음 {}",
-                run.fillStocks, run.quarterRows, run.statements, run.noRevenue, run.noOperatingProfit, run.byName);
+        log.info("[DART 분기] 채운 종목 {} · 분기 행 저장 {} · 지운 행 {} · 받은 보고서 {}건 중 매출 없음 {} · 영업이익 없음 {} · 이름으로 찾음 {} · 단위 의심 {}",
+                run.fillStocks, run.quarterRows, run.quarterRowsRemoved, run.statements, run.noRevenue, run.noOperatingProfit, run.byName, run.badScale);
         return s;
     }
 
     /**
      * 보고서 {@link DartQuarterly#REPORTS_TO_KEEP} 건을 최신부터 받고 개별 분기를 저장한다. 이미 읽은 보고서는 다시 받지 않는다.
-     * 없는 보고서를 만나면 멈춘다 — 그보다 옛 보고서도 없고(상장 전), 연속 분기가 끊겨 어차피 못 쓴다.
+     * 없는 보고서를 만나면 멈춘다 — 그보다 옛 보고서도 없고(상장 전), 연속 분기가 끊겨 어차피 못 쓴다. 단위가 틀린 보고서는 그것만 건너뛴다.
      */
     private void fillQuarters(Run run, String code, String corpCode, Map<ReportKey, DartControllingFinancial> reports,
                               List<ReportKey> keys, List<StockQuarterlyFinancial> existing) {
@@ -216,8 +221,13 @@ public class DartControllingFinancialService {
             DartControllingFinancial row = reports.get(key);
             boolean ok = row != null && DartControllingFinancial.STATUS_OK.equals(row.getStatus());
             if (ok && row.isIncomeParsed()) continue;
-            if (row != null && !ok && !retryDue(row, run.today)) break;
-            if (fetchAndStore(run, code, corpCode, key, preferredFsDiv(reports), row, reports) != Outcome.OK) break;
+            if (row != null && !ok && !retryDue(row, run.today)) {
+                if (DartControllingFinancial.STATUS_BAD_SCALE.equals(row.getStatus())) continue;
+                break;
+            }
+            Outcome out = fetchAndStore(run, code, corpCode, key, preferredFsDiv(reports), row, reports);
+            if (out == Outcome.UNUSABLE) continue;
+            if (out != Outcome.OK) break;
         }
         saveQuarters(run, code, reports, existing);
     }
@@ -234,7 +244,17 @@ public class DartControllingFinancialService {
         Map<String, StockQuarterlyFinancial> byPeriod = new HashMap<>();
         for (StockQuarterlyFinancial q : existing) byPeriod.put(q.getFiscalPeriod(), q);
 
-        for (DartQuarterly.Quarter q : DartQuarterly.individualQuarters(statements)) {
+        List<DartQuarterly.Quarter> computed = DartQuarterly.individualQuarters(statements);
+        // 이제 만들 수 없는 분기(단위가 틀린 보고서·재분류)의 DART 행은 지운다 — 남겨 두면 틀린 값을 계속 읽는다
+        java.util.Set<String> periods = computed.stream().map(DartQuarterly.Quarter::fiscalPeriod).collect(Collectors.toSet());
+        for (StockQuarterlyFinancial q : existing) {
+            if (q.isDart() && !periods.contains(q.getFiscalPeriod())) {
+                quarterlyRepository.delete(q);
+                run.quarterRowsRemoved++;
+            }
+        }
+
+        for (DartQuarterly.Quarter q : computed) {
             StockQuarterlyFinancial row = byPeriod.get(q.fiscalPeriod());
             if (row != null && row.isDart() && same(row.getRevenue(), q.revenue())
                     && same(row.getOperatingProfit(), q.operatingProfit()) && same(row.getNetIncome(), q.netIncome())) {
@@ -298,7 +318,7 @@ public class DartControllingFinancialService {
                 latest = key;
                 break;
             }
-            if (out != Outcome.NO_DATA) return;   // FAILED·ABORT — 이 종목은 다음 회차에
+            if (out != Outcome.NO_DATA && out != Outcome.UNUSABLE) return;   // FAILED·ABORT — 이 종목은 다음 회차에
         }
         if (latest == null || latest.code().annual()) return;
         ReportKey prior = latest.priorAnnual();
@@ -308,8 +328,10 @@ public class DartControllingFinancialService {
         }
     }
 
+    /** 없던 보고서·단위가 틀린 보고서는 일주일 뒤 다시 본다 — 늦게 내거나 정정한다. 외화 재무제표는 바뀌지 않는다. */
     static boolean retryDue(DartControllingFinancial row, LocalDate today) {
-        return DartControllingFinancial.STATUS_NO_DATA.equals(row.getStatus())
+        return (DartControllingFinancial.STATUS_NO_DATA.equals(row.getStatus())
+                        || DartControllingFinancial.STATUS_BAD_SCALE.equals(row.getStatus()))
                 && !row.getCollectedAt().toLocalDate().plusDays(NO_DATA_RETRY_DAYS).isAfter(today);
     }
 
@@ -337,6 +359,13 @@ public class DartControllingFinancialService {
                     return Outcome.NO_DATA;
                 }
                 Figures f = ControllingEarnings.parse(root.path("list"), key.code(), "CFS".equals(fs));
+                if (DartQuarterly.scaleSuspect(f.totalEquity(), run.marketCaps.get(code))) {
+                    log.warn("[DART 분기] {} {}/{} 금액 단위가 틀린 보고서로 보인다(자본총계 {}억 · 시가총액 {}억) — 쓰지 않는다",
+                            code, key.year(), key.code().code, f.totalEquity(), run.marketCaps.get(code));
+                    saveWithoutFigures(code, corpCode, key, fs, DartControllingFinancial.STATUS_BAD_SCALE, existing, stored);
+                    run.badScale++;
+                    return Outcome.UNUSABLE;
+                }
                 ControllingEarnings.Statement statement = ControllingEarnings.parseStatement(root.path("list"), key.code());
                 tallyStatement(run, code, key, root.path("list"), statement);
                 DartControllingFinancial row = existing != null ? existing : new DartControllingFinancial();
@@ -356,6 +385,9 @@ public class DartControllingFinancialService {
                 row.setOperatingProfit(statement.operatingProfit());
                 row.setTotalAssets(statement.totalAssets());
                 row.setTotalLiabilities(statement.totalLiabilities());
+                row.setRevenuePrev(statement.revenuePrev());
+                row.setOperatingProfitPrev(statement.operatingProfitPrev());
+                row.setTotalNetIncomePrev(statement.netIncomePrev());
                 row.setIncomeParsed(true);
                 row.setCollectedAt(LocalDateTime.now(clock));
                 stored.put(key, repository.save(row));
@@ -393,6 +425,9 @@ public class DartControllingFinancialService {
         row.setOperatingProfit(null);
         row.setTotalAssets(null);
         row.setTotalLiabilities(null);
+        row.setRevenuePrev(null);
+        row.setOperatingProfitPrev(null);
+        row.setTotalNetIncomePrev(null);
         row.setIncomeParsed(false);
         row.setCollectedAt(LocalDateTime.now(clock));
         stored.put(key, repository.save(row));
@@ -461,7 +496,8 @@ public class DartControllingFinancialService {
     private static final class Run {
         final LocalDate today;
         int stocks, calls, ok, noData, failed, skippedNoCorp;
-        int fillStocks, quarterRows, statements, noRevenue, noOperatingProfit, byName, missingSamples;
+        int fillStocks, quarterRows, quarterRowsRemoved, statements, noRevenue, noOperatingProfit, byName, missingSamples, badScale;
+        final Map<String, java.math.BigDecimal> marketCaps = new HashMap<>();
         String abortReason;
 
         Run(LocalDate today) {

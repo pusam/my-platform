@@ -107,8 +107,9 @@ public final class ControllingEarnings {
     public record Figures(BigDecimal ctrlNetIncome, BigDecimal ctrlNetIncomePrev, BigDecimal totalNetIncome,
                           BigDecimal ctrlEquity, BigDecimal totalEquity, LocalDate filedOn) {}
 
-    /** 보고서 한 건의 매출·영업이익(누적, 억원)과 자산·부채(시점, 억원) — 계정이 없으면 null. */
-    public record Statement(BigDecimal revenue, BigDecimal operatingProfit, BigDecimal totalAssets, BigDecimal totalLiabilities) {}
+    /** 보고서 한 건의 매출·영업이익(누적, 억원)·자산·부채(시점, 억원)·전년 동기 누적(비교 칸, 억원) — 계정이 없으면 null. */
+    public record Statement(BigDecimal revenue, BigDecimal operatingProfit, BigDecimal totalAssets, BigDecimal totalLiabilities,
+                            BigDecimal revenuePrev, BigDecimal operatingProfitPrev, BigDecimal netIncomePrev) {}
 
     /** 저장된 보고서 한 건 — TTM 계산의 입력. */
     public record Report(ReportKey key, String fsDiv, BigDecimal ctrlNetIncome, BigDecimal ctrlNetIncomePrev,
@@ -144,7 +145,7 @@ public final class ControllingEarnings {
      * 손익 행은 {@link #parse} 와 같이 IS 먼저, 없으면 CIS — 작은 회사는 포괄손익계산서 하나로 낸다.
      */
     public static Statement parseStatement(JsonNode list, ReportCode code) {
-        if (list == null || !list.isArray() || list.isEmpty()) return new Statement(null, null, null, null);
+        if (list == null || !list.isArray() || list.isEmpty()) return new Statement(null, null, null, null, null, null, null);
         JsonNode revenue = incomeRow(list, ID_REVENUE);
         if (revenue == null) revenue = incomeRowByName(list, REVENUE_NAMES);
         JsonNode operating = incomeRow(list, ID_OPERATING_PROFIT);
@@ -153,7 +154,9 @@ public final class ControllingEarnings {
         JsonNode liabilities = balanceRow(list, ID_LIABILITIES);
         return new Statement(cumulative(revenue, code), cumulative(operating, code),
                 assets == null ? null : eok(assets.path("thstrm_amount").asText(null)),
-                liabilities == null ? null : eok(liabilities.path("thstrm_amount").asText(null)));
+                liabilities == null ? null : eok(liabilities.path("thstrm_amount").asText(null)),
+                previousCumulative(revenue, code), previousCumulative(operating, code),
+                previousCumulative(incomeRow(list, ID_NET_INCOME), code));
     }
 
     /** 표준 계정 대신 이름으로 찾은 값이 있는 보고서인가 — 회차 요약의 '이름으로 찾음'. */

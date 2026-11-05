@@ -245,5 +245,10 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
             + "                         WHERE d.report_date <= CURDATE() AND d.market_cap IS NOT NULL) "
             + "   AND (s.revenue_growth IS NOT NULL OR s.profit_growth IS NOT NULL)", nativeQuery = true)
     long countGrowthMeasuredAtLatestDate();
+
+    /** 가장 최근 수집일의 종목별 시가총액(억원) — {@code [stockCode, marketCap]}. DART 보고서 단위 점검용. */
+    @Query("SELECT f.stockCode, f.marketCap FROM StockFinancialData f WHERE f.marketCap > 0 AND f.reportDate = "
+            + "(SELECT MAX(g.reportDate) FROM StockFinancialData g WHERE g.marketCap > 0 AND g.reportDate <= CURRENT_DATE)")
+    List<Object[]> findLatestMarketCaps();
 }
 

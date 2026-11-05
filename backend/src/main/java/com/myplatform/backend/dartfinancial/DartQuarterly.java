@@ -48,6 +48,13 @@ public final class DartQuarterly {
      */
     static final int KIS_LAG_DAYS = 30;
 
+    /**
+     * 자본총계가 시가총액의 이 배수를 넘으면 금액 단위를 잘못 공시한 보고서로 본다. 2026-11-05 전 종목(보고서 9,000여 건)에서 200배를 넘는 것은
+     * 세 종목뿐이다: 진코스텍 2026 반기(728배 — 자본 26조, 시총 363억, 앞뒤 보고서의 1,000배), 다원넥스뷰 2024 반기(13만 배), SPAC 한 건(92만 배).
+     * 그다음이 87배·34배·19배라 사이가 크게 비어 있다(숫자를 성적에 맞춰 옮기지 말 것).
+     */
+    static final BigDecimal MAX_EQUITY_TO_MARKET_CAP = BigDecimal.valueOf(200);
+
     /** 보고서 한 건 — 누적(억원). */
     public record Statement(ReportKey key, String fsDiv, BigDecimal revenue, BigDecimal operatingProfit, BigDecimal netIncome) {}
 
@@ -96,6 +103,8 @@ public final class DartQuarterly {
                 net = minus(net, before.netIncome());
             }
             if (revenue == null && operating == null && net == null) continue;
+            // 누적 매출이 줄었다 = 나중 보고서가 중단영업을 재분류했다. 두 누적의 차이는 그 분기 실적이 아니다 — 모른다(188260 2025 4분기 −49억)
+            if (previous != null && revenue != null && revenue.signum() < 0) continue;
             out.add(new Quarter(fiscalPeriod(s.key()), periodEnd(s.key()), revenue, operating, net));
         }
         return out;
@@ -103,6 +112,47 @@ public final class DartQuarterly {
 
     private static BigDecimal minus(BigDecimal a, BigDecimal b) {
         return a == null || b == null ? null : a.subtract(b);
+    }
+
+    /**
+     * 최근 4분기 {@code [매출, 영업이익, 순이익]} = 최신 누적 + 직전 연간 − 전년 동기 누적(최신 보고서 자신의 비교 칸). 최신이 사업보고서면 그 연간값.
+     *
+     * <p>분기를 더하지 않는 이유: 연중에 연결을 시작한 회사(최근 보고서 안에서 78종목)는 앞 보고서와 기준이 달라 분기가 비고, 중단영업을 재분류한
+     * 회사는 앞 누적이 옛 기준이라 합이 틀린다. 비교 칸은 최신 보고서와 기준이 같고 재분류도 반영돼 있다 — 지배주주 순이익 TTM 과 같은 식이다.
+     * 최신 보고서와 직전 연간의 연결/별도가 다르면 모른다. 최신 분기가 {@link ControllingEarnings#MAX_REPORT_AGE_DAYS} 보다 오래됐어도 모른다.
+     * 알 수 없으면 null — 항목별로는 그 항목만 null 이다.
+     */
+    public static BigDecimal[] ttm(Collection<DartControllingFinancial> reports, LocalDate today) {
+        if (reports == null) return null;
+        DartControllingFinancial latest = null;
+        for (DartControllingFinancial r : reports) {
+            if (r.isIncomeParsed() && (latest == null || r.key().compareTo(latest.key()) > 0)) latest = r;
+        }
+        if (latest == null || periodEnd(latest.key()).isBefore(today.minusDays(ControllingEarnings.MAX_REPORT_AGE_DAYS))) return null;
+        if (latest.key().code().annual()) {
+            return new BigDecimal[]{latest.getRevenue(), latest.getOperatingProfit(), latest.getTotalNetIncome()};
+        }
+        ReportKey priorKey = latest.key().priorAnnual();
+        DartControllingFinancial prior = null;
+        for (DartControllingFinancial r : reports) {
+            if (r.isIncomeParsed() && r.key().equals(priorKey)) prior = r;
+        }
+        if (prior == null || !Objects.equals(prior.getFsDiv(), latest.getFsDiv())) return null;
+        BigDecimal[] ttm = {
+                rolled(latest.getRevenue(), prior.getRevenue(), latest.getRevenuePrev()),
+                rolled(latest.getOperatingProfit(), prior.getOperatingProfit(), latest.getOperatingProfitPrev()),
+                rolled(latest.getTotalNetIncome(), prior.getTotalNetIncome(), latest.getTotalNetIncomePrev())};
+        return ttm[0] == null && ttm[1] == null && ttm[2] == null ? null : ttm;
+    }
+
+    private static BigDecimal rolled(BigDecimal latest, BigDecimal annual, BigDecimal priorSamePeriod) {
+        return latest == null || annual == null || priorSamePeriod == null ? null : latest.add(annual).subtract(priorSamePeriod);
+    }
+
+    /** 금액 단위를 잘못 공시한 보고서로 보이는가 — 시가총액을 모르면 판단하지 않는다. */
+    static boolean scaleSuspect(BigDecimal totalEquity, BigDecimal marketCap) {
+        return totalEquity != null && marketCap != null && marketCap.signum() > 0
+                && totalEquity.compareTo(marketCap.multiply(MAX_EQUITY_TO_MARKET_CAP)) > 0;
     }
 
     /** "202606" — 12월 결산 기준. */

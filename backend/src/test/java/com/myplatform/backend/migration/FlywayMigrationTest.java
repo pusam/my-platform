@@ -231,6 +231,10 @@ class FlywayMigrationTest {
                 + "AND table_name = 'dart_controlling_financial' AND column_name IN "
                 + "('revenue', 'operating_profit', 'total_assets', 'total_liabilities', 'income_parsed')"))
                 .as("V69 칸 5개").isEqualTo(5);
+        assertThat(scalarLong("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() "
+                + "AND table_name = 'dart_controlling_financial' AND column_name IN "
+                + "('revenue_prev', 'operating_profit_prev', 'total_net_income_prev')"))
+                .as("V71 비교 칸 3개").isEqualTo(3);
 
         // --- 검증 21 (V70): 가집계 행은 통째로 백업되고 TALLY 로 표시된다, 확정치 표는 종목·날짜당 한 행 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM investor_daily_trade_tally_backup_v70")).as("V70 백업").isEqualTo(1);

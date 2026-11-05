@@ -11,4 +11,7 @@ public interface DartControllingFinancialRepository extends JpaRepository<DartCo
 
     /** 한 종목의 OK 보고서 — 수집기가 PER·PBR 을 만들 때 읽는다. */
     List<DartControllingFinancial> findByStockCodeAndStatus(String stockCode, String status);
+
+    /** 비교 칸을 읽은 행 수 — 0 이면(V71 직후) 부팅 따라잡기가 한 번 돈다. */
+    long countByRevenuePrevIsNotNull();
 }

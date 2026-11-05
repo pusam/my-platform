@@ -31,6 +31,8 @@ public class DartControllingFinancial {
     public static final String STATUS_NO_DATA = "NO_DATA";
     /** 재무제표가 원화가 아니다(달러·위안·엔) — 금액을 저장하지 않고 PER·PBR 에 쓰지 않는다(2026-11-04). */
     public static final String STATUS_NON_KRW = "NON_KRW";
+    /** 금액 단위를 잘못 공시한 보고서로 보인다({@link DartQuarterly#scaleSuspect}) — 금액을 저장하지 않는다. 정정하면 재조회가 잡는다(2026-11-05). */
+    public static final String STATUS_BAD_SCALE = "BAD_SCALE";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -97,7 +99,19 @@ public class DartControllingFinancial {
     @Column(precision = 15, scale = 2)
     private BigDecimal totalLiabilities;
 
-    /** 위 네 칸까지 읽은 행인가 — V69 전에 받은 행은 false 라 분기를 채울 종목만 다시 받는다. */
+    /** 전년 동기 누적 매출(억원) — 사업보고서는 전년 연간. 이 보고서 자신의 비교 칸이라 기준이 같다(V71). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal revenuePrev;
+
+    /** 전년 동기 누적 영업이익(억원). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal operatingProfitPrev;
+
+    /** 전년 동기 누적 당기순이익(억원, 비지배 포함). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal totalNetIncomePrev;
+
+    /** 위 칸까지 읽은 행인가 — V71 이 비워 분기를 채울 종목만 다시 받는다. */
     @Column(nullable = false)
     private boolean incomeParsed;
 
