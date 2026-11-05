@@ -46,7 +46,7 @@
     <template v-else-if="currentStocks.length > 0">
     <!-- 전부 한 주기 넘게 갱신이 없으면(수집 지연) 섹션에 한 번만 말한다 — 카드마다 반복하지 않는다 -->
     <p v-if="allPreviousSession" class="surge-stale-note" role="status">
-      ⚠ 오늘 장중 수집 전입니다 — 아래는 직전 거래일({{ latestSnapshotLabel }}) 값입니다.
+      ⚠ 오늘 장중 수집 전입니다 — 아래는 직전 거래일({{ latestSnapshotLabel }}) 가집계입니다. 확정치와 다를 수 있습니다(시장 탭 매매 동향).
     </p>
     <p v-else-if="allOutdated" class="surge-stale-note" role="status">
       ⚠ 수집이 한 주기(10분) 넘게 지연되고 있습니다 — 아래는 {{ latestSnapshotLabel }} 기준 값입니다.

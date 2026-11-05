@@ -209,7 +209,7 @@
       <!-- ===== 탭4: 공매도 ===== -->
       <div v-if="activeTab === 'shortSelling'" class="tab-content">
         <div class="section-header">
-          <h2>📉 공매도 거래 비중 상위</h2>
+          <h2>📉 공매도 상위 종목 (수량 순)</h2>
           <div class="section-controls">
             <button class="refresh-btn" :disabled="shortLoading" @click="fetchShortSelling">
               {{ shortLoading ? '로딩...' : '🔄 갱신' }}
@@ -217,7 +217,7 @@
           </div>
         </div>
         <!-- 2026-10-02: 잔고 출처(KRX·네이버)가 죽어 KIS 공매도 '거래 비중'으로 옮겼다 — 잔고가 아니고, 판정에 쓰지 않는다 -->
-        <p class="hint">그날 거래량 중 공매도 몫 — <b>잔고가 아닙니다</b>. KIS 공매도 상위종목을 평일 18:30 에 수집합니다. 참고용이며 매수 판정·봇에 쓰지 않습니다.</p>
+        <p class="hint">공매도 수량이 많은 순서입니다. 공매도 거래 비중은 그날 거래량 중 공매도 몫 — <b>잔고가 아닙니다</b>. KIS 공매도 상위종목을 평일 18:30 에 수집합니다. 참고용이며 매수 판정·봇에 쓰지 않습니다.</p>
         <p v-if="shortAsOf" class="short-asof">기준일 {{ formatShortDate(shortAsOf) }} · 출처 KIS</p>
 
         <LoadingSpinner v-if="shortLoading && shortStocks.length === 0" />
