@@ -594,32 +594,43 @@ public class MarketTimingService {
         ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-            JsonNode root = objectMapper.readTree(response.getBody());
-
-            // 종가 (closePrice)
-            if (root.has("closePrice")) {
-                String closeStr = root.get("closePrice").asText().replace(",", "");
-                result[0] = new BigDecimal(closeStr);
-            }
-
-            // 등락률 (fluctuationsRatio)
-            if (root.has("fluctuationsRatio")) {
-                String ratioStr = root.get("fluctuationsRatio").asText().replace(",", "");
-                result[1] = new BigDecimal(ratioStr);
-            }
-
-            // 거래대금 (accumulatedTradingValue - 백만원 단위 → 억원 변환)
-            if (root.has("accumulatedTradingValue")) {
-                try {
-                    String tradingStr = root.get("accumulatedTradingValue").asText().replace(",", "");
-                    BigDecimal tradingValue = new BigDecimal(tradingStr);
-                    result[2] = tradingValue.divide(new BigDecimal("100"), 0, RoundingMode.HALF_UP);
-                } catch (Exception e) {
-                    log.debug("거래대금 파싱 실패: {}", e.getMessage());
-                }
-            }
+            return parseIndexBasic(objectMapper.readTree(response.getBody()));
         }
 
+        return result;
+    }
+
+    /**
+     * 네이버 지수 응답 → {종가, 등락률, 거래대금(억)}. 순수 함수.
+     *
+     * <p>장 시작 전(marketStatus=PREOPEN)엔 등락률이 0.00 으로 초기화돼 온다 — 그 0 을 쓰면 전날 급락이 화면에 '0%'로 나오고 급락·폭락
+     * 보정까지 풀렸다(2026-11-06 08:22 실측: 코스피 전날 −5.28% 인데 '0.00'). 모름(null)으로 두어 저장된 마감값을 쓰게 한다.
+     */
+    static BigDecimal[] parseIndexBasic(JsonNode root) {
+        BigDecimal[] result = new BigDecimal[3];
+
+        // 종가 (closePrice)
+        if (root.has("closePrice")) {
+            String closeStr = root.get("closePrice").asText().replace(",", "");
+            result[0] = new BigDecimal(closeStr);
+        }
+
+        // 등락률 (fluctuationsRatio)
+        if (root.has("fluctuationsRatio") && !"PREOPEN".equals(root.path("marketStatus").asText())) {
+            String ratioStr = root.get("fluctuationsRatio").asText().replace(",", "");
+            result[1] = new BigDecimal(ratioStr);
+        }
+
+        // 거래대금 (accumulatedTradingValue - 백만원 단위 → 억원 변환)
+        if (root.has("accumulatedTradingValue")) {
+            try {
+                String tradingStr = root.get("accumulatedTradingValue").asText().replace(",", "");
+                BigDecimal tradingValue = new BigDecimal(tradingStr);
+                result[2] = tradingValue.divide(new BigDecimal("100"), 0, RoundingMode.HALF_UP);
+            } catch (Exception e) {
+                log.debug("거래대금 파싱 실패: {}", e.getMessage());
+            }
+        }
         return result;
     }
 

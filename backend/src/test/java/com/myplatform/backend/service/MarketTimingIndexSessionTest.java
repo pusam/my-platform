@@ -93,6 +93,36 @@ class MarketTimingIndexSessionTest {
     }
 
     @Test
+    @DisplayName("재현: 장 시작 전 네이버 등락률 0.00 은 초기화 값이다 — 전날 급락이 '0%'가 되고 급락 보정이 풀렸다(2026-11-06 전날 −5.28%)")
+    void preOpenZeroIsNotTheSessionRate() throws Exception {
+        now = MON.atTime(8, 22);
+        naver = MarketTimingService.parseIndexBasic(new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                "{\"closePrice\":\"5,383.80\",\"compareToPreviousClosePrice\":\"0.00\",\"fluctuationsRatio\":\"0.00\",\"marketStatus\":\"PREOPEN\"}"));
+
+        MarketTimingDto dto = service.getCurrentMarketTiming();
+
+        assertThat(dto.getKospi().getIndexChangeRate()).as("저장된 마감값").isEqualByComparingTo("-2.80");
+        assertThat(dto.getKospi().getIndexClose()).isEqualByComparingTo("2500.00");
+        assertThat(dto.getKospi().getIndexAsOf()).isEqualTo(FRI);
+        assertThat(dto.getDiagnosis()).contains("10/30 급락");
+    }
+
+    @Test
+    @DisplayName("장이 닫힌 뒤·장중의 등락률은 그대로 쓴다 — 장중 보합 0.00 은 값이다")
+    void otherSessionsKeepTheRate() throws Exception {
+        var m = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertThat(MarketTimingService.parseIndexBasic(m.readTree(
+                "{\"closePrice\":\"5,383.80\",\"fluctuationsRatio\":\"-5.28\",\"marketStatus\":\"CLOSE\"}"))[1])
+                .isEqualByComparingTo("-5.28");
+        assertThat(MarketTimingService.parseIndexBasic(m.readTree(
+                "{\"closePrice\":\"5,400.00\",\"fluctuationsRatio\":\"0.00\",\"marketStatus\":\"OPEN\"}"))[1])
+                .isEqualByComparingTo("0");
+        assertThat(MarketTimingService.parseIndexBasic(m.readTree(
+                "{\"closePrice\":\"5,400.00\",\"fluctuationsRatio\":\"1.20\"}"))[1])
+                .as("칸이 없으면 종전대로").isEqualByComparingTo("1.20");
+    }
+
+    @Test
     @DisplayName("토요일엔 금요일 세션 — '10/30 급락'")
     void weekendIsLastSession() {
         now = LocalDate.of(2026, 10, 31).atTime(10, 0);
