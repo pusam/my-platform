@@ -20,8 +20,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -55,9 +57,10 @@ class InvestorFinalDataServiceTest {
     private StockPriceHistoryRepository history;
     private InvestorFinalDataService service;
 
-    /** 저장된 확정치(가짜 저장소) · 종목별 응답. */
+    /** 저장된 확정치(가짜 저장소) · 종목별 응답 · FINAL 순위 행이 있는 날. */
     private final List<InvestorStockDaily> store = new ArrayList<>();
     private final Map<String, String> responses = new HashMap<>();
+    private final Set<LocalDate> finalDays = new HashSet<>();
 
     private InvestorFinalDataService newService(LocalDateTime now) {
         InvestorStockDailyRepository stockRepo = mock(InvestorStockDailyRepository.class);
@@ -92,6 +95,12 @@ class InvestorFinalDataServiceTest {
         lock = mock(SchedulerLockService.class);
         history = mock(StockPriceHistoryRepository.class);
         when(lock.tryLock(anyString(), any())).thenReturn(true);
+        when(tradeRepo.saveAll(anyList())).thenAnswer(inv -> {
+            for (InvestorDailyTrade t : inv.<List<InvestorDailyTrade>>getArgument(0)) finalDays.add(t.getTradeDate());
+            return inv.getArgument(0);
+        });
+        when(tradeRepo.existsByTradeDateAndDataBasis(any(), eq(InvestorDailyTrade.BASIS_FINAL)))
+                .thenAnswer(inv -> finalDays.contains(inv.<LocalDate>getArgument(0)));
         when(kis.isConfigured()).thenReturn(true);
         when(kis.getInvestorTradeByStockDaily(anyString(), any())).thenAnswer(inv -> {
             String body = responses.get(inv.<String>getArgument(0));
@@ -185,6 +194,23 @@ class InvestorFinalDataServiceTest {
         assertThat(changed.rebuiltDays()).isEqualTo(1);
         verify(tradeRepo).deleteByTradeDateAndInvestorType(TODAY, "FOREIGN");
         verify(tradeRepo, never()).deleteByTradeDateAndInvestorType(eq(YESTERDAY), anyString());
+    }
+
+    @Test
+    @DisplayName("재현: 앞 회차가 종목 행만 쓰고 순위를 만들기 전에 끊겼으면(재시작·예외) 다음 회차가 그날을 다시 만든다 — 값이 같아 '바뀐 날'에 안 들어 가집계로 영영 남았다")
+    void interruptedDayIsRebuiltNextRun() {
+        stocks(320);
+        service.collect();
+        finalDays.remove(YESTERDAY);   // 어제 행까지 썼는데 어제 순위를 만들기 전에 끊긴 상태
+        org.mockito.Mockito.clearInvocations(tradeRepo);
+
+        InvestorFinalDataService.Summary s = service.collect();
+
+        assertThat(s.changedRows()).isZero();
+        assertThat(s.rebuiltDays()).isEqualTo(1);
+        verify(tradeRepo).deleteByTradeDateAndInvestorType(YESTERDAY, "FOREIGN");
+        verify(tradeRepo, never()).deleteByTradeDateAndInvestorType(eq(TODAY), anyString());
+        verify(tradeService, times(2)).evictConsecutiveBuys();
     }
 
     @Test

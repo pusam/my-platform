@@ -191,9 +191,13 @@ public class InvestorFinalDataService {
             log.warn("[수급 확정치] KIS 거부 {}건 — 첫 사유: {}", rejected, firstRejection);
         }
 
+        // 앞 회차가 종목 행만 쓰고 순위를 만들기 전에 끊겼으면(재시작·예외) 이번엔 값이 같아 바뀐 날에 안 든다 — 그날은 가집계로 영영 남는다
+        Set<LocalDate> rebuildDates = new TreeSet<>(changedDates);
+        rebuildDates.addAll(daysWithoutFinalRanking(stored));
+
         int rebuilt = 0;
         Set<LocalDate> skipped = new TreeSet<>();
-        for (LocalDate date : changedDates) {
+        for (LocalDate date : rebuildDates) {
             List<InvestorStockDaily> rows = stockDailyRepository.findByTradeDate(date);
             if (rows.size() < MIN_STOCKS_FOR_RANKING) {
                 skipped.add(date);
@@ -216,6 +220,22 @@ public class InvestorFinalDataService {
         }
         if (rebuilt > 0) investorTradeService.evictConsecutiveBuys();
         return new Summary(universe.size(), ok, failed, rejected, unknownUnit, todayRows, changedRows, rebuilt, skipped, abortReason);
+    }
+
+    /** 순위를 만들 만큼 종목 행이 있는데 FINAL 순위 행이 없는 날. */
+    private Set<LocalDate> daysWithoutFinalRanking(Map<String, Map<LocalDate, InvestorStockDaily>> stored) {
+        Map<LocalDate, Integer> stocksPerDay = new HashMap<>();
+        for (Map<LocalDate, InvestorStockDaily> byDate : stored.values()) {
+            for (LocalDate date : byDate.keySet()) stocksPerDay.merge(date, 1, Integer::sum);
+        }
+        Set<LocalDate> days = new TreeSet<>();
+        stocksPerDay.forEach((date, stocks) -> {
+            if (stocks >= MIN_STOCKS_FOR_RANKING
+                    && !tradeRepository.existsByTradeDateAndDataBasis(date, InvestorDailyTrade.BASIS_FINAL)) {
+                days.add(date);
+            }
+        });
+        return days;
     }
 
     /**
