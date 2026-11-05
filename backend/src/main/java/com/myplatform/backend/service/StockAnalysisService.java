@@ -7,6 +7,8 @@ import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
+import com.myplatform.backend.entity.InvestorStockDaily;
+import com.myplatform.backend.repository.InvestorStockDailyRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.StockPriceRepository;
@@ -46,6 +48,10 @@ public class StockAnalysisService {
     private final KoreaInvestmentService koreaInvestmentService;
     // 일봉 확정 판정(2026-10-07) — 마감 전 날짜의 봉은 저장하지 않는다(isSettledBar)
     private final MarketCalendarService marketCalendar;
+
+    /** 종목별 수급 확정치 — 있으면 5일 합이 이 표를 읽는다({@link #supplyRows}). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private InvestorStockDailyRepository investorStockDailyRepository;
 
     // 기술적 분석에 필요한 최소 데이터 개수
     private static final int MIN_PRICE_DATA_COUNT = 60;
@@ -397,8 +403,7 @@ public class StockAnalysisService {
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(SUPPLY_DEMAND_DAYS + 5);  // 여유있게 조회
 
-        List<InvestorDailyTrade> trades = investorDailyTradeRepository
-                .findByStockCodeAndDateRange(stockCode, startDate, endDate);
+        List<InvestorDailyTrade> trades = supplyRows(stockCode, startDate, endDate);
 
         // 외국인 수급
         BigDecimal foreignNet5Days = BigDecimal.ZERO;
@@ -536,6 +541,40 @@ public class StockAnalysisService {
         return dataDays > 0 ? total : null;
     }
 
+    /**
+     * 5일 수급의 일별 행 — 종목별 확정치가 있으면 그것, 없으면 순위 행(2026-11-06).
+     *
+     * <p>순위 행은 그날 상위 30 에 든 날만 있어 나머지 날이 합에서 빠졌다(현대차 11/5 기준 외국인 −250억 vs 실제 −382억, 기관 +651억 vs +690억).
+     * 확정치 표는 후보 풀·최근 순위 종목의 모든 거래일을 담는다. 그 밖 종목은 표에 없으니 종전대로 순위 행이다.
+     */
+    private List<InvestorDailyTrade> supplyRows(String stockCode, LocalDate startDate, LocalDate endDate) {
+        if (investorStockDailyRepository != null) {
+            try {
+                List<InvestorDailyTrade> confirmed = asTradeRows(investorStockDailyRepository
+                        .findByStockCodeAndTradeDateBetween(stockCode, startDate, endDate));
+                if (!confirmed.isEmpty()) return confirmed;
+            } catch (Exception e) {
+                log.warn("[수급분석] {} 확정치 조회 실패 — 순위 행으로 계산: {}", stockCode, e.getMessage());
+            }
+        }
+        return investorDailyTradeRepository.findByStockCodeAndDateRange(stockCode, startDate, endDate);
+    }
+
+    /** 확정치를 순위 행과 같은 모양으로 — 빈 칸은 0 이 아니라 그 투자자의 행이 없는 것이다. 순수 함수. */
+    static List<InvestorDailyTrade> asTradeRows(List<InvestorStockDaily> rows) {
+        List<InvestorDailyTrade> out = new ArrayList<>();
+        for (InvestorStockDaily r : rows) {
+            if (r.getForeignNet() != null) out.add(tradeRow(r, "FOREIGN", r.getForeignNet()));
+            if (r.getInstitutionNet() != null) out.add(tradeRow(r, "INSTITUTION", r.getInstitutionNet()));
+        }
+        return out;
+    }
+
+    private static InvestorDailyTrade tradeRow(InvestorStockDaily r, String investorType, BigDecimal net) {
+        return InvestorDailyTrade.builder().stockCode(r.getStockCode()).tradeDate(r.getTradeDate())
+                .investorType(investorType).tradeType(net.signum() < 0 ? "SELL" : "BUY").netBuyAmount(net).build();
+    }
+
     /** 최근 5거래일 외국인/기관 순매수 누적(<b>억원</b> — 저장 단위 그대로). null=데이터 없음. days=실제 집계 거래일 수. */
     public record FiveDaySupply(BigDecimal foreignNetEok, BigDecimal institutionNetEok, int days) {}
 
@@ -547,8 +586,7 @@ public class StockAnalysisService {
     public FiveDaySupply getFiveDayNetBuy(String stockCode) {
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(SUPPLY_DEMAND_DAYS + 5L);
-        List<InvestorDailyTrade> trades = investorDailyTradeRepository
-                .findByStockCodeAndDateRange(stockCode, startDate, endDate);
+        List<InvestorDailyTrade> trades = supplyRows(stockCode, startDate, endDate);
         if (trades.isEmpty()) return null;
         List<LocalDate> recentDates = trades.stream()
                 .map(InvestorDailyTrade::getTradeDate)

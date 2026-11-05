@@ -2,12 +2,15 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.StockDiagnosisDto;
 import com.myplatform.backend.entity.InvestorDailyTrade;
+import com.myplatform.backend.entity.InvestorStockDaily;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
+import com.myplatform.backend.repository.InvestorStockDailyRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.StockPriceRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -55,6 +58,77 @@ class StockAnalysisSupplyDaysTest {
         assertThat(sd.getInstitutionSellDays()).isEqualTo(2);
         assertThat(sd.getForeignBuyDays()).isZero();
         assertThat(sd.getForeignSellDays()).isEqualTo(5);
+    }
+
+    private static StockAnalysisService withConfirmed(InvestorDailyTradeRepository repo, List<InvestorStockDaily> rows) {
+        InvestorStockDailyRepository confirmed = mock(InvestorStockDailyRepository.class);
+        when(confirmed.findByStockCodeAndTradeDateBetween(eq("005380"), any(), any())).thenReturn(rows);
+        StockAnalysisService svc = new StockAnalysisService(mock(StockFinancialDataRepository.class), repo,
+                mock(StockPriceHistoryRepository.class), mock(StockPriceRepository.class),
+                mock(TechnicalIndicatorService.class), mock(KoreaInvestmentService.class), new MarketCalendarService());
+        ReflectionTestUtils.setField(svc, "investorStockDailyRepository", confirmed);
+        return svc;
+    }
+
+    private static InvestorStockDaily d(String date, String foreign, String institution) {
+        return InvestorStockDaily.builder().stockCode("005380").tradeDate(LocalDate.parse(date))
+                .foreignNet(foreign == null ? null : new BigDecimal(foreign))
+                .institutionNet(institution == null ? null : new BigDecimal(institution)).build();
+    }
+
+    /** 현대차 10/30~11/5 운영 값. */
+    private static List<InvestorStockDaily> hyundai() {
+        return List.of(d("2026-11-05", "-34.01", "352.71"), d("2026-11-04", "-98.52", "176.08"),
+                d("2026-11-03", "-116.46", "-47.69"), d("2026-11-02", "93.48", "122.51"), d("2026-10-30", "-226.73", "85.89"));
+    }
+
+    @Test
+    @DisplayName("재현: 5일 합은 확정치로 — 순위 행은 30위 안에 든 날만 있어 외국인 −250억(실제 −382억)·기관 +651억(실제 +690억)이었다")
+    void fiveDaysUseConfirmedRows() {
+        InvestorDailyTradeRepository rank = mock(InvestorDailyTradeRepository.class);
+        // 순위 행 — 외국인은 11/3·11/2·10/30, 기관은 11/5·11/4·11/2 에만 있다
+        when(rank.findByStockCodeAndDateRange(eq("005380"), any(), any())).thenReturn(List.of(
+                t("2026-11-05", "INSTITUTION", "BUY", "352.71"), t("2026-11-04", "INSTITUTION", "BUY", "176.08"),
+                t("2026-11-03", "FOREIGN", "SELL", "-116.46"), t("2026-11-02", "FOREIGN", "BUY", "93.48"),
+                t("2026-11-02", "INSTITUTION", "BUY", "122.51"), t("2026-10-30", "FOREIGN", "SELL", "-226.73")));
+        StockAnalysisService svc = withConfirmed(rank, hyundai());
+
+        StockDiagnosisDto.SupplyDemandDto sd = svc.analyzeSupplyDemand("005380");
+        assertThat(sd.getForeignNet5Days()).isEqualByComparingTo("-382.24");
+        assertThat(sd.getForeignBuyDays()).isEqualTo(1);
+        assertThat(sd.getForeignSellDays()).isEqualTo(4);
+        assertThat(sd.getInstitutionNet5Days()).isEqualByComparingTo("689.50");
+        assertThat(sd.getInstitutionBuyDays()).isEqualTo(4);
+        assertThat(sd.getInstitutionSellDays()).isEqualTo(1);
+
+        StockAnalysisService.FiveDaySupply five = svc.getFiveDayNetBuy("005380");
+        assertThat(five.foreignNetEok()).isEqualByComparingTo("-382.24");
+        assertThat(five.institutionNetEok()).isEqualByComparingTo("689.50");
+        assertThat(five.days()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("확정치가 없는 종목은 종전대로 순위 행 — 후보 풀 밖 종목")
+    void noConfirmedFallsBackToRank() {
+        InvestorDailyTradeRepository rank = mock(InvestorDailyTradeRepository.class);
+        when(rank.findByStockCodeAndDateRange(eq("005380"), any(), any()))
+                .thenReturn(List.of(t("2026-11-05", "FOREIGN", "BUY", "10.00")));
+
+        StockDiagnosisDto.SupplyDemandDto sd = withConfirmed(rank, List.of()).analyzeSupplyDemand("005380");
+
+        assertThat(sd.getForeignNet5Days()).isEqualByComparingTo("10.00");
+    }
+
+    @Test
+    @DisplayName("금액이 빈 칸은 0 이 아니다 — 그 투자자의 그날은 세지 않는다")
+    void blankAmountIsNotZero() {
+        StockAnalysisService svc = withConfirmed(mock(InvestorDailyTradeRepository.class),
+                List.of(d("2026-11-05", null, "10.00"), d("2026-11-04", null, "5.00")));
+
+        StockDiagnosisDto.SupplyDemandDto sd = svc.analyzeSupplyDemand("005380");
+
+        assertThat(sd.getForeignNet5Days()).as("모름").isNull();
+        assertThat(sd.getInstitutionNet5Days()).isEqualByComparingTo("15.00");
     }
 
     @Test

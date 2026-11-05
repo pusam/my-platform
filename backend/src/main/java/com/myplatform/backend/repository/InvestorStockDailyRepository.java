@@ -12,4 +12,6 @@ public interface InvestorStockDailyRepository extends JpaRepository<InvestorStoc
     List<InvestorStockDaily> findByTradeDateGreaterThanEqual(LocalDate from);
 
     List<InvestorStockDaily> findByTradeDate(LocalDate tradeDate);
+
+    List<InvestorStockDaily> findByStockCodeAndTradeDateBetween(String stockCode, LocalDate from, LocalDate to);
 }
