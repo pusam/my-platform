@@ -275,6 +275,52 @@ class InvestorFinalDataServiceTest {
     }
 
     @Test
+    @DisplayName("재현: 다음 날 아침 회차가 어제 행의 종가·등락률을 고치고 순위 행을 다시 만든다 — 저녁 값이 표의 '종가'로 남았다(11/5 NAVER 183,800 vs KRX 184,900)")
+    void morningRunFixesYesterdaysClose() {
+        stocks(320);
+        service.runScheduled("16:15");
+        org.mockito.Mockito.clearInvocations(tradeRepo);
+        // 다음 날 아침 — 금액은 그대로, 종가만 KRX 값으로 바뀌어 온다
+        LocalDate nextDay = TODAY.plusDays(1);
+        for (String code : new ArrayList<>(responses.keySet())) {
+            responses.put(code, responses.get(code).replace("\"stck_clpr\":\"100000\"", "\"stck_clpr\":\"101000\""));
+        }
+
+        newService(nextDay.atTime(7, 50)).morningRun();
+
+        assertThat(store).filteredOn(r -> r.getTradeDate().equals(TODAY)).isNotEmpty()
+                .allMatch(r -> r.getClosePrice().compareTo(new java.math.BigDecimal("101000")) == 0);
+        verify(tradeRepo).deleteByTradeDateAndInvestorType(TODAY, "FOREIGN");
+        assertThat(store).noneMatch(r -> r.getTradeDate().equals(nextDay));
+    }
+
+    @Test
+    @DisplayName("회차 요약은 금액이 바뀐 행을 따로 센다 — 종가만 바뀐 행과 섞이면 금액이 언제 확정되는지 못 본다")
+    void summaryCountsAmountChangesApart() {
+        stocks(320);
+        service.collect();
+        for (String code : new ArrayList<>(responses.keySet())) {
+            responses.put(code, responses.get(code).replace("\"stck_clpr\":\"100000\"", "\"stck_clpr\":\"101000\""));
+        }
+        assertThat(service.collect().amountChangedRows()).isZero();
+
+        responses.put("000001", ok(row(TODAY, 999).replace("100000", "101000"), row(YESTERDAY, -1).replace("100000", "101000")));
+        InvestorFinalDataService.Summary s = service.collect();
+        assertThat(s.changedRows()).isEqualTo(1);
+        assertThat(s.amountChangedRows()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("아침 회차도 휴장일엔 돌지 않는다")
+    void morningRunSkipsClosedDay() {
+        stocks(320);
+
+        newService(LocalDate.of(2026, 11, 7).atTime(7, 50)).morningRun();   // 토요일
+
+        verify(kis, never()).getInvestorTradeByStockDaily(anyString(), any());
+    }
+
+    @Test
     @DisplayName("크론 — 온전히 받았을 때만 심박을 남긴다. 멈추면 수급이 조용히 가집계로 남는다")
     void heartbeatOnlyWhenComplete() {
         stocks(320);

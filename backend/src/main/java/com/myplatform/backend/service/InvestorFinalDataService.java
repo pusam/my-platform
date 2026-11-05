@@ -73,7 +73,7 @@ public class InvestorFinalDataService {
 
     /** 한 회차 결과. {@code todayRows} = 그날 받은 종목 수, {@code changedRows} = 값이 바뀌었거나 새로 생긴 행. */
     public record Summary(int stocks, int ok, int failed, int rejected, int unknownUnit, int todayRows,
-                          int changedRows, int rebuiltDays, Set<LocalDate> skippedDays, String abortReason) {}
+                          int changedRows, int amountChangedRows, int rebuiltDays, Set<LocalDate> skippedDays, String abortReason) {}
 
     /** 1차 — 장 마감 뒤 바로. 그날 값이 아직이면 그날 행은 가집계로 남고 2차가 받는다. */
     @Scheduled(scheduler = "batchScheduler", cron = "20 15 16 * * MON-FRI", zone = "Asia/Seoul")
@@ -87,7 +87,21 @@ public class InvestorFinalDataService {
         runScheduled("18:10");
     }
 
+    /**
+     * 3차 — 다음 날 아침. 그날 행의 종가·거래량·등락률은 KIS 일봉의 그날 행처럼 저녁 내내 움직이다 다음 날 아침에야 KRX 값이 된다(2026-11-05 삼성전자
+     * 202,500 → 202,000 → 201,500). 금액은 16:15 부터 그대로지만, 그대로 두면 표의 '종가'가 다음 날 16:15 까지 저녁 값이다.
+     * 07:40 일봉 갱신 뒤, 08:00 잡들 앞. 지난 거래일까지만 쓴다({@link #collect} — 오늘 행은 장 마감 전이라 받지 않는다).
+     */
+    @Scheduled(scheduler = "batchScheduler", cron = "20 50 7 * * MON-FRI", zone = "Asia/Seoul")
+    public void morningRun() {
+        run("07:50", true);
+    }
+
     void runScheduled(String label) {
+        run(label, false);
+    }
+
+    private void run(String label, boolean beforeOpen) {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDate today = now.toLocalDate();
         if (marketCalendar.isMarketClosed(today)) {
@@ -95,7 +109,7 @@ public class InvestorFinalDataService {
             return;
         }
         // 장이 늦게 닫히는 날(수능일)은 16:15 도 장중이다
-        if (!InvestorDailyConfirmation.isConfirmedWindow(now, marketCalendar.marketCloseOf(today))) {
+        if (!beforeOpen && !InvestorDailyConfirmation.isConfirmedWindow(now, marketCalendar.marketCloseOf(today))) {
             log.info("[수급 확정치] {} 아직 장 마감 전 — 스킵", label);
             return;
         }
@@ -108,8 +122,8 @@ public class InvestorFinalDataService {
             return;
         }
         Summary s = collect();
-        log.info("[수급 확정치] {} 완료 — 종목 {} · 성공 {} · 실패 {} · 거부 {} · 단위 모름 {} · 오늘 행 {} · 바뀐 행 {} · 다시 만든 날 {}{}{}",
-                label, s.stocks(), s.ok(), s.failed(), s.rejected(), s.unknownUnit(), s.todayRows(), s.changedRows(), s.rebuiltDays(),
+        log.info("[수급 확정치] {} 완료 — 종목 {} · 성공 {} · 실패 {} · 거부 {} · 단위 모름 {} · 오늘 행 {} · 바뀐 행 {}(금액 {}) · 다시 만든 날 {}{}{}",
+                label, s.stocks(), s.ok(), s.failed(), s.rejected(), s.unknownUnit(), s.todayRows(), s.changedRows(), s.amountChangedRows(), s.rebuiltDays(),
                 s.skippedDays().isEmpty() ? "" : " · 종목이 모자라 건너뛴 날 " + s.skippedDays(),
                 s.abortReason() == null ? "" : " · 중단: " + s.abortReason());
         if (s.abortReason() == null && s.todayRows() >= MIN_STOCKS_FOR_RANKING) {
@@ -130,7 +144,7 @@ public class InvestorFinalDataService {
 
         List<String> universe = universe(from, lastClosed);
         Set<LocalDate> changedDates = new TreeSet<>();
-        int ok = 0, failed = 0, rejected = 0, unknownUnit = 0, todayRows = 0, changedRows = 0, consecutive = 0;
+        int ok = 0, failed = 0, rejected = 0, unknownUnit = 0, todayRows = 0, changedRows = 0, amountChangedRows = 0, consecutive = 0;
         String abortReason = null;
         String firstRejection = null;
 
@@ -167,6 +181,7 @@ public class InvestorFinalDataService {
                 if (row.tradeDate().equals(lastClosed)) todayRows++;
                 InvestorStockDaily existing = known.get(row.tradeDate());
                 if (existing != null && same(existing, row)) continue;
+                if (existing != null && !sameAmounts(existing, row)) amountChangedRows++;
                 InvestorStockDaily target = existing != null ? existing : InvestorStockDaily.builder()
                         .stockCode(code).tradeDate(row.tradeDate()).build();
                 target.setForeignNet(row.foreignNet());
@@ -219,7 +234,7 @@ public class InvestorFinalDataService {
             rebuilt++;
         }
         if (rebuilt > 0) investorTradeService.evictConsecutiveBuys();
-        return new Summary(universe.size(), ok, failed, rejected, unknownUnit, todayRows, changedRows, rebuilt, skipped, abortReason);
+        return new Summary(universe.size(), ok, failed, rejected, unknownUnit, todayRows, changedRows, amountChangedRows, rebuilt, skipped, abortReason);
     }
 
     /** 순위를 만들 만큼 종목 행이 있는데 FINAL 순위 행이 없는 날. */
@@ -277,12 +292,17 @@ public class InvestorFinalDataService {
     }
 
     private static boolean same(InvestorStockDaily a, InvestorFinalRows.Row b) {
-        return sameAmount(a.getForeignNet(), b.foreignNet())
-                && sameAmount(a.getInstitutionNet(), b.institutionNet())
-                && sameAmount(a.getPensionNet(), b.pensionNet())
+        return sameAmounts(a, b)
                 && sameAmount(a.getClosePrice(), b.close())
                 && sameAmount(a.getChangeRate(), b.changeRate())
                 && Objects.equals(a.getVolume(), b.volume());
+    }
+
+    /** 순매수 금액만 — 종가·거래량은 다음 날 아침까지 움직이므로 금액이 언제 확정되는지는 따로 봐야 한다. */
+    private static boolean sameAmounts(InvestorStockDaily a, InvestorFinalRows.Row b) {
+        return sameAmount(a.getForeignNet(), b.foreignNet())
+                && sameAmount(a.getInstitutionNet(), b.institutionNet())
+                && sameAmount(a.getPensionNet(), b.pensionNet());
     }
 
     private static boolean sameAmount(BigDecimal a, BigDecimal b) {
