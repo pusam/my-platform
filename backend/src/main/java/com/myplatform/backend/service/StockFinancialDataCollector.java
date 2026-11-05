@@ -81,6 +81,10 @@ public class StockFinancialDataCollector {
     /** 재무 보고서가 묵었는지 재는 오늘 — 테스트가 고정한다(고정 분기 날짜가 시간이 지나 저절로 깨지지 않게). */
     Clock clock = Clock.system(ZoneId.of("Asia/Seoul"));
 
+    /** 우선주 주식 수 — 필드 주입(없으면 보통주만으로 계산한다). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    StockStatusService stockStatusService;
+
     /**
      * 연간 결산 행을 오늘 값으로 쓸 수 있는 나이 — 12월 결산의 다음 사업보고서는 결산 뒤 약 15개월에 나오고(이듬해 3월 말
      * 제출) KIS 반영까지 조금 더 걸린다. 그보다 묵었으면 자료가 끊긴 것이다(별도재무제표 회사, 2026-11-04).
@@ -207,6 +211,22 @@ public class StockFinancialDataCollector {
         }
     }
 
+    /**
+     * EPS·BPS 의 분모 — 보통주 + 같은 회사 우선주 상장주식수(2026-11-05). 순이익·자본은 우선주 몫까지 포함한 회사 전체 값인데 KIS
+     * {@code lstn_stcn} 은 그 코드(보통주)의 주식 수라, 우선주가 있는 회사는 EPS·BPS 가 부풀고 PER·PBR 이 낮게 나왔다(현대차 PER 7.5 vs 네이버
+     * 9.64, 대신증권 2.3 vs 4.62). 보통주 수를 모르면 그대로 둔다 — 우선주만으로 나누지 않는다. 주식 수를 아직 못 읽었으면(재시작 직후) 보통주만으로
+     * 계산하고 회차 요약에 남긴다.
+     */
+    private BigDecimal perShareCount(String stockCode, BigDecimal commonShares) {
+        if (stockStatusService == null || commonShares == null || commonShares.signum() <= 0) return commonShares;
+        if (!stockStatusService.isPreferredSharesLoaded()) {
+            noteState("우선주 주식 수 미수신 — 보통주만으로 계산");
+            return commonShares;
+        }
+        long preferred = stockStatusService.preferredListedShares(stockCode);
+        return preferred > 0 ? commonShares.add(BigDecimal.valueOf(preferred)) : commonShares;
+    }
+
     /** DART 최신 보고서의 자본·자산·부채 — 없으면 null. */
     DartQuarterly.Balance dartBalance(String stockCode, LocalDate today) {
         try {
@@ -287,6 +307,7 @@ public class StockFinancialDataCollector {
             BigDecimal eps = parseBigDecimal(output.path("eps").asText());
             BigDecimal bps = parseBigDecimal(output.path("bps").asText());
             BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
+            BigDecimal shareCount = perShareCount(stockCode, lstnStcn);
 
             BigDecimal roe = BigDecimal.ZERO;
             if (bps != null && bps.compareTo(BigDecimal.ZERO) > 0 && eps != null) {
@@ -350,9 +371,9 @@ public class StockFinancialDataCollector {
             if (netIncome != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal ttmEps = netIncome
                         .multiply(new BigDecimal("100000000"))
-                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                        .divide(shareCount, 0, RoundingMode.HALF_UP);
                 log.debug("[Simple TTM EPS] {} - KIS EPS(지배주주·최근 결산): {} → TTM 연결 EPS(비지배 포함): {} (순이익: {}억, 주식수: {})",
-                        stockCode, eps, ttmEps, netIncome, lstnStcn);
+                        stockCode, eps, ttmEps, netIncome, shareCount);
                 eps = ttmEps;
 
                 if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && eps.compareTo(BigDecimal.ZERO) != 0) {
@@ -433,7 +454,7 @@ public class StockFinancialDataCollector {
                     && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal ttmBps = totalEquity
                         .multiply(new BigDecimal("100000000"))  // 억원 → 원
-                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                        .divide(shareCount, 0, RoundingMode.HALF_UP);
                 financialData.setBps(ttmBps);
                 bps = ttmBps;  // ROE 재계산용
 
@@ -458,7 +479,7 @@ public class StockFinancialDataCollector {
             boolean capitalImpaired = totalEquity != null ? totalEquity.signum() < 0 : (bps != null && bps.signum() < 0);
             if (capitalImpaired) {
                 if (totalEquity != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
-                    bps = totalEquity.multiply(new BigDecimal("100000000")).divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                    bps = totalEquity.multiply(new BigDecimal("100000000")).divide(shareCount, 0, RoundingMode.HALF_UP);
                     financialData.setBps(bps);
                 }
                 pbr = null;
@@ -478,7 +499,7 @@ public class StockFinancialDataCollector {
                 if (ctrl.netIncome() != null) {
                     BigDecimal ctrlEps = ctrl.netIncome()
                             .multiply(new BigDecimal("100000000"))  // 억원 → 원
-                            .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                            .divide(shareCount, 0, RoundingMode.HALF_UP);
                     if (ctrlEps.signum() != 0) {
                         eps = ctrlEps;
                         per = currentPrice.divide(ctrlEps, 1, RoundingMode.HALF_UP);
@@ -490,7 +511,7 @@ public class StockFinancialDataCollector {
                 if (ctrl.equity() != null && ctrl.equity().signum() > 0) {
                     BigDecimal ctrlBps = ctrl.equity()
                             .multiply(new BigDecimal("100000000"))
-                            .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                            .divide(shareCount, 0, RoundingMode.HALF_UP);
                     if (ctrlBps.signum() > 0) {
                         bps = ctrlBps;
                         pbr = currentPrice.divide(ctrlBps, 2, RoundingMode.HALF_UP);

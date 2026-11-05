@@ -145,6 +145,19 @@ class EarningsQualityTest {
     }
 
     @Test
+    @DisplayName("우선주가 있는 회사 — 시가총액은 보통주 값이고 PER 은 전체 주식 수로 만들어 비율을 곱해야 PER 이 쓴 순이익이다")
+    void perImpliedNetIncomeWithPreferredShares() {
+        // 현대차: 보통주 시가총액 607,347억 · PER 9.6 · (보통주 + 우선주) ÷ 보통주 1.292
+        assertThat(EarningsQuality.perImpliedNetIncome(new java.math.BigDecimal("607347"), new java.math.BigDecimal("9.6"), null,
+                new java.math.BigDecimal("1.292"))).isEqualByComparingTo("81738.78");
+        // 비율을 모르면 곱하지 않는다(종전)
+        assertThat(EarningsQuality.perImpliedNetIncome(new java.math.BigDecimal("409"), new java.math.BigDecimal("0.40"), null, null))
+                .isEqualByComparingTo("1022.5");
+        assertThat(EarningsQuality.perImpliedNetIncome(new java.math.BigDecimal("409"), new java.math.BigDecimal("0.40"), null, java.math.BigDecimal.ZERO))
+                .isEqualByComparingTo("1022.5");
+    }
+
+    @Test
     @DisplayName("PER 이 쓴 순이익 = 시총 ÷ PER — 디에이피 409 ÷ 0.4 = 1,022.5억(KIS 연결 −648억 대신), 모르면 행의 순이익")
     void perImpliedNetIncome() {
         assertThat(EarningsQuality.perImpliedNetIncome(new java.math.BigDecimal("409"), new java.math.BigDecimal("0.40"),

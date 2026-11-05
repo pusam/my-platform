@@ -67,8 +67,17 @@ public final class EarningsQuality {
      * 1,635종목 중 54종목이 이렇게 빠져나갔다. 시가총액·PER 을 모르면 행의 순이익(종전).
      */
     public static BigDecimal perImpliedNetIncome(BigDecimal marketCap, BigDecimal per, BigDecimal netIncome) {
+        return perImpliedNetIncome(marketCap, per, netIncome, null);
+    }
+
+    /**
+     * @param shareCountRatio (보통주 + 우선주) ÷ 보통주 — 우선주가 있는 회사의 PER 은 전체 주식 수로 만들지만 {@code market_cap} 은 보통주 시가총액이라
+     *                        곱해야 PER 이 쓴 순이익이 나온다(현대차 약 1.29, 2026-11-05). 모르면 null(곱하지 않는다).
+     */
+    public static BigDecimal perImpliedNetIncome(BigDecimal marketCap, BigDecimal per, BigDecimal netIncome, BigDecimal shareCountRatio) {
         if (marketCap != null && marketCap.signum() > 0 && per != null && per.signum() > 0) {
-            return marketCap.divide(per, 2, java.math.RoundingMode.HALF_UP);
+            BigDecimal cap = shareCountRatio == null || shareCountRatio.signum() <= 0 ? marketCap : marketCap.multiply(shareCountRatio);
+            return cap.divide(per, 2, java.math.RoundingMode.HALF_UP);
         }
         return netIncome;
     }

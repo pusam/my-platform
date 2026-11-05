@@ -16,6 +16,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -115,6 +116,13 @@ public class StockStatusService {
     private volatile boolean haltGateLoaded = false;
 
     /**
+     * 우선주가 상장된 회사의 주식 수(보통주 코드 → 보통주·우선주, 2026-11-05) — EPS·BPS 의 분모다({@code StockFinancialDataCollector}).
+     * 마스터 동기화가 성공할 때 통째로 바꾼다. 재시작하면 부팅 동기화까지 비어 있다({@link #isPreferredSharesLoaded()}).
+     */
+    private volatile Map<String, ListedShares> preferredShareCompanies = Map.of();
+    private volatile boolean preferredSharesLoaded = false;
+
+    /**
      * 종목이 정상 거래 가능한지 확인
      * - 동기화 전이면 true 반환 (안전 모드)
      * - 동기화 후에는 상장 목록에 있는 종목만 true
@@ -152,6 +160,28 @@ public class StockStatusService {
      */
     public boolean isHaltGateLoaded() {
         return haltGateLoaded;
+    }
+
+    /** 우선주 주식 수를 한 번이라도 읽었는가 — 아니면 {@link #preferredListedShares} 의 0 은 '없다'가 아니라 '모른다'다. */
+    public boolean isPreferredSharesLoaded() {
+        return preferredSharesLoaded;
+    }
+
+    /** 그 회사의 우선주 상장주식수(주) — 보통주 코드로 묻는다. 우선주가 없거나 모르면 0. */
+    public long preferredListedShares(String stockCode) {
+        ListedShares shares = stockCode == null ? null : preferredShareCompanies.get(stockCode);
+        return shares == null ? 0L : shares.preferred();
+    }
+
+    /**
+     * (보통주 + 우선주) ÷ 보통주 — 우선주가 없거나 모르면 1. {@code market_cap} 은 그 코드(보통주) 시가총액이라 EPS·BPS 와 분모가 다르다.
+     * 시가총액 ÷ PER 로 순이익을 되짚을 때 이 값을 곱한다({@link EarningsQuality#perImpliedNetIncome}).
+     */
+    public BigDecimal shareCountRatio(String stockCode) {
+        ListedShares shares = stockCode == null ? null : preferredShareCompanies.get(stockCode);
+        if (shares == null || shares.common() <= 0) return BigDecimal.ONE;
+        return BigDecimal.valueOf(shares.common() + shares.preferred())
+                .divide(BigDecimal.valueOf(shares.common()), 6, java.math.RoundingMode.HALF_UP);
     }
 
     /**
@@ -356,17 +386,18 @@ public class StockStatusService {
         log.info("[종목상태] 상장종목 동기화 시작(KIS 종목마스터)...");
         Set<String> newActiveCodes = ConcurrentHashMap.newKeySet();
         Set<String> newMasterHalts = new HashSet<>();
+        Map<String, ListedShares> newPreferredShares = new HashMap<>();
 
         try {
             // KOSPI 종목 수집
-            Set<String> kospiCodes = fetchMarketStockList(MARKET_KOSPI, KOSPI_LAYOUT, newMasterHalts);
+            Set<String> kospiCodes = fetchMarketStockList(MARKET_KOSPI, KOSPI_LAYOUT, newMasterHalts, newPreferredShares);
             log.info("[종목상태] KOSPI 종목 {}건 수집", kospiCodes.size());
 
             // 1초 딜레이 (연속 다운로드 부하 완화)
             Thread.sleep(1000);
 
             // KOSDAQ 종목 수집
-            Set<String> kosdaqCodes = fetchMarketStockList(MARKET_KOSDAQ, KOSDAQ_LAYOUT, newMasterHalts);
+            Set<String> kosdaqCodes = fetchMarketStockList(MARKET_KOSDAQ, KOSDAQ_LAYOUT, newMasterHalts, newPreferredShares);
             log.info("[종목상태] KOSDAQ 종목 {}건 수집", kosdaqCodes.size());
 
             // ⚠ 시장별 게이트(2026-08-21 리뷰 B-5) — 아래 합산 <100 게이트는 "한 시장만 실패"를 원리적으로
@@ -398,7 +429,27 @@ public class StockStatusService {
         log.info("[종목상태] 동기화 완료 — 총 {}건 ({})", activeStockCodes.size(), lastSyncTime);
 
         applyMasterHalts(newMasterHalts, newActiveCodes.size());
+        applyMasterPreferredShares(newPreferredShares);
         refreshVolumeHalts();
+    }
+
+    /** 우선주 주식 수 교체 — 회사 수가 이상하면 칸 위치가 바뀐 것으로 보고 이전 값을 유지한다(틀린 분모로 EPS 를 만드는 게 더 나쁘다). */
+    private void applyMasterPreferredShares(Map<String, ListedShares> next) {
+        if (!plausiblePreferredCompanies(next.size())) {
+            log.warn("[종목상태] 마스터 우선주 칸 {}개 회사 — 비정상이라 쓰지 않는다(레코드 형식 변경 의심, 이전 {}개 유지)",
+                    next.size(), preferredShareCompanies.size());
+            return;
+        }
+        if (next.size() != preferredShareCompanies.size()) {
+            log.info("[종목상태] 우선주가 상장된 회사 {}개 (이전 {}개)", next.size(), preferredShareCompanies.size());
+        }
+        preferredShareCompanies = Map.copyOf(next);
+        preferredSharesLoaded = true;
+    }
+
+    /** 우선주가 상장된 회사 수가 말이 되는가 — 11/5 실측 98. 0 이면 칸을 못 읽은 것이다. 순수 함수. */
+    static boolean plausiblePreferredCompanies(int companies) {
+        return companies >= 30 && companies <= 500;
     }
 
     /** 마스터 거래정지 목록 교체 — 비정상적으로 많으면 칸 위치가 바뀐 것으로 보고 이전 목록을 유지한다(멀쩡한 종목을 통째로 막는 게 더 나쁘다). */
@@ -473,8 +524,10 @@ public class StockStatusService {
      * @param market   {@link #MARKET_KOSPI} 또는 {@link #MARKET_KOSDAQ}
      * @param layout   그 시장 파일의 끝 구역 형식
      * @param haltsOut 거래정지·정리매매 코드를 더할 곳
+     * @param preferredOut 우선주가 상장된 회사의 주식 수를 더할 곳
      */
-    private Set<String> fetchMarketStockList(String market, MasterLayout layout, Set<String> haltsOut) {
+    private Set<String> fetchMarketStockList(String market, MasterLayout layout, Set<String> haltsOut,
+                                             Map<String, ListedShares> preferredOut) {
         String url = String.format(KIS_MASTER_URL, market);
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -495,6 +548,12 @@ public class StockStatusService {
                         market, zip.length);
             }
             haltsOut.addAll(readZippedMasterHalts(zip, layout));
+            try {
+                preferredOut.putAll(readZippedMasterPreferredShares(zip, layout));
+            } catch (Exception e) {
+                // 주식 수를 못 읽었다고 상장 목록을 버리지 않는다 — 이 메서드의 실패는 동기화 전체를 취소한다
+                log.warn("[종목상태] KIS 마스터 {} 우선주 칸 읽기 실패 — {}", market, e.getMessage());
+            }
             return codes;
         } catch (Exception e) {
             log.warn("[종목상태] KIS 마스터 {} 조회 실패 — {}: {}",
@@ -527,17 +586,71 @@ public class StockStatusService {
         return Collections.emptySet();
     }
 
+    /** zip 안 첫 파일 엔트리를 우선주가 상장된 회사의 주식 수로. <b>순수 함수(테스트 대상)</b>. */
+    static Map<String, ListedShares> readZippedMasterPreferredShares(byte[] zipBytes, MasterLayout layout) throws IOException {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.isDirectory()) continue;
+                return parseMasterPreferredShares(zis, layout);
+            }
+        }
+        return Collections.emptyMap();
+    }
+
     /**
      * 마스터 파일 끝 고정폭 구역의 형식 — 공식 샘플 {@code kis_kospi_code_mst.py}·{@code kis_kosdaq_code_mst.py} 의 field_specs 합계와 위치
      * (줄바꿈 제외). 정리매매 칸은 거래정지 바로 뒤다. 실측 대조(2026-11-04): STX·멤레이비티·이오플로우 Y(네이버 거래정지 일치), 삼성전자·알테오젠 N.
+     * 주식 수 칸은 천 주 단위다(2026-11-05 실측: 삼성전자 5,846,278 · 삼성전자우 802,371 · 현대차 203,466).
      *
-     * @param tailWidth  끝 구역 길이
-     * @param haltOffset 끝 구역 안 거래정지 칸 위치
+     * @param tailWidth       끝 구역 길이
+     * @param haltOffset      끝 구역 안 거래정지 칸 위치
+     * @param sharesOffset    끝 구역 안 상장주수 칸(15자) 위치
+     * @param preferredOffset 끝 구역 안 우선주 칸 위치 — '0' 이 보통주, 1·2·9 가 우선주
      */
-    record MasterLayout(int tailWidth, int haltOffset) {}
+    record MasterLayout(int tailWidth, int haltOffset, int sharesOffset, int preferredOffset) {}
 
-    static final MasterLayout KOSPI_LAYOUT = new MasterLayout(227, 60);
-    static final MasterLayout KOSDAQ_LAYOUT = new MasterLayout(221, 55);
+    static final MasterLayout KOSPI_LAYOUT = new MasterLayout(227, 60, 113, 158);
+    static final MasterLayout KOSDAQ_LAYOUT = new MasterLayout(221, 55, 108, 153);
+
+    /** 우선주가 상장된 회사의 주식 수(주). */
+    record ListedShares(long common, long preferred) {}
+
+    /**
+     * KIS 종목마스터(.mst) → 보통주 코드별 주식 수 — 우선주가 상장된 회사만. <b>순수 함수(테스트 대상)</b>.
+     *
+     * <p>우선주 코드는 앞 5자리가 보통주와 같고 끝이 다르다(005380 현대차 → 005385·005387·005389, 000880 한화 → 00088K). 짝인 보통주가 파일에
+     * 없으면 넣지 않는다. 주권(그룹 ST)만 본다 — ETF·ETN·리츠에는 우선주가 없다. 칸을 못 읽으면 그 줄을 건너뛴다. 스트림을 닫지 않는다.
+     */
+    static Map<String, ListedShares> parseMasterPreferredShares(InputStream mstStream, MasterLayout layout) throws IOException {
+        Map<String, Long> commons = new HashMap<>();
+        Map<String, Long> preferreds = new HashMap<>();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(mstStream, StandardCharsets.ISO_8859_1));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (line.length() < layout.tailWidth() + 9) continue;
+            String code = line.substring(0, 9).trim();
+            if (!isShortCode(code)) continue;
+            String tail = line.substring(line.length() - layout.tailWidth());
+            if (!tail.startsWith("ST")) continue;
+            long shares;
+            try {
+                shares = Long.parseLong(tail.substring(layout.sharesOffset(), layout.sharesOffset() + 15).trim()) * 1000L;
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (shares <= 0) continue;
+            char kind = tail.charAt(layout.preferredOffset());
+            if (kind == '0') commons.put(code, shares);
+            else if (kind != ' ') preferreds.merge(code.substring(0, 5) + "0", shares, Long::sum);
+        }
+        Map<String, ListedShares> out = new HashMap<>();
+        preferreds.forEach((base, preferred) -> {
+            Long common = commons.get(base);
+            if (common != null) out.put(base, new ListedShares(common, preferred));
+        });
+        return out;
+    }
 
     /**
      * KIS 종목마스터(.mst) → 거래정지·정리매매 종목코드 집합. <b>순수 함수(테스트 대상)</b>.

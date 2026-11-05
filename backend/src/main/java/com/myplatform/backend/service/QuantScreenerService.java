@@ -83,7 +83,8 @@ public class QuantScreenerService {
         for (StockFinancialData s : rows) {
             // 순이익은 PER 이 실제로 쓴 값(시총 ÷ PER) — 지배주주 PER 과 KIS 연결 순이익이 갈리면 그 이익을 못 봤다(2026-10-07, 디에이피)
             EarningsQuality.Verdict v = EarningsQuality.judge(s.getRevenue(), s.getOperatingProfit(),
-                    EarningsQuality.perImpliedNetIncome(s.getMarketCap(), s.getPer(), s.getNetIncome()));
+                    EarningsQuality.perImpliedNetIncome(s.getMarketCap(), s.getPer(), s.getNetIncome(),
+                            stockStatusService.shareCountRatio(s.getStockCode())));
             if (v == EarningsQuality.Verdict.NON_OPERATING_DOMINANT) nonOperating++;
             else if (v == EarningsQuality.Verdict.OPERATING_EXCEEDS_REVENUE) exceedsRevenue++;
             // 이익 급증(2026-10-07) — 한 해의 이익이 PER 을 끌어내리고(PEG 면 성장률까지 올려) 순위 1등이 되던 것. 순이익 증가율이 없으면

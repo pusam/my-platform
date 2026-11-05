@@ -1197,9 +1197,11 @@ public class RecommendationService {
     /**
      * PER 이 실제로 쓴 순이익(억원) — 시가총액 ÷ PER(같은 행, 둘 다 양수일 때). 지배주주 기준(CTRL) PER 은 DART 순이익이라 행의
      * net_income(KIS 연결)과 다를 수 있어, 이익의 질을 PER 과 같은 순이익으로 판정하려고 쓴다. 못 구하면 행의 net_income.
+     * 우선주가 있는 회사는 시가총액(보통주)과 PER(전체 주식 수)의 분모가 달라 비율을 곱한다.
      */
-    static BigDecimal perImpliedNetIncome(StockFinancialData fin) {
-        return EarningsQuality.perImpliedNetIncome(fin.getMarketCap(), fin.getPer(), fin.getNetIncome());   // 단일 출처
+    private BigDecimal perImpliedNetIncome(StockFinancialData fin) {
+        return EarningsQuality.perImpliedNetIncome(fin.getMarketCap(), fin.getPer(), fin.getNetIncome(),
+                stockStatusService.shareCountRatio(fin.getStockCode()));   // 단일 출처
     }
 
     private static final Comparator<ValueScoredStock> VALUE_ORDER = Comparator

@@ -113,6 +113,21 @@ class QuantScreenerEarningsQualityTest {
     }
 
     @Test
+    @DisplayName("우선주가 있는 회사는 시가총액 ÷ PER 에 주식 수 비율을 곱해 판정한다 — 안 곱하면 PER 분모를 바꾼 뒤로 순이익이 작게 잡혀 왜곡이 빠져나간다")
+    void judgesPreferredCompanyWithFullShareCount() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        // 시가총액 600 · PER 3 → 보통주 기준 200억이면 영업이익 120억의 2배 안, 비율 1.5 를 곱하면 300억이라 왜곡이다
+        when(stockStatusService.shareCountRatio("000001")).thenReturn(new BigDecimal("1.5"));
+        when(stockFinancialDataRepository.findForMagicFormula(any())).thenReturn(List.of(
+                magicWithCap("000001", "우선주있음", "3.00", "20.00", "1000", "120", "100", "600"),
+                magicWithCap("000002", "우선주없음", "3.00", "20.00", "1000", "120", "100", "600")));
+
+        List<ScreenerResultDto> results = service.getMagicFormulaStocks(10, null);
+
+        assertThat(results).extracting(ScreenerResultDto::getStockCode).containsExactly("000002");
+    }
+
+    @Test
     @DisplayName("재현: 순이익이 전년보다 2배 넘게 는 종목은 마법의 공식에서 빠진다 — 액토즈소프트 +540%(10/7 AI 스윙 2위), 증가율 모르는 쇼박스는 남는다")
     void magicFormulaExcludesEarningsSpike() {
         when(stockStatusService.isActive(anyString())).thenReturn(true);
