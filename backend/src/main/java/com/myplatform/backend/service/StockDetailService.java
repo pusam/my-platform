@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -77,6 +78,9 @@ public class StockDetailService {
     private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(20, 0);   // NXT 애프터마켓 종료
     private static final LocalTime MARKET_PRE_OPEN_TIME = LocalTime.of(8, 0); // NXT 프리마켓 시작
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
+    /** 장전·장후 판정 시각 — 테스트가 고정한다. 프롬프트 기대값이 실행 시각을 타서 07:57 CI 가 깨졌다(2026-11-06). */
+    private Clock clock = Clock.system(KST);
 
     /**
      * 종목 종합 상세 조회
@@ -1095,24 +1099,24 @@ public class StockDetailService {
     }
 
     /**
-     * 장 마감 여부 확인 (15:30 이후)
+     * 장 마감 여부 확인 (NXT 애프터마켓 20:00 이후)
      */
     private boolean isAfterMarketHours() {
-        LocalTime now = LocalTime.now(KST);
+        LocalTime now = LocalTime.now(clock);
         return now.isAfter(MARKET_CLOSE_TIME);
     }
 
     /**
-     * 장전 여부 (08:50 이전이면 당일 수급 데이터 아직 없음)
+     * 장전 여부 (NXT 프리마켓 08:00 이전이면 당일 거래가 아직 없음)
      */
     private boolean isBeforeMarketHours() {
-        LocalTime now = LocalTime.now(KST);
+        LocalTime now = LocalTime.now(clock);
         return now.isBefore(preOpenTimeToday());
     }
 
-    /** 장전 경계 — 평소 08:50, 장이 늦게 열리는 날(수능일)은 개장 10분 전. */
+    /** 장전 경계 — 평소 08:00, 장이 늦게 열리는 날(수능일)은 개장 10분 전. */
     private LocalTime preOpenTimeToday() {
-        LocalTime open = marketCalendar != null ? marketCalendar.marketOpenOf(java.time.LocalDate.now(KST)) : null;
+        LocalTime open = marketCalendar != null ? marketCalendar.marketOpenOf(java.time.LocalDate.now(clock)) : null;
         return open != null && open.isAfter(MarketCalendarService.MARKET_OPEN)
                 ? open.minusMinutes(10) : MARKET_PRE_OPEN_TIME;
     }

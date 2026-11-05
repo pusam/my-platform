@@ -61,6 +61,9 @@ class RecommendationSettledChangeRateTest {
         ReflectionTestUtils.setField(service, "stockPriceService", prices);
         ReflectionTestUtils.setField(service, "stockAnalysisService", mock(StockAnalysisService.class));
         ReflectionTestUtils.setField(service, "marketCalendar", CALENDAR);
+        StockStatusService status = mock(StockStatusService.class);
+        when(status.isActive(any())).thenReturn(true);
+        ReflectionTestUtils.setField(service, "stockStatusService", status);
         // 목(mock)은 필드 초기화를 건너뛴다 — 수집 예약 집합(2026-10-19)·수집 경고 상태(2026-11-03)는 직접 넣는다
         ReflectionTestUtils.setField(service, "priceHistoryCollecting", java.util.concurrent.ConcurrentHashMap.newKeySet());
         ReflectionTestUtils.setField(service, "lastStaleCollectKey", new java.util.concurrent.atomic.AtomicReference<>(""));

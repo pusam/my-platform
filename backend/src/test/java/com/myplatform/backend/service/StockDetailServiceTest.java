@@ -498,6 +498,18 @@ class StockDetailServiceTest {
     @org.junit.jupiter.api.DisplayName("AI 프롬프트 정합 (2026-07-10)")
     class AiPromptIntegrity {
 
+        /** 프롬프트는 장전·장중·장후로 갈린다 — 시각을 고정하지 않으면 기대값이 실행 시각을 탄다(07:57 CI 실패, 2026-11-06). */
+        @BeforeEach
+        void duringSession() {
+            clockAt(10, 0);
+        }
+
+        private void clockAt(int hour, int minute) {
+            java.time.ZoneId kst = java.time.ZoneId.of("Asia/Seoul");
+            org.springframework.test.util.ReflectionTestUtils.setField(stockDetailService, "clock",
+                    java.time.Clock.fixed(java.time.LocalDateTime.of(2026, 11, 6, hour, minute).atZone(kst).toInstant(), kst));
+        }
+
         private com.myplatform.backend.dto.StockDetailDto dtoWith(String dataSource, BigDecimal foreignNetBuy) {
             var price = com.myplatform.backend.dto.StockDetailDto.PriceInfo.builder()
                     .currentPrice(new BigDecimal("70000")).changeRate(BigDecimal.ZERO).build();
@@ -568,6 +580,16 @@ class StockDetailServiceTest {
             assertThat(prompt).contains("외국인 순매수: 미집계")
                     .contains("최근 5거래일 누적 수급 — 외국인 +937억, 기관 -120억")
                     .doesNotContain("장전 미거래");
+        }
+
+        @Test
+        @DisplayName("08:00 전이면 장전 문구로 간다 — 거래량·고저시가를 실측처럼 주지 않는다")
+        void beforePreOpenUsesPreMarketLines() {
+            clockAt(7, 57);
+
+            String prompt = stockDetailService.buildGeminiPrompt(dtoWith("실시간", new BigDecimal("100")));
+
+            assertThat(prompt).contains("장전(당일 미거래)").contains("거래량/고저시가: 장전 미거래");
         }
 
         @Test

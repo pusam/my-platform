@@ -54,6 +54,7 @@ class StockDetailClosedDayTest {
         MarketCalendarService calendar = mock(MarketCalendarService.class);
         when(calendar.isMarketClosed()).thenReturn(true);
         ReflectionTestUtils.setField(service, "marketCalendar", calendar);
+        ReflectionTestUtils.setField(service, "clock", java.time.Clock.system(java.time.ZoneId.of("Asia/Seoul")));   // 목은 필드 초기화를 건너뛴다
 
         StockDetailDto.PriceInfo price = new StockDetailDto.PriceInfo();
         price.setCurrentPrice(new java.math.BigDecimal("70000"));
