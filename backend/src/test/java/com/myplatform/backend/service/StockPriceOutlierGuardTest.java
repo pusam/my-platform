@@ -159,6 +159,46 @@ class StockPriceOutlierGuardTest {
     }
 
     @Nested
+    @DisplayName("저장가가 오래됐으면 배수는 오염의 증거가 아니다(2026-11-06)")
+    class StaleAnchor {
+        private void givenSavedPriceDaysAgo(String price, int days) {
+            StockPrice sp = new StockPrice();
+            sp.setCurrentPrice(new BigDecimal(price));
+            sp.setFetchedAt(com.myplatform.core.util.DateTimeUtil.kstNow().minusDays(days));
+            when(stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(CODE)).thenReturn(Optional.of(sp));
+        }
+
+        private long warnCount() {
+            return appender.list.stream().filter(e -> e.getLevel() == Level.WARN).count();
+        }
+
+        @Test
+        @DisplayName("재현: 뉴로메카 — 9개월 전 저장가 98,000 대비 0.14배가 '응답 일괄 배수 오염 강력 의심' ERROR 였다. 섹터 표에 새로 들어와 처음 시세를 받았을 뿐이다")
+        void nineMonthsOldAnchorIsNotContamination() {
+            givenSavedPriceDaysAgo("98000", 274);
+            StockPriceDto d = dto(new BigDecimal("13620"), new BigDecimal("14000"), new BigDecimal("13360"), new BigDecimal("-7.97"));
+
+            invokeGuard(rawOutput("13620", "14000", "13360", "14800", "-7.97"), d);
+
+            assertThat(errorCount()).isZero();
+            assertThat(warnCount()).isEqualTo(1);
+            assertThat(appender.list.get(appender.list.size() - 1).getFormattedMessage()).contains("저장가가 오래돼");
+            verifyNoInteractions(kisService);
+        }
+
+        @Test
+        @DisplayName("며칠 안 된 저장가면 종전대로 ERROR — 7일 안엔 상하한으로 만들 수 없는 배수다")
+        void recentAnchorStillFires() {
+            givenSavedPriceDaysAgo("70000", 3);
+            StockPriceDto d = dto(new BigDecimal("700000"), new BigDecimal("710000"), new BigDecimal("690000"), new BigDecimal("0.5"));
+
+            invokeGuard(rawOutput("700000", "710000", "690000", "697000", "0.5"), d);
+
+            assertThat(errorCount()).isGreaterThanOrEqualTo(1);
+        }
+    }
+
+    @Nested
     @DisplayName("기준2: 정상 종목(소폭 등락) → 절대 미발화")
     class NormalStock {
         @Test

@@ -80,6 +80,9 @@ public class StockPriceService {
 
     // 분봉 거래대금 캐시 (종목코드_분 -> {거래대금, 캐시시간})
     private final ConcurrentHashMap<String, MinuteTradingCache> minuteTradingCache = new ConcurrentHashMap<>();
+    /** 가격 이상치 그물 3 의 저장가 유효 기간(일) — {@link #anchorTooOld}. */
+    private static final int OUTLIER_ANCHOR_MAX_AGE_DAYS = 7;
+
     private static final int MINUTE_CACHE_SECONDS = 300;  // 5분간 캐시 (섹터 흐름은 급변하지 않음)
 
     // 분봉 캐시용 내부 클래스
@@ -1129,6 +1132,14 @@ public class StockPriceService {
      * raw 필드를 로그에 남겨 원인을 확정할 수 있게 한다. <b>가격은 보정하지 않는다</b> —
      * 잘못 보정하면 정상 종목을 훼손하므로 탐지·경고만 수행.
      */
+    /**
+     * 저장가가 배수 비교의 앵커가 되기엔 오래됐나 — 5배·0.2배는 상하한 ±30% 로 5~6거래일이면 닿는다. 그물 3 의 임계가 '불가능한 수준'인 것은 그 안에서뿐이다. 순수.
+     * 저장 시각을 모르면 종전대로 앵커로 쓴다.
+     */
+    static boolean anchorTooOld(LocalDateTime anchorAt, LocalDateTime now) {
+        return anchorAt != null && anchorAt.isBefore(now.minusDays(OUTLIER_ANCHOR_MAX_AGE_DAYS));
+    }
+
     private void warnIfPriceOutlier(String stockCode, JsonNode output, StockPriceDto dto) {
         try {
             BigDecimal cur = dto.getCurrentPrice();
@@ -1175,15 +1186,20 @@ public class StockPriceService {
             //   임계 5배/0.2배: 6 연속 상한가도 불가능한 수준이라 정상 등락 오탐 없음.
             //   (신규상장 공모가 대비 최대 4배 밴드보다도 위 → IPO 첫날도 안전)
             try {
-                java.util.Optional<BigDecimal> prevOpt = stockPriceRepository
+                java.util.Optional<StockPrice> prevOpt = stockPriceRepository
                         .findTopByStockCodeOrderByFetchedAtDesc(stockCode)
-                        .map(StockPrice::getCurrentPrice)
-                        .filter(prev -> prev != null && prev.compareTo(BigDecimal.ZERO) > 0);
+                        .filter(p -> p.getCurrentPrice() != null && p.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0);
                 if (prevOpt.isPresent()) {
-                    BigDecimal prev = prevOpt.get();
+                    BigDecimal prev = prevOpt.get().getCurrentPrice();
                     BigDecimal ratio = cur.divide(prev, 2, java.math.RoundingMode.HALF_UP);
-                    if (ratio.compareTo(new BigDecimal("5")) >= 0
-                            || ratio.compareTo(new BigDecimal("0.2")) <= 0) {
+                    boolean atRatio = ratio.compareTo(new BigDecimal("5")) >= 0
+                            || ratio.compareTo(new BigDecimal("0.2")) <= 0;
+                    LocalDateTime anchorAt = prevOpt.get().getFetchedAt();
+                    if (atRatio && anchorTooOld(anchorAt, DateTimeUtil.kstNow())) {
+                        // 며칠 지난 저장가와의 배수는 오염의 증거가 아니다 — 11/6 뉴로메카: 9개월 전 98,000 대비 0.14배가 ERROR 였다(§7 ⑭ 오진과 같은 부류)
+                        log.warn("[가격이상] {} 현재가 {} 가 {} 저장가 {} 의 {}배 — 저장가가 오래돼 판단하지 않는다(액면변경·연속 상하한일 수 있다). KIS raw: {}",
+                                stockCode, cur, anchorAt.toLocalDate(), prev, ratio, raw);
+                    } else if (atRatio) {
                         outlierDetected = true;
                         log.error("[가격이상] {} 현재가 {} 가 직전 저장가 {} 의 {}배 — 응답 일괄 배수 오염 강력 의심. KIS raw: {}",
                                 stockCode, cur, prev, ratio, raw);
