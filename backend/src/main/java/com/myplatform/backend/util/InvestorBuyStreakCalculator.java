@@ -39,7 +39,7 @@ public final class InvestorBuyStreakCalculator {
      * 연속 순매수일. 순수 함수.
      *
      * @param tradeDates     데이터가 존재하는 거래일 목록(정렬 무관). 이 투자자의 수집 캘린더.
-     * @param buyDates       해당 종목이 이 투자자의 BUY(순매수 상위) 목록에 든 거래일 집합.
+     * @param buyDates       해당 종목을 이 투자자가 순매수한 거래일 집합 — 순위 행에 확정치를 덮은 값({@link ConfirmedNetBuys}).
      * @param isMarketClosed 휴장일 판정(주말+휴일) — 휴장일은 결측이 아니라 정상 공백.
      * @return 최신 데이터일부터 연속 매수 일수(0 이상). 거래일 {@value #MIN_DATA_DAYS} 미만이면 null.
      */

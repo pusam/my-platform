@@ -1,9 +1,12 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.entity.InvestorDailyTrade;
+import com.myplatform.backend.entity.InvestorStockDaily;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
+import com.myplatform.backend.util.ConfirmedNetBuys;
 import com.myplatform.backend.util.InvestorBuyStreakCalculator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +27,7 @@ import java.util.Set;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class InvestorBuyStreakService {
 
     /** 조회 윈도우(일) — 연속일 계산에 넉넉한 창(약 4주 거래일). */
@@ -34,6 +38,10 @@ public class InvestorBuyStreakService {
 
     private final InvestorDailyTradeRepository repository;
     private final MarketCalendarService marketCalendar;
+
+    /** 종목별 수급 확정치 — 있으면 순위 행 위에 덮어 센다({@link com.myplatform.backend.util.ConfirmedNetBuys}). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.myplatform.backend.repository.InvestorStockDailyRepository investorStockDailyRepository;
 
     /** 외인/기관 연속 순매수일. null=데이터 부족(§4c) / 0=최신일 순매수 아님. */
     public record Streaks(Integer foreign, Integer institution) {
@@ -49,6 +57,10 @@ public class InvestorBuyStreakService {
         List<InvestorDailyTrade> rows = repository.findByStockCodeAndDateRange(stockCode, start, LocalDate.now());
         Set<LocalDate> foreignBuy = buyDates(rows, FOREIGN);
         Set<LocalDate> instBuy = buyDates(rows, INSTITUTION);
+        for (InvestorStockDaily row : confirmedRows(List.of(stockCode), start)) {
+            ConfirmedNetBuys.overlay(foreignBuy, row, FOREIGN);
+            ConfirmedNetBuys.overlay(instBuy, row, INSTITUTION);
+        }
 
         List<LocalDate> foreignCal = repository.findDistinctBuyTradeDatesSince(FOREIGN, start);
         List<LocalDate> instCal = repository.findDistinctBuyTradeDatesSince(INSTITUTION, start);
@@ -73,6 +85,10 @@ public class InvestorBuyStreakService {
                 buyDatesByCode(repository.findBuyTradesByStockCodesAndInvestorSince(codes, FOREIGN, start));
         Map<String, Set<LocalDate>> instBuyByCode =
                 buyDatesByCode(repository.findBuyTradesByStockCodesAndInvestorSince(codes, INSTITUTION, start));
+        for (InvestorStockDaily row : confirmedRows(codes, start)) {
+            ConfirmedNetBuys.overlay(foreignBuyByCode.computeIfAbsent(row.getStockCode(), k -> new HashSet<>()), row, FOREIGN);
+            ConfirmedNetBuys.overlay(instBuyByCode.computeIfAbsent(row.getStockCode(), k -> new HashSet<>()), row, INSTITUTION);
+        }
 
         for (String code : codes) {
             if (code == null) continue;
@@ -83,6 +99,17 @@ public class InvestorBuyStreakService {
             out.put(code, new Streaks(f, i));
         }
         return out;
+    }
+
+    /** 종목별 확정치 — 조회가 실패하면 순위 행만으로 센다. */
+    private List<InvestorStockDaily> confirmedRows(Collection<String> codes, LocalDate start) {
+        if (investorStockDailyRepository == null) return List.of();
+        try {
+            return investorStockDailyRepository.findByStockCodeInAndTradeDateBetween(codes, start, LocalDate.now());
+        } catch (Exception e) {
+            log.warn("[연속 순매수] 확정치 조회 실패 — 순위 행으로 센다: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     private static Set<LocalDate> buyDates(List<InvestorDailyTrade> rows, String investorType) {

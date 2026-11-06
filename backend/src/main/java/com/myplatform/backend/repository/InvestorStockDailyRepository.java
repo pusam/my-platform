@@ -4,6 +4,7 @@ import com.myplatform.backend.entity.InvestorStockDaily;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 /** 종목별 투자자 확정치 저장소 — {@code InvestorFinalDataService}. */
@@ -14,4 +15,6 @@ public interface InvestorStockDailyRepository extends JpaRepository<InvestorStoc
     List<InvestorStockDaily> findByTradeDate(LocalDate tradeDate);
 
     List<InvestorStockDaily> findByStockCodeAndTradeDateBetween(String stockCode, LocalDate from, LocalDate to);
+
+    List<InvestorStockDaily> findByStockCodeInAndTradeDateBetween(Collection<String> stockCodes, LocalDate from, LocalDate to);
 }

@@ -5,6 +5,7 @@ import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.InvestorDataStatusDto;
 import com.myplatform.backend.dto.InvestorTradeDto;
 import com.myplatform.backend.dto.StockInvestorDetailDto;
+import com.myplatform.backend.util.ConfirmedNetBuys;
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import lombok.RequiredArgsConstructor;
@@ -283,6 +284,17 @@ public class InvestorTradeService {
             return investorStockDailyRepository.findByStockCodeAndTradeDateBetween(stockCode, from, to);
         } catch (Exception e) {
             log.warn("[투자자 상세] {} 확정치 조회 실패 — 순위 행으로 보인다: {}", stockCode, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** 여러 종목의 확정치 — 조회가 실패하면 순위 행만으로 센다. */
+    private List<com.myplatform.backend.entity.InvestorStockDaily> confirmedRows(Collection<String> stockCodes, LocalDate from, LocalDate to) {
+        if (investorStockDailyRepository == null || stockCodes.isEmpty()) return List.of();
+        try {
+            return investorStockDailyRepository.findByStockCodeInAndTradeDateBetween(stockCodes, from, to);
+        } catch (Exception e) {
+            log.warn("[연속 순매수] 확정치 조회 실패 — 순위 행으로 센다: {}", e.getMessage());
             return List.of();
         }
     }
@@ -652,6 +664,20 @@ public class InvestorTradeService {
                                 (a, b) -> a
                         )
                 ));
+
+        // 일수는 확정치로 — 순위 행은 그날 상위 30 에 든 날만 있어 순위 밖으로 밀린 날 연속이 끊겼다(2026-11-06).
+        // 목록에 드는 종목은 그대로 최근 거래일 순위 안이다(후보군은 위에서 순위 행으로 정했다).
+        for (com.myplatform.backend.entity.InvestorStockDaily row : confirmedRows(candidateStocks, startDate, latestDate)) {
+            BigDecimal net = ConfirmedNetBuys.netOf(row, investorType);
+            if (net == null) continue;
+            Set<String> stocksOnDate = dailyStocks.computeIfAbsent(row.getTradeDate(), k -> new HashSet<>());
+            if (net.signum() > 0) {
+                stocksOnDate.add(row.getStockCode());
+                stockDailyAmounts.computeIfAbsent(row.getStockCode(), k -> new HashMap<>()).put(row.getTradeDate(), net);
+            } else {
+                stocksOnDate.remove(row.getStockCode());
+            }
+        }
 
         // 연속 매수 종목 찾기
         List<ConsecutiveBuyDto> result = new ArrayList<>();

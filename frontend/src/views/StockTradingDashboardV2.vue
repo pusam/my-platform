@@ -427,7 +427,7 @@
           </div>
           <!-- 연속매수 종목 -->
           <div v-if="supplyPanelData.consecutive.length" class="supply-consecutive">
-            <div class="supply-sub-title">연속 순매수 종목<span v-if="supplyPanelData.consecutiveThrough"> · {{ supplyPanelData.consecutiveThrough }}</span></div>
+            <div class="supply-sub-title">연속 순매수 종목(그날 상위 30 안)<span v-if="supplyPanelData.consecutiveThrough"> · {{ supplyPanelData.consecutiveThrough }}</span></div>
             <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode + item.investorType"
                  class="supply-stock-row" role="button" tabindex="0"
                  @click="goToStock(item.stockCode)" @keydown.enter.self="goToStock(item.stockCode)" @keydown.space.self.prevent="goToStock(item.stockCode)">

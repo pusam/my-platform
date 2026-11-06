@@ -133,6 +133,8 @@
             </button>
           </div>
 
+          <p class="hint">그날 순매수 상위 30 안의 종목입니다. 연속 일수는 종목별 확정치로 세며, 순위 밖으로 밀린 날도 순매수면 이어집니다.</p>
+
           <div v-if="currentConsecStocks.length > 0" class="stocks-grid">
             <!-- 키보드로도 연다(2026-10-01 — 마우스로만 열렸다). 안에 다른 버튼이 없어 카드 자체가 버튼이다 -->
             <div v-for="stock in currentConsecStocks" :key="stock.stockCode"
