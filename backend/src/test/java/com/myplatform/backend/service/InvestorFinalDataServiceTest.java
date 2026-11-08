@@ -275,21 +275,24 @@ class InvestorFinalDataServiceTest {
     }
 
     @Test
-    @DisplayName("재현: 다음 날 아침 회차가 어제 행의 종가·등락률을 고치고 순위 행을 다시 만든다 — 저녁 값이 표의 '종가'로 남았다(11/5 NAVER 183,800 vs KRX 184,900)")
-    void morningRunFixesYesterdaysClose() {
+    @DisplayName("다음 거래일 16:15 회차가 어제 행의 종가·금액을 고치고 순위 행을 다시 만든다 — 아침엔 KIS 가 이 API 를 거부해 그 전엔 고칠 길이 없다(11/5 행 910개 중 610개 금액이 다음 날 달랐다)")
+    void nextDayAfterCloseFixesYesterdaysRows() {
         stocks(320);
         service.runScheduled("16:15");
         org.mockito.Mockito.clearInvocations(tradeRepo);
-        // 다음 날 아침 — 금액은 그대로, 종가만 KRX 값으로 바뀌어 온다
+        // 다음 날 — 어제 행의 종가가 KRX 값으로, 한 종목은 금액까지 바뀌어 온다
         LocalDate nextDay = TODAY.plusDays(1);
         for (String code : new ArrayList<>(responses.keySet())) {
             responses.put(code, responses.get(code).replace("\"stck_clpr\":\"100000\"", "\"stck_clpr\":\"101000\""));
         }
+        responses.put("000001", ok(row(TODAY, 999).replace("100000", "101000"), row(YESTERDAY, -1).replace("100000", "101000")));
 
-        newService(nextDay.atTime(7, 50)).morningRun();
+        newService(nextDay.atTime(16, 15)).runScheduled("16:15");
 
         assertThat(store).filteredOn(r -> r.getTradeDate().equals(TODAY)).isNotEmpty()
                 .allMatch(r -> r.getClosePrice().compareTo(new java.math.BigDecimal("101000")) == 0);
+        assertThat(store).filteredOn(r -> r.getTradeDate().equals(TODAY) && r.getStockCode().equals("000001"))
+                .singleElement().satisfies(r -> assertThat(r.getForeignNet()).isEqualByComparingTo("999"));
         verify(tradeRepo).deleteByTradeDateAndInvestorType(TODAY, "FOREIGN");
         assertThat(store).noneMatch(r -> r.getTradeDate().equals(nextDay));
     }
@@ -311,11 +314,12 @@ class InvestorFinalDataServiceTest {
     }
 
     @Test
-    @DisplayName("아침 회차도 휴장일엔 돌지 않는다")
-    void morningRunSkipsClosedDay() {
+    @DisplayName("KIS 가 받지 않는 시각(00:00~15:40)엔 부르지 않는다 — 11/9 07:50 아침 회차가 30건 전부 'TIME LIMIT 00:00 ~ 15:40' 으로 거부됐다")
+    void noCallBeforeKisWindow() {
         stocks(320);
 
-        newService(LocalDate.of(2026, 11, 7).atTime(7, 50)).morningRun();   // 토요일
+        newService(LocalDate.of(2026, 11, 9).atTime(7, 50)).runScheduled("07:50");    // 월요일 아침
+        newService(LocalDate.of(2026, 11, 9).atTime(15, 39)).runScheduled("15:39");
 
         verify(kis, never()).getInvestorTradeByStockDaily(anyString(), any());
     }

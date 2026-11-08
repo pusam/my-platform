@@ -18,6 +18,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -54,6 +55,11 @@ public class InvestorFinalDataService {
     static final int LOOKBACK_DAYS = 45;
     /** 호출 사이 간격 — 잔고·공시 모니터가 끼어들 틈을 남긴다. */
     static final long CALL_INTERVAL_MS = 150;
+    /**
+     * KIS 가 이 API(FHPTJ04160001)를 받기 시작하는 시각 — 00:00~15:40 엔 'TIME LIMIT 00:00 ~ 15:40' 으로 거부한다
+     * (2026-11-09 07:50 아침 회차 30건 전부 거부). 회차는 이 시각 뒤 자정 전에만 둔다({@code InvestorFinalScheduleWindowTest}).
+     */
+    static final LocalTime KIS_OPENS_AT = LocalTime.of(15, 40);
 
     private final KoreaInvestmentService koreaInvestmentService;
     private final InvestorStockDailyRepository stockDailyRepository;
@@ -75,7 +81,10 @@ public class InvestorFinalDataService {
     public record Summary(int stocks, int ok, int failed, int rejected, int unknownUnit, int todayRows,
                           int changedRows, int amountChangedRows, int rebuiltDays, Set<LocalDate> skippedDays, String abortReason) {}
 
-    /** 1차 — 장 마감 뒤 바로. 그날 값이 아직이면 그날 행은 가집계로 남고 2차가 받는다. */
+    /**
+     * 1차 — 장 마감 뒤 바로. 그날 값이 아직이면 그날 행은 가집계로 남고 2차가 받는다. 응답에 지난 날짜들이 같이 오므로
+     * 전날 행의 종가·금액이 밤사이 바뀌었으면 이 회차가 고친다(11/5 행 910개 중 610개 금액이 다음 날 달랐다, LIG넥스원 기관 −111억 → +309억).
+     */
     @Scheduled(scheduler = "batchScheduler", cron = "20 15 16 * * MON-FRI", zone = "Asia/Seoul")
     public void afterClose() {
         runScheduled("16:15");
@@ -87,29 +96,26 @@ public class InvestorFinalDataService {
         runScheduled("18:10");
     }
 
-    /**
-     * 3차 — 다음 날 아침. 그날 행의 종가·거래량·등락률은 KIS 일봉의 그날 행처럼 저녁 내내 움직이다 다음 날 아침에야 KRX 값이 된다(2026-11-05 삼성전자
-     * 202,500 → 202,000 → 201,500). 금액도 18:10 뒤에 한 번 더 바뀌므로(11/5 행 910개 중 610개, LIG넥스원 기관 −111억 → +309억) 그대로 두면 표의 '종가'와 금액이 다음 날 16:15 까지 전날 저녁 값이다.
-     * 07:40 일봉 갱신 뒤, 08:00 잡들 앞. 지난 거래일까지만 쓴다({@link #collect} — 오늘 행은 장 마감 전이라 받지 않는다).
-     */
-    @Scheduled(scheduler = "batchScheduler", cron = "20 50 7 * * MON-FRI", zone = "Asia/Seoul")
-    public void morningRun() {
-        run("07:50", true);
-    }
+    // 아침 회차(07:50)는 두지 않는다 — KIS 가 이 API 를 00:00~15:40 엔 거부한다(11/6 에 넣었다가 11/9 첫 회차가 전부 거부돼 뺐다).
+    // 전날 행의 종가·금액은 다음 거래일 16:15 회차가 고친다.
 
     void runScheduled(String label) {
-        run(label, false);
+        run(label);
     }
 
-    private void run(String label, boolean beforeOpen) {
+    private void run(String label) {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDate today = now.toLocalDate();
         if (marketCalendar.isMarketClosed(today)) {
             log.info("[수급 확정치] {} 휴장일 — 스킵", label);
             return;
         }
+        if (now.toLocalTime().isBefore(KIS_OPENS_AT)) {
+            log.info("[수급 확정치] {} KIS 가 15:40 전엔 이 API 를 받지 않는다 — 스킵", label);
+            return;
+        }
         // 장이 늦게 닫히는 날(수능일)은 16:15 도 장중이다
-        if (!beforeOpen && !InvestorDailyConfirmation.isConfirmedWindow(now, marketCalendar.marketCloseOf(today))) {
+        if (!InvestorDailyConfirmation.isConfirmedWindow(now, marketCalendar.marketCloseOf(today))) {
             log.info("[수급 확정치] {} 아직 장 마감 전 — 스킵", label);
             return;
         }
