@@ -1724,6 +1724,26 @@ public class StockDetailService {
     /**
      * Gemini 프롬프트 구성 (실제 데이터 요약)
      */
+    /**
+     * 현재가가 각 이평선 위인지 아래인지 — 순수(2026-11-09). 모르는 이평선(null·0 이하)은 빼고,
+     * 현재가를 모르거나 이평선을 하나도 모르면 null(줄을 만들지 않는다, §4c).
+     */
+    static String maPositionLine(BigDecimal current, BigDecimal ma5, BigDecimal ma20, BigDecimal ma60) {
+        if (current == null || current.signum() <= 0) return null;
+        List<String> parts = new ArrayList<>();
+        addMaPosition(parts, "MA5", current, ma5);
+        addMaPosition(parts, "MA20", current, ma20);
+        addMaPosition(parts, "MA60", current, ma60);
+        if (parts.isEmpty()) return null;
+        return String.format("현재가 %,d원 위치: %s", current.longValue(), String.join(" · ", parts));
+    }
+
+    private static void addMaPosition(List<String> parts, String name, BigDecimal current, BigDecimal ma) {
+        if (ma == null || ma.signum() <= 0) return;
+        int cmp = current.compareTo(ma);
+        parts.add(name + (cmp > 0 ? " 위" : cmp < 0 ? " 아래" : " 같음"));
+    }
+
     String buildGeminiPrompt(StockDetailDto dto) {   // package-private: 프롬프트 정합 테스트용
         StringBuilder sb = new StringBuilder();
         // ★ 분석 기준일 명시 주입 — LLM 이 날짜를 발명(예: 2년 전)하지 않게 서버 오늘/세션 앵커 제공(§4c).
@@ -1817,6 +1837,10 @@ public class StockDetailService {
                     c.getMa20() != null ? c.getMa20() : "N/A",
                     c.getMa60() != null ? c.getMa60() : "N/A",
                     c.getVwap() != null ? c.getVwap() : "N/A"));
+            // 현재가와 이평선의 위아래를 문장으로(2026-11-09) — 숫자만 주자 AI 가 "214,000원이 MA5 208,600·MA20 206,475 를
+            // 하향 돌파"라고 썼다(삼성에스디에스). 비교는 여기서 한다 — 모델이 숫자 크기를 다시 견주지 않게.
+            String position = maPositionLine(current, c.getMa5(), c.getMa20(), c.getMa60());
+            if (position != null) sb.append(position).append("\n");
 
             // 현재가 대비 MA 괴리율
             if (current != null) {

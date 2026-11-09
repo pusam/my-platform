@@ -565,6 +565,37 @@ class StockDetailServiceTest {
             assertThat(prompt).contains("볼린저: 상단 260071.64, 하단 196178.36").doesNotContain("145029.26");
         }
 
+        /**
+         * 재현(운영 11/9 17:08 삼성에스디에스 018260): 현재가 214,000 · MA5 208,600 · MA20 206,475 · MA60 219,395 인데
+         * AI 차트 해석이 "MA5(208,600원)와 MA20(206,475원)을 하향 돌파하며 단기 하락 추세"라고 썼다(분석 캐시 15분 — 낡은 값 아님).
+         * 프롬프트는 숫자와 MA20·MA60 괴리율만 줬다 — 위아래를 계산하지 않고 문장으로 준다.
+         */
+        @Test
+        @DisplayName("재현(11/9): 현재가가 각 이평선 위인지 아래인지를 문장으로 준다 — 숫자만 주자 AI 가 위아래를 거꾸로 썼다")
+        void promptStatesPricePositionAgainstMovingAverages() {
+            var dto = dtoWith("실시간", new BigDecimal("100"));
+            dto.getPrice().setCurrentPrice(new BigDecimal("214000"));
+            dto.setChartData(com.myplatform.backend.dto.StockDetailDto.ChartData.builder()
+                    .ma5(new BigDecimal("208600")).ma20(new BigDecimal("206475")).ma60(new BigDecimal("219395")).build());
+
+            String prompt = stockDetailService.buildGeminiPrompt(dto);
+
+            assertThat(prompt).contains("현재가 214,000원 위치: MA5 위 · MA20 위 · MA60 아래");
+        }
+
+        @Test
+        @DisplayName("이평선을 모르면 그 칸은 빼고, 셋 다 모르면 위치 줄을 만들지 않는다")
+        void positionLineSkipsUnknownAverages() {
+            var dto = dtoWith("실시간", new BigDecimal("100"));
+            dto.getPrice().setCurrentPrice(new BigDecimal("214000"));
+            dto.setChartData(com.myplatform.backend.dto.StockDetailDto.ChartData.builder()
+                    .ma20(new BigDecimal("214000")).ma60(new BigDecimal("219395")).build());
+            assertThat(stockDetailService.buildGeminiPrompt(dto)).contains("현재가 214,000원 위치: MA20 같음 · MA60 아래");
+
+            dto.setChartData(com.myplatform.backend.dto.StockDetailDto.ChartData.builder().build());
+            assertThat(stockDetailService.buildGeminiPrompt(dto)).doesNotContain("위치:");
+        }
+
         @Test
         @DisplayName("재현: 장중엔 외국인·기관 당일 값이 없다 — '미집계'만 주지 않고 5일 누적을 같이 준다(2026-11-04)")
         void intradayMissingSupplyAdds5Day() {
