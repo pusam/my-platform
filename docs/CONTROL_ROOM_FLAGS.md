@@ -38,22 +38,6 @@ flags:
     recorded_on: 2026-09-28
     ref: stock_price_history
 
-  - id: external-feed-sweep-2026-08-31
-    severity: info
-    title: 외부 소스 생존 스위프 결과 — 죽은 곳 2, 산식 영향 없음
-    key: 외부소스
-    body: >
-      KRX 건(죽은 엔드포인트가 몇 달 조용히 썩음)을 계기로 코드 안 외부 HTTP 엔드포인트를
-      전수 시험했다(2026-08-31, 키 필요한 DART·네이버검색·KIS 는 로그로 생존 확인).
-      죽은 곳 — ① CNN 공포탐욕(418 "You're a bot" 봇차단 — 2026-10-02 재확인 시 정상 응답, 점수 28 표시): GlobalFuturesPage 표시 전용,
-      실패 처리 정직(success:false, 카드 숨김), 산식 무관. 살리려면 대체 소스가 필요하다.
-      ② 한경 RSS(403 Cloudflare): NewsService 3개 피드 중 하나 — 매경·etnews 는 정상이라
-      뉴스 흐름 유지. 살아있는 곳 — wisereport(분기재무 크롤 92KB — 이후 2026-09-23 은퇴)·m.stock API·
-      야후차트(간밤미국장)·네이버 시세크롤(ADR — 이후 9/11 사망, 10/2 KIS 국내업종 현재지수로 교체)·구글뉴스RSS·매경·etnews·KIS마스터·KIND.
-      조치 불요 — 둘 다 §4c 준수 확인됨. 대체 소스를 찾으면 그때 별건으로.
-    recorded_on: 2026-08-31
-    ref: GlobalFuturesService.getFearGreedIndex, NewsService RSS_FEEDS
-
   - id: weekly-report-week-hole-2026-08-16
     severity: warning
     title: 주간 리포트에 8/16 주 구멍 — 따라잡기로는 안 메워진다
@@ -70,22 +54,6 @@ flags:
       산식 판단이라 사람이 정할 일이다. 그때까지 12주 추세 해석 시 8/16 결측을 인지할 것.
     recorded_on: 2026-08-28
     ref: SignalWeeklyReportService.weeklyReportCatchUp, SignalWeeklyReportServiceTest catchUpFillsCurrentTargetNotTheMissedWeek
-
-  - id: earnings-source-switched-2026-08-28
-    severity: info
-    title: 실적 분기소스 켬 (2026-08-28) — 이 날짜가 측정 표본의 경계다
-    key: R1
-    body: >
-      recommendation.earnings.quarterly-source 를 true 로 전환했다. 전환 시점 실측 —
-      커버리지 2,289종목 · TURNAROUND 209→103(연속 적자 조건으로 한 분기 삐끗 106건 제거) ·
-      POSITIVE 625 · NEGATIVE 610 · 임계 ±20% 미변경.
-      **2026-08-28 이후 시그널만 "현재 산식의 성적"이다.** 이전 표본은 earnings 가
-      ~90종목으로만 돌던 시기라 섞으면 안 된다 — 밴드 적중률·대조군 비교·주간 리포트 해석 시 인지할 것.
-      임계(±20%)는 일부러 안 건드렸다. 어느 값이 옳은지는 forward 성과가 필요하고,
-      근거 없이 올리면 출처 없는 상수가 하나 더 생긴다. 재판정일 2026-10-05.
-      되돌리려면 .env 에서 그 줄을 지우고 docker compose up -d backend (restart 아님).
-    recorded_on: 2026-08-28
-    ref: docs/SCHEDULE_DECISIONS.md 판정 기록 2026-08-28
 
   - id: future-dated-annual-rows
     severity: info
@@ -119,48 +87,4 @@ flags:
       필요하면 감지기 오프라인 재실행(순수 함수 + 일봉만 사용)으로 재구성해야 한다.
     recorded_on: 2026-08-05
     ref: VERIFICATION_BACKLOG P2-20
-
-  - id: outage-2026-08-20-measurement-gap
-    severity: warning
-    title: 2026-08-20~24 서버 다운으로 수집·측정에 5일 공백
-    key: 표본공백
-    body: >
-      호스트 다운(8/20 오후~8/24 12:04) 동안 수집 배치가 전혀 돌지 않아 수급·가격·시그널·대조군 표본에
-      5일 구멍이 있다. 복구 후 자동으로 메워지지 않는 축(그날그날 스냅샷을 쌓는 것들)은 영구 결손이다.
-      대조군 첫 판정(확인일 2026-09-07, 트리거 n>=30) 전에 그 구간을 제외할지 포함할지 먼저 정할 것 —
-      "쌓였다"고도 "0"이라고도 단정하지 말고 실제 행 수를 확인해야 한다.
-      복구 당일(8/24) 08:30 종목상태(KRX 동기화)도 건너뛰어 그날 하루는 거래정지 게이트가 fail-open 이었다.
-    recorded_on: 2026-08-25
-    ref: memory/audit-2026-08-21.md, DiagnosticsController /api/diagnostics/data
-
-  - id: sample-influx-baseline-shift
-    severity: warning
-    title: 표본 유입 기준선이 2026-07-28 부로 바뀌었다 (붕괴 아님, 부풀림 제거)
-    key: 기준선
-    body: >
-      시그널 유입이 7월 일 4~10건에서 8월 일 1~2건으로 떨어졌다. 원인은 2026-07-28 배포다 —
-      추천 신뢰성 감사 12건(8523ed1, 후보를 깎는 방향) + 어제 스냅샷 무한 노출 수정(16a1589).
-      후자 때문에 7/28 이전에는 컷 통과 0건일 때 어제 후보가 종일 재노출돼 같은 후보가 반복
-      기록됐다. 즉 7월 수치가 부풀려진 것이고 지금이 정상이다.
-      → 7/28 이전 유입을 기준선으로 쓰지 말 것. "유입이 회복되면 판정한다"는 전제는 성립하지 않는다.
-      표본 기반 판정(대조군 n>=30 / RVOL / 캡10)은 전부 이 속도에 종속되므로 기한도 이 기준으로 잡는다.
-    recorded_on: 2026-08-26
-    ref: git 8523ed1 · 16a1589, docs/SCHEDULE_DECISIONS.md 표본 유입 기준선
-
-  - id: control-group-universe-asymmetry
-    severity: warning
-    title: 대조군 비대칭 수정됨(8/31) — 표본 경계 9/1, 첫 판정 연기
-    key: 대조군
-    body: >
-      2026-08-31 해소(사용자 결정 ① — 편향된 기준선으로 낼 첫 판정은 어차피 다시 해야 한다).
-      비대칭 두 가지를 대칭화 — ① 유니버스에 최근성 조건(마지막 봉 7일 이내): 수집 끊긴 종목은
-      시그널이 나올 수 없는데 대조군에는 뽑혔다 ② 시세를 시그널과 같은 5분 신선 캐시 전용으로
-      (이전엔 대조군만 신규 KIS 호출까지 감행해 죽은/저유동 종목 가격을 떠왔다).
-      **측정 표본 경계 = 2026-09-01** — 그 전 대조군은 base rate 가 낮은 쪽으로 편향(edge 과대 방향)이라
-      비교창을 섞으면 안 된다. 첫 판정은 9/1 이후 표본으로 양쪽 n>=30 재충족 시(9월 하순 예상).
-      확인 — 배포 후 CONTROL_RANDOM 유입이 계속되는지(엄격해진 게이트로 표본 유입이 다소 줄 수 있음,
-      8회→12회 재시도로 완화), 오염가드(signal_score IS NOT NULL = 0건)는 불변인지.
-      ⚠ 9월 하순 첫 판정 후 이 항목을 지울 것.
-    recorded_on: 2026-08-31
-    ref: ControlGroupService, StockPriceHistoryRepository.findActiveStockCodesWithMinHistory
 ```
