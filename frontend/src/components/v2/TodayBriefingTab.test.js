@@ -324,6 +324,22 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(warn.text()).toContain('⚠리스크공시')
   })
 
+  // 2026-11-10 재현(운영 08:18 파세코): 시장 국면 가중 내부 태그가 'regime:BULL' 그대로 카드에 보였다.
+  it('재현: 국면 가중 태그는 사람 말로 — "regime:BULL" 이 그대로 보이지 않는다', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({
+      data: { ...top5Response.data, data: [
+        { stockCode: '082740', stockName: '파세코', totalScore: 58, tags: ['흑자전환', '골든크로스', 'regime:BULL'] },
+        { stockCode: '000660', stockName: 'SK하이닉스', totalScore: 61, tags: ['regime:BEAR'] }
+      ] }
+    })
+    const w = await mountTab()
+    const text = w.findAll('.cc-tag').map(t => t.text()).join(' ')
+    expect(text).not.toContain('regime:')
+    expect(text).toContain('강세장 가중')
+    expect(text).toContain('약세장 가중')
+  })
+
   it('포지션 있으면 요약 표시 + 평가손익 합산', async () => {
     stubAll({ portfolio: { data: { success: true, data: [
       { stockCode: '005930', stockName: '삼성전자', quantity: 10, profitLoss: 50000, profitRate: 7.1 },

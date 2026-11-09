@@ -439,9 +439,13 @@ const toggleYoutube = async (code) => {
   }
 };
 
+// 시장 국면 가중이 걸렸다는 내부 태그 — 사람 말로(2026-11-10). 예전엔 'regime:BULL' 이 그대로 카드에 보였다(운영 08:18 파세코).
+// 태그 자체는 서버 진단(getCacheDiagnostics)이 읽으므로 서버는 그대로 둔다.
+const TAG_LABELS = { 'regime:BULL': '강세장 가중', 'regime:BEAR': '약세장 가중' };
+
 /** 태그 표시 — ⚠ 경고 태그 우선(잘림 방지), 최대 3개. */
 const displayTags = (c) => {
-  const tags = c.tags || [];
+  const tags = (c.tags || []).map(t => TAG_LABELS[t] || t);
   const warn = tags.filter(t => typeof t === 'string' && t.startsWith('⚠'));
   const rest = tags.filter(t => !warn.includes(t));
   return [...warn, ...rest].slice(0, 3);
