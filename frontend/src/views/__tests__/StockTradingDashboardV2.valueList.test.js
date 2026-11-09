@@ -56,6 +56,16 @@ describe('발굴 탭 💎저평가 목록', () => {
     expect(ctx.valueTop10).toHaveLength(1)
   })
 
+  it('재현(11/10): 상위가 전부 만점이라 순서는 PER → PBR 인데 카드엔 그 값이 없었다 — 카드가 PER·PBR 을 보인다', () => {
+    const src = readFileSync(join(process.cwd(), 'src/views/StockTradingDashboardV2.vue'), 'utf8')
+    expect(src).toContain('{{ valueMultiplesLine(rec) }}')
+    expect(Comp.methods.valueMultiplesLine({ valuePer: 1.3, valuePbr: 0.18 })).toBe('PER 1.3배 · PBR 0.18배')
+    // 하나만 모르면 '-', 둘 다 모르면 줄을 만들지 않는다(0 은 결측 — §4c)
+    expect(Comp.methods.valueMultiplesLine({ valuePer: null, valuePbr: 0.5 })).toBe('PER - · PBR 0.50배')
+    expect(Comp.methods.valueMultiplesLine({ valuePer: 0, valuePbr: null })).toBeNull()
+    expect(Comp.methods.valueMultiplesLine({})).toBeNull()
+  })
+
   it('목록이 무엇을 재는지·성과 검증 전이라는 문구를 보인다', () => {
     const src = readFileSync(join(process.cwd(), 'src/views/StockTradingDashboardV2.vue'), 'utf8')
     expect(src).toContain('{{ VALUE_LIST_BASIS }}')

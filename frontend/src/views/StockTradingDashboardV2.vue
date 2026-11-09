@@ -197,6 +197,8 @@
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
+                <!-- 순서를 정한 PER·PBR(2026-11-10) — 상위가 전부 만점이라 순서는 이 값으로 정해진다 -->
+                <span v-if="valueMultiplesLine(rec)" class="rec-multiples">{{ valueMultiplesLine(rec) }}</span>
                 <div class="rec-tags">
                   <span v-for="(tag, ti) in (rec.tags || []).slice(0, 4)" :key="'vt-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
                 </div>
@@ -643,7 +645,7 @@ import {
   recommendationAPI, stockDetailAPI, quantTaAPI, stockAPI
 } from '../utils/api'
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
-import { topNetSum, supplyBasisLabel, supplyTotalNote, consecutiveThroughLabel, VALUE_LIST_BASIS } from '../utils/marketDataLabels'
+import { topNetSum, supplyBasisLabel, supplyTotalNote, consecutiveThroughLabel, VALUE_LIST_BASIS, valueMultiplesLine } from '../utils/marketDataLabels'
 import { kstDateOf, closedTodayFromStatus, closedOn } from '../utils/marketPhase'
 import { closeBasisLabel, todayKstIso } from '../utils/stockFormat'
 
@@ -1060,6 +1062,7 @@ export default {
     }
   },
   methods: {
+    valueMultiplesLine,
     // ---- 차트 신호 universe 로드: watchlist 우선, 비었으면 거래량 상위 fallback ----
     async loadChartSignals() {
       try {
@@ -2113,6 +2116,7 @@ export default {
 }
 .rec-info { flex: 1; min-width: 0; }
 .rec-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
+.rec-multiples { display: block; font-size: 12px; color: rgba(255,255,255,0.65); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .rec-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
 .rec-tag {
   font-size: 11px; padding: 1px 6px; border-radius: 4px;

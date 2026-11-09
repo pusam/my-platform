@@ -1123,6 +1123,8 @@ public class RecommendationService {
                 .valueRoeCombinedScore(vs.roeCombinedScore)
                 .valueDebtScore(vs.debtScore)
                 .valueProfitEquityScore(vs.profitEquityScore)
+                .valuePer(vs.per)
+                .valuePbr(vs.pbr)
                 .build()).toList();
     }
 
@@ -3131,6 +3133,10 @@ public class RecommendationService {
         private Integer valueRoeCombinedScore;     // 0~5
         private Integer valueDebtScore;            // 0~4
         private Integer valueProfitEquityScore;    // 0~3
+        // 저평가 TOP 10 전용 — 동점 순서를 정한 PER·PBR(양수만, 모르면 null)(2026-11-10). 상위 10 이 전부 만점(20점)이라
+        // 순서는 PER → PBR 로 정해지는데 카드엔 그 값이 없어 왜 1위인지 알 수 없었다. 표시 전용.
+        private BigDecimal valuePer;
+        private BigDecimal valuePbr;
         // 성장주 TOP 10 전용 — 3 항목 점수 분해 (UI 막대 그래프용). 그 외 트랙은 null.
         private Integer growthRevScore;            // 0~7 (매출성장률)
         private Integer growthProfitScore;         // 0~8 (이익성장률)

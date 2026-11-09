@@ -211,6 +211,17 @@ export function multipleOrDash(v, digits = 1) {
 }
 
 /**
+ * 💎저평가 카드의 'PER 1.3배 · PBR 0.18배'(2026-11-10). 상위 10 이 전부 만점이라 순서는 PER → PBR 로 정해지는데(VALUE_LIST_BASIS)
+ * 카드엔 그 값이 없어 왜 1위인지 알 수 없었다. 둘 다 모르면 null — 줄을 만들지 않는다.
+ */
+export function valueMultiplesLine(rec) {
+  const per = multipleOrDash(rec?.valuePer, 1)
+  const pbr = multipleOrDash(rec?.valuePbr, 2)
+  if (per === '-' && pbr === '-') return null
+  return `PER ${per} · PBR ${pbr}`
+}
+
+/**
  * 종목 상세 PER·PBR 아래 '최근 실적 기준' 줄(2026-10-07). 큰 숫자는 KIS 최근 결산(연간) EPS·BPS 기준이고, 이 줄은 점수·목록
  * (저평가·AI 스윙·마법의 공식)이 쓰는 재무 행 — 최근 4분기 이익·최근 분기 자본 — 을 지금 주가로 다시 나눈 값이다(백엔드 단일
  * 출처 StockDetailService.recentMultiples). 이익이 크게 변한 해엔 몇 배씩 다르다(삼성전자 10/7: 결산 41.4 · 최근 4분기 10.6).

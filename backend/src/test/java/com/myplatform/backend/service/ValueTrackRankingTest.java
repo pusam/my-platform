@@ -136,4 +136,26 @@ class ValueTrackRankingTest {
 
         assertThat(top10(new ArrayList<>(input))).containsExactly("225590", "079960", "069730");
     }
+
+    @Test
+    @DisplayName("재현(11/10): 상위가 전부 만점이라 순서는 PER → PBR 인데 카드엔 그 값이 없었다 — 순서를 정한 PER·PBR 을 싣는다")
+    void cardCarriesTheMultiplesThatSetTheOrder() {
+        when(financials.findRecentPerStock(anyInt())).thenReturn(rows());
+        List<RecommendationService.RecommendationDto> result = ReflectionTestUtils.invokeMethod(service, "calculateValueTop10");
+
+        RecommendationService.RecommendationDto first = result.get(0);
+        assertThat(first.getStockCode()).isEqualTo("052790");
+        assertThat(first.getValuePer()).isEqualByComparingTo("1.0");
+        assertThat(result).allSatisfy(r -> {
+            assertThat(r.getValuePer()).isNotNull();
+            assertThat(r.getValuePbr()).isNotNull();
+        });
+        // 화면이 보는 순서와 같다 — PER 오름차순(동점이면 PBR 오름차순)
+        for (int i = 1; i < result.size(); i++) {
+            RecommendationService.RecommendationDto prev = result.get(i - 1), cur = result.get(i);
+            int per = prev.getValuePer().compareTo(cur.getValuePer());
+            assertThat(per <= 0).isTrue();
+            if (per == 0) assertThat(prev.getValuePbr().compareTo(cur.getValuePbr()) <= 0).isTrue();
+        }
+    }
 }
