@@ -70,12 +70,32 @@ class MarketTimingDailyRatioTest {
     }
 
     @Test
-    @DisplayName("등락비 계산식 보존 — divide(scale 2)×100: 457/333 → 1.37 → 137.00")
-    void applyDailyRatio_keepsOriginalFormula() {
+    @DisplayName("등락비는 ×100 뒤에 소수 둘째 자리로 — 457/333 = 137.24(예전엔 1.37 로 먼저 잘라 137.00)")
+    void applyDailyRatio_roundsAfterScaling() {
         MarketStatusDto s = status(MarketCondition.NORMAL);
 
         BigDecimal ratio = MarketTimingService.applyDailyRatio(s, 457, 333);
 
-        assertThat(ratio).isEqualByComparingTo("137.00");
+        assertThat(ratio).isEqualByComparingTo("137.24");
+    }
+
+    /**
+     * 2026-11-09 16:30 운영 수집값 — 코스피 상승 340·하락 530, 코스닥 상승 837·하락 838.
+     * 비율을 소수 둘째 자리(0.64·1.00)로 먼저 자르고 100 을 곱해 '오늘' 탭 진단 문장이 '코스피 등락비 64.0 · 코스닥 100.0' 이었다
+     * — 하락 종목이 더 많은 날의 코스닥이 '상승 = 하락'으로 읽혔다(실제 99.88).
+     */
+    @Test
+    @DisplayName("운영 11/9 등락 수 — 코스피 64.15, 코스닥 99.88(100.00 아님)")
+    void dailyRatioOf_realCountsOf20261109() {
+        assertThat(MarketTimingService.dailyRatioOf(340, 530)).isEqualByComparingTo("64.15");
+        assertThat(MarketTimingService.dailyRatioOf(837, 838)).isEqualByComparingTo("99.88");
+        assertThat(MarketTimingService.dailyRatioOf(837, 838)).isLessThan(new BigDecimal("100"));
+    }
+
+    @Test
+    @DisplayName("분모(하락 종목) 0 이하면 모름(null) — 상승 0 은 0.00 이라는 값")
+    void dailyRatioOf_edges() {
+        assertThat(MarketTimingService.dailyRatioOf(500, 0)).isNull();
+        assertThat(MarketTimingService.dailyRatioOf(0, 900)).isEqualByComparingTo("0.00");
     }
 }

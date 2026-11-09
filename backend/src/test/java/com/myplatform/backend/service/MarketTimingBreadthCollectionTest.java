@@ -101,7 +101,7 @@ class MarketTimingBreadthCollectionTest {
         assertThat(kospi.getDecliningCount()).isEqualTo(1302);
         assertThat(kospi.getUnchangedCount()).isEqualTo(74);
         assertThat(kospi.getTotalCount()).isEqualTo(1904);
-        assertThat(kospi.getDailyRatio()).isEqualByComparingTo("41.00");   // 528/1302 = 0.41 → ×100
+        assertThat(kospi.getDailyRatio()).isEqualByComparingTo("40.55");   // 528/1302 × 100 = 40.55(예전엔 0.41 로 먼저 잘라 41.00)
         assertThat(kospi.getIndexClose()).isEqualByComparingTo("6985.62");
     }
 

@@ -499,11 +499,7 @@ public class MarketTimingService {
         if (indexInfo[0] != null) status.setIndexClose(indexInfo[0]);
         if (indexInfo[1] != null) status.setIndexChangeRate(indexInfo[1]);
         if (indexInfo[2] != null) status.setTradingValue(indexInfo[2]);
-        status.setDailyRatio(counts.declining() > 0
-                ? BigDecimal.valueOf(counts.advancing())
-                        .divide(BigDecimal.valueOf(counts.declining()), 2, RoundingMode.HALF_UP)
-                        .multiply(new BigDecimal("100"))
-                : null);
+        status.setDailyRatio(dailyRatioOf(counts.advancing(), counts.declining()));
         marketDailyStatusRepository.save(status);
 
         // ADR 은 오늘 행까지 넣어 다시 계산(같은 트랜잭션이라 방금 저장한 행이 창에 들어간다)
@@ -784,11 +780,20 @@ public class MarketTimingService {
         if (status == null || dec <= 0) {
             return null;
         }
-        BigDecimal dailyRatio = BigDecimal.valueOf(adv)
-                .divide(BigDecimal.valueOf(dec), 2, RoundingMode.HALF_UP)
-                .multiply(new BigDecimal("100"));
+        BigDecimal dailyRatio = dailyRatioOf(adv, dec);
         status.setDailyRatio(dailyRatio);
         return dailyRatio;
+    }
+
+    /**
+     * 당일 등락비(상승 ÷ 하락 × 100) — 순수. 하락 종목이 0 이하면 모름(null).
+     * ×100 을 먼저 하고 소수 둘째 자리로 반올림한다(2026-11-09) — 예전엔 비율을 0.64·1.00 으로 먼저 잘라 정수만 남았고,
+     * 그날 코스닥(상승 837·하락 838)이 '등락비 100.0' 으로 보였다(실제 99.88).
+     */
+    static BigDecimal dailyRatioOf(int adv, int dec) {
+        if (dec <= 0) return null;
+        return BigDecimal.valueOf(adv).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(dec), 2, RoundingMode.HALF_UP);
     }
 
     /**
