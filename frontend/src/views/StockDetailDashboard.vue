@@ -422,7 +422,7 @@
               <!-- 값 = 진단 종합점수 − 리스크×0.3(아래 safetyScore) — 안전성을 잰 값이 아니라 이름에 계산을 밝힌다(2026-10-03) -->
               <h2 title="진단 종합점수에서 리스크 점수의 30%를 뺀 값 — 검증된 안전성 지표가 아닙니다">진단 점수 (리스크 감점)</h2>
               <span class="risk-badge" :class="safetyStatusClass">
-                {{ getSafetyStatusText(riskInfo?.riskStatus) }}
+                {{ safetyBadgeText }}
               </span>
             </div>
 
@@ -1081,6 +1081,14 @@ const safetyStatusClass = computed(() => {
   if (score >= 65) return 'safe';
   if (score >= 40) return 'warning';
   return 'danger';
+});
+
+// 게이지 배지 — 색과 같은 점수 구간의 말(2026-11-09). 예전엔 배지만 리스크 점검 결과(SAFE = 위험 공시 없음)를 읽어
+// 노란 53 게이지에 '안전'이 붙었고 머리는 같은 53 을 '주의 요망'이라 했다. 점검 결과는 아래 리스크 카드가 말한다.
+// 점수를 모르면 색처럼 리스크 점검 결과로 폴백한다.
+const safetyBadgeText = computed(() => {
+  if (safetyScore.value === null) return getSafetyStatusText(riskInfo.value?.riskStatus);
+  return ({ safe: '안전', warning: '주의', danger: '위험' })[safetyStatusClass.value] || '-';
 });
 
 // ★ 안전 점수 조건부 설명 텍스트 (펀더멘털 점수 연동)
