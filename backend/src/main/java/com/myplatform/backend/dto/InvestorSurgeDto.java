@@ -48,8 +48,11 @@ public class InvestorSurgeDto {
     private Integer currentRank;           // 현재 순위
     private Integer rankChange;            // 순위 변화 (음수: 상승)
 
-    private BigDecimal currentPrice;       // 현재가
-    private BigDecimal changeRate;         // 등락률
+    private BigDecimal currentPrice;       // 현재가 — priceRealtime 이 아니면 스냅샷 시각의 가격
+    private BigDecimal changeRate;         // 등락률 — 위와 같은 시점
+    // 가격·등락률이 시세 캐시의 실시간 값인가(2026-11-10). 캐시가 비면 스냅샷(직전 거래일 19:50 일 수도 있다) 가격이 남는데
+    // 화면은 그것도 '현재가'라 불렀다 — 11/10 08:18 효성중공업 '현재가 1,510,000원 −4.25%'(어제 19:50) vs 같은 시각 시장 탭 +6.1%.
+    private boolean priceRealtime;
 
     private String surgeLevel;             // 급등 레벨: HOT, WARM, NORMAL
 

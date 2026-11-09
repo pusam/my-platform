@@ -522,6 +522,7 @@ public class InvestorSurgeService {
                     if (price != null && price.getCurrentPrice() != null) {
                         stock.setCurrentPrice(price.getCurrentPrice());
                         stock.setChangeRate(price.getChangeRate());
+                        stock.setPriceRealtime(true);
                         enriched++;
                     }
                 }
@@ -616,6 +617,7 @@ public class InvestorSurgeService {
                             .amountChange(totalChange)
                             .currentPrice(foreign.getCurrentPrice())
                             .changeRate(foreign.getChangeRate())
+                            .priceRealtime(foreign.isPriceRealtime())   // 가격의 시점도 같이 옮긴다
                             .currentRank(0) // 임시값, 아래에서 재산정
                             .rankChange(0)
                             .foreignNetBuy(foreignNetBuy)

@@ -25,6 +25,7 @@ describe('SectionLiveSurge — 카드 행 정렬', () => {
     amountChange: 120,
     currentPrice: 272000,
     changeRate: 4.21,
+    priceRealtime: true,
     surgeLevel: 'HOT',
     ...over
   })
@@ -214,7 +215,7 @@ describe('SectionLiveSurge — 직전 거래일 값은 그렇게 말한다', () 
 describe('SectionLiveSurge — 카드 안에서도 순매수의 날짜를 밝힌다', () => {
   const card = (over = {}) => ({
     stockCode: '005930', stockName: '삼성전자', currentRank: 1,
-    formattedNetBuyAmount: '+494억', netBuyAmount: 494, currentPrice: 278000, changeRate: 0.72,
+    formattedNetBuyAmount: '+494억', netBuyAmount: 494, currentPrice: 278000, changeRate: 0.72, priceRealtime: true,
     snapshotDate: '2026-10-02', snapshotTime: '19:50:00', ...over
   })
   const mountWith = async (stocks) => {
@@ -253,5 +254,38 @@ describe('SectionLiveSurge — 필터는 누적 순매수 기준이라고 말한
     const label = w.find('.sub-controls .filter-item label').text()
     expect(label).toContain('누적 순매수')
     expect(label).not.toContain('변화량')
+  })
+})
+
+/**
+ * 카드의 '현재가'는 실시간일 때만(2026-11-10).
+ * 재현: 11/10 08:18 '오늘' 탭 — 효성중공업 카드 '현재가 1,510,000원 · −4.25%'는 11/09 19:50 스냅샷 가격이었다(같은 시각 시장 탭 +6.1%).
+ * 서버가 시세 캐시에 없는 종목은 스냅샷 가격을 남기는데(priceRealtime=false) 화면은 그것도 '현재가'라 불렀다.
+ */
+describe('SectionLiveSurge — 실시간이 아닌 가격은 그 시각과 함께', () => {
+  const card = (over = {}) => ({
+    stockCode: '298040', stockName: '효성중공업', currentRank: 1,
+    formattedNetBuyAmount: '+196.3억', netBuyAmount: 196.3, currentPrice: 1510000, changeRate: -4.25,
+    snapshotDate: '2026-11-09', snapshotTime: '19:50:00', previousSession: true, outdated: true, ...over
+  })
+  const labels = async (c) => {
+    const w = mount(SectionLiveSurge, { props: { active: false } })
+    w.vm.allStocks = { FOREIGN: [c] }
+    w.vm.investor = 'FOREIGN'
+    await w.vm.$nextTick()
+    return w.findAll('.stock-card .detail-row .label').map(l => l.text())
+  }
+
+  it('재현: 스냅샷 가격이면 "현재가"가 아니라 "가격(11/09 19:50)"', async () => {
+    const ls = await labels(card({ priceRealtime: false }))
+    expect(ls).not.toContain('현재가')
+    expect(ls).toContain('가격(11/09 19:50)')
+    expect(ls).toContain('등락률(11/09 19:50)')
+  })
+
+  it('실시간 시세면 종전대로 "현재가"', async () => {
+    const ls = await labels(card({ priceRealtime: true }))
+    expect(ls).toContain('현재가')
+    expect(ls).toContain('등락률')
   })
 })

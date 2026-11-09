@@ -113,13 +113,14 @@
             </span>
           </div>
           <div class="detail-row">
-            <span class="label">현재가</span>
+            <!-- '현재가'는 시세 캐시의 실시간 값일 때만(2026-11-10) — 아니면 스냅샷 시각의 가격이다(11/10 08:18 어제 19:50 가격이 '현재가'였다) -->
+            <span class="label">{{ stock.priceRealtime ? '현재가' : '가격' }}{{ priceAsOfSuffix(stock) }}</span>
             <span class="value" :class="{ missing: !stock.currentPrice }">
               {{ stock.currentPrice ? formatNumber(stock.currentPrice) + '원' : '-' }}
             </span>
           </div>
           <div class="detail-row">
-            <span class="label">등락률</span>
+            <span class="label">등락률{{ priceAsOfSuffix(stock) }}</span>
             <!-- 0%(보합)는 값이다 — 모를 때(null)만 '-'(2026-10-06) -->
             <span class="value rate" :class="stock.changeRate != null ? getRateClass(stock.changeRate) : 'missing'">
               {{ stock.changeRate != null ? formatRate(stock.changeRate) : '-' }}
@@ -309,6 +310,12 @@ export default {
       return change > 0 ? 'rank-up' : change < 0 ? 'rank-down' : ''
     },
     hasFormattedChange(val) { return val && val !== '-' },
+    /** 가격·등락률이 실시간이 아니면 그 시점 — '(11/09 19:50)'. 실시간이거나 시각을 모르면 빈 문자열. */
+    priceAsOfSuffix(stock) {
+      if (!stock || stock.priceRealtime) return ''
+      const s = this.snapshotLabel(stock)
+      return s ? `(${s})` : ''
+    },
     netBuyDateSuffix(stock) {
       const d = stock && stock.previousSession && typeof stock.snapshotDate === 'string' ? stock.snapshotDate.split('-') : null
       return d && d.length === 3 ? `(${d[1]}/${d[2]})` : ''
