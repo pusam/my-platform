@@ -3,7 +3,9 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 /**
  * 자동 폴링 + 수동 갱신 composable
  *
- * @param {Function} fetcher - 비동기 데이터 로더. 호출 결과는 Promise<any>.
+ * @param {Function} fetcher - 비동기 데이터 로더. 호출 결과는 Promise<any>. 오류를 스스로 잡아 화면에 띄우는
+ *   로더는 실패했을 때 false 를 돌려줄 것 — 그래야 실패를 '방금 갱신'으로 찍지 않는다(2026-11-09). 아무것도
+ *   돌려주지 않으면 종전대로 성공으로 본다.
  * @param {Object} options
  * @param {number} options.interval - 폴링 주기 (ms). 기본 15000.
  * @param {boolean} options.immediate - mount 시 즉시 1회 실행. 기본 true.
@@ -37,8 +39,8 @@ export function useAutoRefresh(fetcher, options = {}) {
     if (isRefreshing.value) return
     isRefreshing.value = true
     try {
-      await fetcher()
-      lastUpdated.value = new Date()
+      const ok = await fetcher()
+      if (ok !== false) lastUpdated.value = new Date()   // false = 로더가 잡은 실패 — 마지막 성공 시각을 그대로 둔다
     } catch (e) {
       // fetcher 자체에서 처리. 여기서는 silent — 마지막 성공 시각만 유지.
       console.error('[useAutoRefresh] fetch error:', e)

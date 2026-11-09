@@ -353,6 +353,7 @@ const changeTradeType = (type) => {
   fetchTrades()
 }
 
+// 돌려주는 값: 받았으면 true, 실패면 false — 자동 갱신 장치가 실패를 '방금 갱신'으로 찍지 않게(2026-11-09)
 const fetchTrades = async () => {
   tradesLoading.value = true
   tradesError.value = false
@@ -362,12 +363,14 @@ const fetchTrades = async () => {
       allTrades.value = response.data.data
       updateTradeStatus()
       tradesLoaded.value = true
-    } else {
-      tradesError.value = true
+      return true
     }
+    tradesError.value = true
+    return false
   } catch (error) {
     console.error('투자자 매매 데이터 조회 오류:', error)
     tradesError.value = true
+    return false
   } finally {
     tradesLoading.value = false
   }
@@ -375,7 +378,6 @@ const fetchTrades = async () => {
 
 // 비어 있어도 수집을 부르지 않는다(2026-10-03) — 예전엔 조회가 비거나 실패하면 POST /investor/collect 를 자동으로 불러
 // 장중 잠정치·휴장일 유령 행이 화면을 연 것만으로 일별 기록이 됐다. 수집은 15:50 정규 배치가 한다.
-const autoCollectTrades = fetchTrades
 
 // ===== 탭2: 연속 매수 =====
 const consecLoading = ref(false)
@@ -449,9 +451,12 @@ const fetchConsecutive = async () => {
       }
       consecDataStatus.value = data.dataStatus
       consecLoaded.value = true
+      return true
     }
+    return false
   } catch (error) {
     console.error('연속 매수 종목 조회 오류:', error)
+    return false
   } finally {
     consecLoading.value = false
   }
@@ -474,10 +479,12 @@ const fetchShortSelling = async () => {
     shortLastCollection.value = body.lastCollection || null
     shortStocks.value = Array.isArray(body.data) ? body.data : []
     shortLoaded.value = true
+    return shortDataAvailable.value   // 서버가 dataAvailable=false 면 조회 실패(§4c) — 갱신 시각을 남기지 않는다
   } catch (e) {
     console.error('공매도 조회 실패', e)
     shortDataAvailable.value = false
     toast.error('공매도 데이터 조회 실패')
+    return false
   } finally {
     shortLoading.value = false
   }
@@ -568,21 +575,21 @@ const formatDateRange = (start, end) => {
 
 // ===== Lifecycle =====
 // 활성 탭 기반 자동 갱신 (120초)
+// 로더가 돌려준 성공 여부(true/false)를 그대로 넘긴다 — 실패면 갱신 시각을 남기지 않는다(2026-11-09)
 const { lastUpdated, isRefreshing, nextRefreshIn, manualRefresh } = useAutoRefresh(
   async () => {
-    if (activeTab.value === 'trades') {
-      await fetchTrades()
-    } else if (activeTab.value === 'consecutive') {
-      await fetchConsecutive()
-    } else if (activeTab.value === 'shortSelling') {
-      await fetchShortSelling()
-    }
+    if (activeTab.value === 'trades') return fetchTrades()
+    if (activeTab.value === 'consecutive') return fetchConsecutive()
+    if (activeTab.value === 'shortSelling') return fetchShortSelling()
+    return false
   },
   { interval: 120 * 1000, immediate: false }
 )
 
+// 첫 조회도 자동 갱신 장치를 거쳐 받은 시각을 남긴다(2026-11-09) — 예전엔 장치 밖에서 불러 표가 떠 있는데도
+// 첫 자동 갱신(2분)까지 갱신 시각이 '대기 중...' 이었다.
 onMounted(() => {
-  autoCollectTrades()
+  manualRefresh()
 })
 </script>
 
