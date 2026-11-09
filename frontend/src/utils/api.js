@@ -11,10 +11,55 @@ const apiClient = axios.create({
   }
 });
 
-// 요청 인터셉터 - 모든 요청에 JWT 토큰 추가
+// ─── Refresh Token 자동 갱신 ───
+// access token 은 15분. 만료가 30초 안으로 다가왔거나 이미 지난 요청은 **보내기 전에** 먼저 갱신한다(2026-11-10).
+// 예전엔 만료된 토큰으로 보내 401 을 받고 나서야 갱신해, 열어 둔 탭의 폴링 3개(뉴스·환율·시장 상태)가 15분마다
+// 401 을 하나씩 남겼다(11/9 밤 137번 — 서버에 WARN 2줄씩). 401 뒤 갱신은 그대로 둔다 — 브라우저와 서버 시계가
+// 어긋났거나 미리 갱신이 실패한 경우의 안전망이다.
+// 동시에 여러 요청이 갱신을 원하면 /refresh 는 한 번만 부르고 모두 그 결과를 기다린다(갱신 중 토큰 회전 경합 방지).
+const REFRESH_AHEAD_MS = 30 * 1000;
+let refreshInFlight = null;
+
+// /refresh 자체는 별도 axios 인스턴스로 호출 — interceptor 재진입 방지.
+const refreshClient = axios.create({ baseURL: '/api', timeout: 10000 });
+
+/** 새 access token(실패·RT 없음이면 null). 진행 중인 갱신이 있으면 그것을 같이 기다린다. */
+const refreshAccessToken = () => {
+  if (refreshInFlight) return refreshInFlight;
+  const refreshToken = TokenManager.getRefreshToken();
+  if (!refreshToken) return Promise.resolve(null);
+  refreshInFlight = refreshClient.post('/auth/refresh', { refreshToken })
+    .then((resp) => {
+      const data = resp.data;
+      if (!data || !data.success || !data.token) return null;
+      TokenManager.setToken(data.token);
+      // 회전 유예 응답은 refreshToken=null — 저장된 RT 를 그대로 쓴다(§6)
+      if (data.refreshToken) TokenManager.setRefreshToken(data.refreshToken);
+      return data.token;
+    })
+    .catch(() => null)
+    .finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+};
+
+/** 보내기 전에 갱신할 요청인가 — 만료가 임박·경과했고, RT 가 있고, 인증 API 자체가 아닐 때. */
+const shouldRefreshBeforeSend = (config) => {
+  const url = config.url || '';
+  if (url.startsWith('/auth/')) return false;   // 로그인·갱신·로그아웃은 그대로 보낸다
+  if (!TokenManager.getRefreshToken()) return false;
+  const left = TokenManager.msUntilExpiry();
+  return left != null && left < REFRESH_AHEAD_MS;
+};
+
+// 요청 인터셉터 - 모든 요청에 JWT 토큰 추가(만료 임박이면 먼저 갱신)
 apiClient.interceptors.request.use(
-  (config) => {
-    const token = TokenManager.getToken();
+  async (config) => {
+    let token = TokenManager.getToken();
+    if (token && shouldRefreshBeforeSend(config)) {
+      // 실패하면 옛 토큰으로 보낸다 — 401 이 오면 아래 응답 인터셉터가 한 번 더 시도하고, 그래도 안 되면 로그아웃한다(종전 경로)
+      const fresh = await refreshAccessToken();
+      if (fresh) token = fresh;
+    }
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -28,24 +73,6 @@ apiClient.interceptors.request.use(
 // 401 리다이렉트 중복 방지 (타이머 기반 자동 해제)
 let isRedirecting = false;
 let redirectTimer = null;
-
-// ─── Refresh Token 자동 갱신 ───
-// access token 이 짧게(15분) 유지되어 자주 만료 → 401 받으면 refreshToken 으로 한 번에 갱신.
-// 동시 요청 여러 개가 401 을 받으면 refresh 는 한 번만 호출되고 나머지는 큐에서 대기 후 재시도.
-let isRefreshing = false;
-let refreshSubscribers = [];
-const subscribeTokenRefresh = (cb) => { refreshSubscribers.push(cb); };
-const notifyRefreshDone = (newToken) => {
-  refreshSubscribers.forEach((cb) => cb(newToken));
-  refreshSubscribers = [];
-};
-const notifyRefreshFailed = () => {
-  refreshSubscribers.forEach((cb) => cb(null));
-  refreshSubscribers = [];
-};
-
-// /refresh 자체는 별도 axios 인스턴스로 호출 — interceptor 재진입 방지.
-const refreshClient = axios.create({ baseURL: '/api', timeout: 10000 });
 
 const handleAuthFailure = (originalError) => {
   if (isRedirecting) return Promise.reject(originalError);
@@ -83,36 +110,11 @@ apiClient.interceptors.response.use(
 
     originalRequest._retry = true;
 
-    // 이미 refresh 가 진행 중이면 큐에 등록하고 끝나면 재시도
-    if (isRefreshing) {
-      return new Promise((resolve, reject) => {
-        subscribeTokenRefresh((newToken) => {
-          if (!newToken) { reject(error); return; }
-          originalRequest.headers.Authorization = `Bearer ${newToken}`;
-          resolve(apiClient(originalRequest));
-        });
-      });
-    }
-
-    isRefreshing = true;
-    try {
-      const resp = await refreshClient.post('/auth/refresh', { refreshToken });
-      const data = resp.data;
-      if (!data || !data.success || !data.token) {
-        notifyRefreshFailed();
-        return handleAuthFailure(error);
-      }
-      TokenManager.setToken(data.token);
-      if (data.refreshToken) TokenManager.setRefreshToken(data.refreshToken);
-      notifyRefreshDone(data.token);
-      originalRequest.headers.Authorization = `Bearer ${data.token}`;
-      return apiClient(originalRequest);
-    } catch (e) {
-      notifyRefreshFailed();
-      return handleAuthFailure(error);
-    } finally {
-      isRefreshing = false;
-    }
+    // 진행 중인 갱신이 있으면 그 결과를 같이 기다린다(동시 401 여러 개 → /refresh 한 번)
+    const newToken = await refreshAccessToken();
+    if (!newToken) return handleAuthFailure(error);
+    originalRequest.headers.Authorization = `Bearer ${newToken}`;
+    return apiClient(originalRequest);
   }
 );
 

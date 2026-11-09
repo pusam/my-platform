@@ -66,18 +66,25 @@ export const TokenManager = {
   // JWT payload의 exp 클레임을 디코드해 만료 여부 확인
   // 반환: true = 유효 / false = 없음·손상·만료
   isTokenValid() {
+    const left = this.msUntilExpiry();
+    return left != null && left > 0;
+  },
+
+  // 남은 유효 시간(ms) — 음수면 이미 만료. 토큰이 없거나 exp 를 못 읽으면 null(모름).
+  // api.js 가 만료 직전 요청을 보내기 전에 먼저 갱신하는 데 쓴다(2026-11-10).
+  msUntilExpiry() {
     const token = this.getToken();
-    if (!token) return false;
+    if (!token) return null;
     try {
       const parts = token.split('.');
-      if (parts.length !== 3) return false;
+      if (parts.length !== 3) return null;
       // base64url → base64
       const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       const payload = JSON.parse(atob(b64));
-      if (!payload || typeof payload.exp !== 'number') return false;
-      return payload.exp * 1000 > Date.now();
+      if (!payload || typeof payload.exp !== 'number') return null;
+      return payload.exp * 1000 - Date.now();
     } catch (e) {
-      return false;
+      return null;
     }
   },
 
