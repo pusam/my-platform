@@ -81,7 +81,9 @@ public class RecommendationService {
     // ── A안(P1-6, 2026-07-06) — 수급(supplyDemand) 카테고리 역상관 방어 ──────────────
     // prod signal_outcome(n=88) 실측: 수급 점수 단조 역상관(0-4=67% → 15+=35%, 평균수익 7.61→0.38).
     // 가중치 전면 재설계는 표본 작아 보류(P1-6/§4b) → 최소·가역 방어: composite 총점 산식에서만 수급을 캡.
-    //   · 표시값(dto.supplyDemand)·validCount·정규화 분모(80)·임계(75/55) 전부 불변 — raw 합산 기여 상한만.
+    //   · 표시값(dto.supplyDemand)·validCount·정규화 분모·임계(75/55) 불변 — raw 합산 기여 상한만. 분모는 2026-11-10 부터 실제 만점
+    //     RAW_SCORE_MAX(20 + 10 + 20 + 섹터 최대 8 = 58, 사용자 결정 '만점 58로 환산')로 고정 — 이 flag 를 꺼도 분모는 그대로다.
+    //     예전 고정 분모 80 은 이 캡과 10/6 테마 가산 제거로 최고 72점(강력 매수 불가)을 만들었다.
     //   · composite 경로 한정: getNormalizedTotal/toDto/필터만 적용. 5트랙 발굴(수급 등)은 getNormalizedTotal
     //     미사용이라 무영향(의도적 수급 랭킹 보존). 종합판단 보드 수급 표시(≥10 경고)도 category 값 사용이라 무영향.
     //   · 가역 flag: recommendation.supply-demand-cap (기본 10). 20 이상 또는 -1 = 비활성(무캡).
@@ -2760,7 +2762,7 @@ public class RecommendationService {
      *   SIDEWAYS     × 1.00     × 1.00        × 1.00      × 0.90      ← 섹터만 시간 척도 보정
      * </pre>
      *
-     * <p>각 카테고리 점수는 카테고리 만점(20) 안에서 clamp — 만점 80 / 정규화 100 구조 그대로 보존.
+     * <p>각 카테고리 점수는 카테고리 만점(20) 안에서 clamp — 정규화 분모(실제 만점 rawScoreMax)는 그대로라 승수가 만점을 넘기지 않는다.
      * 결과적으로 multiplier > 1 효과는 만점 종목엔 작고, 중간 점수(10~15) 종목에 가장 크게 나타남.
      *
      * <p>비활성화: multiplier 를 1.0/1.0/1.0/1.0 으로 모두 바꾸면 즉시 disable.
@@ -3010,34 +3012,39 @@ public class RecommendationService {
     private static final int TOTAL_CATEGORIES = 4;
 
     /**
-     * 유효 카테고리 수별 점수 정규화 — 0~100 스케일링 + 커버리지 기반 cap.
+     * 섹터 점수의 실제 최댓값 — 종목 등락률 가점 최대 4(scoreSectorMomentum) + 강세장(BULL) 일괄 +4.
+     * Gemini 테마 가산(최대 +10)은 2026-10-06 에 뺐다. 섹터 규칙을 바꾸면 이 값도 같이(SectorScoreMaxTest 가 대조한다).
+     */
+    static final int SECTOR_SCORE_MAX = 8;
+
+    /** 수급이 총점에 더하는 최댓값 — 수급 캡(A안) 기본값(recommendation.supply-demand-cap=10)과 같다. */
+    static final int SUPPLY_CONTRIBUTION_MAX = 10;
+
+    /**
+     * 원점수(raw) 만점 = 실적 20 + 수급 10 + 기술 20 + 섹터 8 = 58(2026-11-10).
+     * 수급 캡 flag 를 꺼도 고정이다 — 캡은 raw 기여만 바꾼다(A안 불변식). 캡을 끄면 수급이 20 까지 더해져 100 에서 멈출 수 있다.
+     */
+    static final int RAW_SCORE_MAX = 20 + SUPPLY_CONTRIBUTION_MAX + 20 + SECTOR_SCORE_MAX;
+
+    /**
+     * 유효 카테고리 수별 점수 정규화 — 0~100 스케일링 + 커버리지 페널티.
      *
-     * 스케일링: scaled = raw × 100 / (TOTAL_CATEGORIES × 20)
-     *   - 4 카테고리 × 카테고리당 최대 20점 = raw 만점 80 → scaled 100
-     *   - 이전 버그(phase 14 이전): 4 valid 일 때 raw 그대로 반환하여 만점이 80 → 임계값
-     *     75 가 "거의 만점" 의미였음. v7 (5→4 카테고리) 전환 시 임계값 미조정 잔존.
-     *   - 수정 후: 4 valid full = 100, 임계값 75/55 가 의도된 의미 회복.
+     * <p><b>스케일링(2026-11-10, 사용자 결정 '만점 58로 환산')</b>: scaled = raw × 100 / {@link #RAW_SCORE_MAX}.
+     * 예전엔 4 카테고리 × 20 = 80 으로 나눴는데, 수급 캡(7/6, 기여 최대 10)과 Gemini 테마 가산 제거(10/6, 섹터 최대 8)로
+     * 실제 만점이 58 이 되어 <b>최고 72점 — 강력 매수(75)는 원천적으로 나올 수 없었고</b> 매수 컷(55)은 만점의 76% 를 요구했다
+     * (11/9 하락장 종합판단 최고 43점, 10/27 이후 장중 스냅샷 후보는 11/4 17:00 의 2종목뿐). 이제 75/55 가 원래 뜻(만점의 75%·55%)이다.
      *
-     * cap (validCount < TOTAL_CATEGORIES 만 적용 — 단, 아래 ⚠ 참조):
-     *   25 + 75 × (validCount / TOTAL_CATEGORIES) → vc=1:43 / vc=2:62 / vc=3:81
-     *
-     * ⚠ <b>고정 분모(80) + 카테고리 clamp[0,20]</b> 하에서는 raw ≤ vc×20 → scaled ≤ vc×25 가
-     *   항상 cap(=25+18.75×vc)보다 작다(vc&lt;4). 즉 <b>cap 은 현재 산식에선 절대 발동 안 함(죽은 코드)</b>.
-     *   실효 최댓값은 고정 분모가 결정: vc=1→25 / vc=2→50 / <b>vc=3→75</b> / vc=4→100.
-     *   따라서 결측 1개(vc=3) 종목은 최대 <b>75점(=STRONG_BUY 임계)</b> — 남은 3카테고리가 전부 만점일 때만.
-     *   이는 의도된 "커버리지 페널티"(불완전 데이터는 최상위 등급 불가). dynamic 분모로 바꾸지 않고 현행 유지.
-     *
-     * 시그널 추가/삭제 시 TOTAL_CATEGORIES 만 바꾸면 자동 재계산.
+     * <p><b>커버리지 페널티(그대로)</b>: 결측 카테고리가 있으면(vc &lt; 4) 최대 vc × 25 이고, 강력 매수(75)에는 닿지 않는다(최대 74).
+     * 예전 분모 80 에서 결측 1개(vc=3)의 실효 최댓값은 75(세 항목 전부 20점일 때만)였는데 섹터 최대가 8 이 된 뒤로는 실제로 닿을 수 없었다.
+     * 새 분모에선 결측 1개로도 쉽게 75 를 넘어(11/10 08:03 파세코 — 수급 결측, 실적 19·기술 20·섹터 8 → 81) 막는다:
+     * 강력 매수는 네 항목이 다 있을 때만.
      */
     static int normalizeScore(int raw, int validCount) { // P1-4/5: 테스트 가능하도록 package-private
         if (validCount <= 0) return 0;
-        int rawCap = TOTAL_CATEGORIES * 20;
-        int scaled = raw * 100 / rawCap;
+        int scaled = raw * 100 / RAW_SCORE_MAX;
         if (validCount >= TOTAL_CATEGORIES) return Math.min(100, scaled);
-        // 고정 분모(80) 하에서는 항상 scaled<cap 이라 cap 은 미발동(죽은 코드).
-        // 향후 dynamic 분모(validCount×20) 전환 가능성 대비해 삭제하지 않고 보존. (Javadoc ⚠ 참조)
-        int cap = 25 + (75 * validCount / TOTAL_CATEGORIES);
-        return Math.min(cap, scaled);
+        int coverageCap = Math.min(validCount * 100 / TOTAL_CATEGORIES, STRONG_BUY_THRESHOLD - 1);
+        return Math.min(coverageCap, scaled);
     }
 
     private RecommendationDto toDto(StockScore s) {

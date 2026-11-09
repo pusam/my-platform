@@ -1,5 +1,7 @@
 package com.myplatform.backend.service;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -10,14 +12,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * RecommendationService.normalizeScore 단위 테스트.
  *
- * phase 14 변경 — 4 valid full 시 raw 그대로(80) 반환 → scaled (100) 으로 수정.
- *
- * 검증:
- *  - 1/2/3/4 valid 각각의 점수 변환 + cap 적용
- *  - 0 valid → 0
- *  - 4 valid full = 100 (이전 80 버그 회귀 방지)
+ * <p>2026-11-10(사용자 결정 '만점 58로 환산'): 분모가 4 × 20 = 80 이 아니라 지금 규칙의 실제 만점
+ * (실적 20 + 수급 기여 최대 10 + 기술 20 + 섹터 최대 8 = 58)이다. 예전엔 네 항목 만점을 다 받아도 72점이라 강력 매수(75)가
+ * 나올 수 없었고 매수 컷(55)은 만점의 76% 를 요구했다. 커버리지 페널티는 그대로 — 결측이 있으면 최대 vc × 25 이고 강력 매수에는
+ * 닿지 않는다(최대 74).
  */
 class RecommendationServiceNormalizeTest {
+
+    private int savedCap;
+
+    @BeforeEach
+    void pinCap() {
+        savedCap = RecommendationService.SUPPLY_DEMAND_CAP;
+        RecommendationService.SUPPLY_DEMAND_CAP = 10;   // 운영 기본값
+    }
+
+    @AfterEach
+    void restoreCap() {
+        RecommendationService.SUPPLY_DEMAND_CAP = savedCap;
+    }
 
     private int normalize(int raw, int validCount) throws Exception {
         Method m = RecommendationService.class.getDeclaredMethod("normalizeScore", int.class, int.class);
@@ -26,35 +39,33 @@ class RecommendationServiceNormalizeTest {
     }
 
     @Test
-    @DisplayName("4 valid full (raw=80) → 100 (phase14 버그 회귀 방지)")
-    void fourValidFull_returns100() throws Exception {
-        assertThat(normalize(80, 4)).isEqualTo(100);
+    @DisplayName("재현(11/10): 지금 규칙의 만점(20·10·20·8 = 58)이 100 이다 — 예전엔 72 라 강력 매수(75)가 나올 수 없었다")
+    void currentRulesMaxIs100() throws Exception {
+        assertThat(normalize(58, 4)).isEqualTo(100);
     }
 
     @Test
-    @DisplayName("4 valid 중간 (raw=60) → 75")
-    void fourValidMid() throws Exception {
-        assertThat(normalize(60, 4)).isEqualTo(75);
+    @DisplayName("등급 경계는 만점의 75%·55% — 원점수 44 면 강력 매수, 43 이면 아니다 / 32 면 매수, 31 이면 아니다")
+    void gradeBoundariesAreFractionsOfTheRealMax() throws Exception {
+        assertThat(normalize(44, 4)).isEqualTo(75);
+        assertThat(normalize(43, 4)).isLessThan(75);
+        assertThat(normalize(32, 4)).isEqualTo(55);
+        assertThat(normalize(31, 4)).isLessThan(55);
     }
 
     @Test
-    @DisplayName("3 valid full (raw=60) → 75, cap 81 미적용")
-    void threeValidFull() throws Exception {
-        // scaled = 60 × 100 / 80 = 75, cap = 81 → min(81, 75) = 75
-        assertThat(normalize(60, 3)).isEqualTo(75);
+    @DisplayName("재현(11/10 08:03 파세코): 결측 1개(수급)·실적 19·기술 20·섹터 8 = 47 → 81 이지만 강력 매수가 아니라 74")
+    void missingCategoryCannotBeStrongBuy() throws Exception {
+        assertThat(normalize(47, 3)).isEqualTo(74);
+        assertThat(normalize(48, 3)).isEqualTo(74);
+        // 커버리지 페널티 아래면 그대로 — 매수 판정은 같은 척도
+        assertThat(normalize(35, 3)).isEqualTo(60);
     }
 
     @Test
-    @DisplayName("2 valid full (raw=40) → cap 62 적용")
-    void twoValidFull_capApplied() throws Exception {
-        // scaled = 40 × 100 / 80 = 50, cap = 62 → min(62, 50) = 50
+    @DisplayName("결측 2·3개는 예전과 같은 상한 — vc=2 → 50, vc=1 → 25")
+    void lowerCoverageCaps() throws Exception {
         assertThat(normalize(40, 2)).isEqualTo(50);
-    }
-
-    @Test
-    @DisplayName("1 valid full (raw=20) → cap 43 적용")
-    void oneValidFull() throws Exception {
-        // scaled = 20 × 100 / 80 = 25, cap = 43 → min(43, 25) = 25
         assertThat(normalize(20, 1)).isEqualTo(25);
     }
 
@@ -66,11 +77,11 @@ class RecommendationServiceNormalizeTest {
     }
 
     @Test
-    @DisplayName("STRONG_BUY 임계 75 도달 — 4 valid 평균 15점 이상")
-    void strongBuyThreshold() throws Exception {
-        // 4 valid, 카테고리당 15점 = raw 60 → scaled 75 ✓
-        assertThat(normalize(60, 4)).isGreaterThanOrEqualTo(75);
-        // 카테고리당 14점 = raw 56 → 70 (미달)
-        assertThat(normalize(56, 4)).isLessThan(75);
+    @DisplayName("수급 캡 flag 를 꺼도 분모는 58 그대로 — 캡은 raw 기여만 바꾼다(A안 불변식), 넘치면 100 에서 멈춘다")
+    void denominatorIgnoresSupplyCapFlag() throws Exception {
+        RecommendationService.SUPPLY_DEMAND_CAP = -1;
+        assertThat(normalize(58, 4)).isEqualTo(100);
+        assertThat(normalize(68, 4)).isEqualTo(100);
+        assertThat(normalize(32, 4)).isEqualTo(55);
     }
 }

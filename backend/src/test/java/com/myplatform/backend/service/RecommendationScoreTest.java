@@ -17,19 +17,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RecommendationScoreTest {
 
     @Nested
-    @DisplayName("normalizeScore 경계 (validCount=4 풀, raw×1.25)")
+    @DisplayName("normalizeScore 경계 (validCount=4 풀, raw×100/58)")
     class NormalizeBoundaries {
-        @Test @DisplayName("raw 32 → 40")
-        void at40() { assertThat(RecommendationService.normalizeScore(32, 4)).isEqualTo(40); }
+        // 2026-11-10 '만점 58로 환산' — 분모는 실제 만점(20 + 수급 기여 10 + 20 + 섹터 8 = 58). 등급 경계는 그 75%·55%·40%.
+        @Test @DisplayName("raw 24 → 41 (HOLD 40 이상), raw 23 → 39")
+        void at40() {
+            assertThat(RecommendationService.normalizeScore(24, 4)).isEqualTo(41);
+            assertThat(RecommendationService.normalizeScore(23, 4)).isEqualTo(39);
+        }
 
-        @Test @DisplayName("raw 44 → 55 (관망 채택 컷)")
-        void at55() { assertThat(RecommendationService.normalizeScore(44, 4)).isEqualTo(55); }
+        @Test @DisplayName("raw 32 → 55 (매수 컷)")
+        void at55() { assertThat(RecommendationService.normalizeScore(32, 4)).isEqualTo(55); }
 
-        @Test @DisplayName("raw 60 → 75 (STRONG_BUY 컷)")
-        void at75() { assertThat(RecommendationService.normalizeScore(60, 4)).isEqualTo(75); }
+        @Test @DisplayName("raw 44 → 75 (STRONG_BUY 컷)")
+        void at75() { assertThat(RecommendationService.normalizeScore(44, 4)).isEqualTo(75); }
 
-        @Test @DisplayName("raw 80(만점) → 100 상한")
-        void capped100() { assertThat(RecommendationService.normalizeScore(80, 4)).isEqualTo(100); }
+        @Test @DisplayName("raw 58(만점) → 100, 그 위는 100 상한")
+        void capped100() {
+            assertThat(RecommendationService.normalizeScore(58, 4)).isEqualTo(100);
+            assertThat(RecommendationService.normalizeScore(80, 4)).isEqualTo(100);
+        }
 
         @Test @DisplayName("validCount=0 → 0")
         void zeroValid() { assertThat(RecommendationService.normalizeScore(40, 0)).isZero(); }
@@ -38,16 +45,15 @@ class RecommendationScoreTest {
     @Nested
     @DisplayName("validCount cap (커버리지 부족 시 상한)")
     class ValidCountCap {
-        @Test @DisplayName("validCount=3 → cap 81 (raw 60 은 75 로 통과)")
+        @Test @DisplayName("validCount=3 → 최대 74 — 결측이 있으면 강력 매수(75)에 닿지 않는다(raw 48 = 82 도 74)")
         void vc3() {
-            // cap = 25 + 75*3/4 = 81; scaled(raw60)=75 → min(81,75)=75
-            assertThat(RecommendationService.normalizeScore(60, 3)).isEqualTo(75);
+            assertThat(RecommendationService.normalizeScore(48, 3)).isEqualTo(74);
+            assertThat(RecommendationService.normalizeScore(35, 3)).isEqualTo(60);   // 상한 아래는 같은 척도
         }
 
-        @Test @DisplayName("validCount=1 → cap 43 (raw 40 도 43 으로 눌림)")
+        @Test @DisplayName("validCount=1 → 최대 25")
         void vc1() {
-            // cap = 25 + 75*1/4 = 43; scaled(raw40)=50 → min(43,50)=43
-            assertThat(RecommendationService.normalizeScore(40, 1)).isEqualTo(43);
+            assertThat(RecommendationService.normalizeScore(20, 1)).isEqualTo(25);
         }
     }
 

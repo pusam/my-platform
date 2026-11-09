@@ -61,28 +61,28 @@ class RecommendationSupplyCapTest {
     // ── composite 총점 효과 (getNormalizedTotal) ──────────────────────
 
     @Test
-    @DisplayName("수급 의존 SB(sd20, 비수급 base 40) → 캡10에서 BUY 강등 (75→62)")
+    @DisplayName("수급 의존 SB(sd20, 비수급 base 30) → 캡10에서 BUY 강등 (86→68) — 분모는 실제 만점 58(2026-11-10)")
     void supplyReliantSB_downgrades() {
-        StockScore s = score(20, 20, 10, 10, -1); // raw=60, 비수급 base=40
+        StockScore s = score(16, 20, 10, 4, -1); // raw=50, 비수급 base=30
         RecommendationService.SUPPLY_DEMAND_CAP = 20; // 비활성
-        assertThat(s.getNormalizedTotal()).isEqualTo(75); // 60 → 75 STRONG_BUY
+        assertThat(s.getNormalizedTotal()).isEqualTo(86); // 50 → 86 STRONG_BUY
         RecommendationService.SUPPLY_DEMAND_CAP = 10; // 활성
-        assertThat(s.getNormalizedTotal()).isEqualTo(62); // sd→10, raw=50 → 62 (BUY 55~74)
+        assertThat(s.getNormalizedTotal()).isEqualTo(68); // sd→10, raw=40 → 68 (BUY 55~74)
     }
 
     @Test
-    @DisplayName("강한 베이스 SB(비수급 base 54) → 캡10에도 STRONG_BUY 유지 (92→80)")
+    @DisplayName("강한 베이스 SB(비수급 base 40) → 캡10에도 STRONG_BUY 유지 (sd→10, raw 50 → 86)")
     void strongBaseSB_stays() {
-        StockScore s = score(20, 20, 18, 16, -1); // raw=74, 비수급 base=54
-        RecommendationService.SUPPLY_DEMAND_CAP = 10; // sd→10, raw=64 → 80
-        assertThat(s.getNormalizedTotal()).isEqualTo(80);
+        StockScore s = score(20, 20, 12, 8, -1); // raw=60, 비수급 base=40
+        RecommendationService.SUPPLY_DEMAND_CAP = 10; // sd→10, raw=50 → 86
+        assertThat(s.getNormalizedTotal()).isEqualTo(86);
         assertThat(s.getNormalizedTotal()).isGreaterThanOrEqualTo(75); // 여전히 STRONG_BUY
     }
 
     @Test
     @DisplayName("저수급(sd≤10)은 캡 무영향 — 활성/비활성 동일 점수")
     void lowSupply_unaffected() {
-        StockScore s = score(20, 8, 18, 16, -1); // sd=8 ≤ 10
+        StockScore s = score(20, 8, 18, 8, -1); // sd=8 ≤ 10, raw=54 → 93 (캡 켜든 끄든)
         RecommendationService.SUPPLY_DEMAND_CAP = 20;
         int uncapped = s.getNormalizedTotal();
         RecommendationService.SUPPLY_DEMAND_CAP = 10;
