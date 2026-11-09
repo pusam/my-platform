@@ -428,6 +428,8 @@ public class QuantTaService {
     /** 단어 정의 — 2~10글자 한글/영문/숫자/하이픈. 조사 어절 끝에 붙은 것 후처리. */
     private static final java.util.regex.Pattern WORD_PATTERN =
             java.util.regex.Pattern.compile("[가-힣A-Za-z0-9-]{2,10}");
+    /** 숫자만(하이픈 포함)인 토큰 — 키워드에서 뺀다. */
+    private static final java.util.regex.Pattern NUMBER_ONLY = java.util.regex.Pattern.compile("[0-9-]+");
     /** 어절 끝 흔한 조사 — 추출 후 제거. */
     private static final java.util.regex.Pattern KOREAN_PARTICLE_TAIL =
             java.util.regex.Pattern.compile("(은|는|이|가|을|를|에|의|와|과|도|만|로|으로|에서|에게|부터|까지|라고|이라고|이라는|라는)$");
@@ -480,24 +482,27 @@ public class QuantTaService {
         }
         if (relevantTexts.isEmpty()) return Collections.emptyList();
 
-        // 단어 빈도 카운트
+        // 단어가 나온 기사 수 — 한 기사 안에서 여러 번 나와도 1(2026-11-10). 예전엔 등장 횟수를 세어, 아침처럼 관련 기사가
+        // 한두 개뿐이면 여러 회사를 나열한 기사 하나의 단어('소액주주'·'상장사'·'24'·'국내')가 전력기기·반도체 카드에 똑같이 붙었다.
         Map<String, Integer> wordCount = new HashMap<>();
         for (String text : relevantTexts) {
+            Set<String> seen = new HashSet<>();
             java.util.regex.Matcher m = WORD_PATTERN.matcher(text);
             while (m.find()) {
                 String word = stripParticle(m.group());
                 if (word.length() < 2) continue;
+                if (NUMBER_ONLY.matcher(word).matches()) continue; // '24'·'2026' 같은 숫자는 키워드가 아니다
                 if (KEYWORD_STOPWORDS.contains(word)) continue;
                 if (stockNames.contains(word)) continue;       // 종목명 자체 제외
                 if (sector.getName().contains(word)) continue; // 섹터명도 제외
-                wordCount.merge(word, 1, Integer::sum);
+                if (seen.add(word)) wordCount.merge(word, 1, Integer::sum);
             }
         }
         if (wordCount.isEmpty()) return Collections.emptyList();
 
-        // top N (빈도 desc, 동점이면 단어 길이 desc — 더 구체적인 단어 선호)
+        // top N (기사 수 desc, 동점이면 단어 길이 desc — 더 구체적인 단어 선호)
         return wordCount.entrySet().stream()
-                .filter(e -> e.getValue() >= 2)  // 최소 2번 등장
+                .filter(e -> e.getValue() >= 2)  // 서로 다른 기사 2개 이상
                 .sorted((a, b) -> {
                     int cmp = b.getValue().compareTo(a.getValue());
                     return cmp != 0 ? cmp : Integer.compare(b.getKey().length(), a.getKey().length());
