@@ -77,7 +77,10 @@ export default {
   name: 'StockRiskCard',
   props: {
     stockName: { type: String, required: true },
-    stockCode: { type: String, default: '' }
+    stockCode: { type: String, default: '' },
+    // 화면이 이미 받은 종합 리스크 분석({ riskStatus, riskScore } — 상세 분석 버튼과 같은 riskService.analyzeRisk, 2026-11-09).
+    // 예전엔 버튼을 누르기 전엔 빠른 공시 체크만 봐서 위 요약 줄 'DANGER'·게이지 '매수 주의' 옆에 카드만 '🟡 주의 필요'였다.
+    pageRisk: { type: Object, default: null }
   },
   data() {
     return {
@@ -96,9 +99,17 @@ export default {
       // 상세 결과 우선, 없으면 quick check 결과. 상세라도 공시를 확인하지 못했으면 '안전'으로 칠하지 않는다(2026-10-03)
       if (this.detail && this.detail.disclosuresChecked === false && this.detail.status !== 'DANGER') return 'UNKNOWN'
       if (this.detail?.status) return this.detail.status
-      if (this.hasDangerousQuick === true) return 'WARNING'
+      // 화면의 종합 분석이 DANGER·WARNING 이면 그보다 낮게 말하지 않는다(2026-11-09). SAFE 는 빠른 체크가 확인해야 안전 —
+      // 공시를 확인하지 못했으면 종전대로 '확인 불가'.
+      const page = this.pageRisk?.riskStatus
+      if (page === 'DANGER') return 'DANGER'
+      if (page === 'WARNING' || this.hasDangerousQuick === true) return 'WARNING'
       if (this.hasDangerousQuick === false) return 'SAFE'
       return 'UNKNOWN'
+    },
+    pageRiskDrives() {
+      const page = this.pageRisk?.riskStatus
+      return !this.detail && (page === 'DANGER' || page === 'WARNING')
     },
     cardClass() {
       const m = {
@@ -127,6 +138,11 @@ export default {
     subLabel() {
       if (this.detail && this.detail.disclosuresChecked === false) return '공시 조회 실패 — 공시 위험 확인 불가'
       if (this.detail) return '상세 분석 완료'
+      if (this.pageRiskDrives) {
+        const score = this.pageRisk?.riskScore
+        return (this.hasDangerousQuick === true ? '위험 공시 발견 · ' : '')
+          + (score != null ? `리스크 점수 ${score}/100` : '리스크 분석 결과') + ' — 근거는 상세 분석'
+      }
       if (this.quickLoading) return '빠른 체크 중...'
       if (this.quickUnknown) return '공시 조회 실패 — 위험 여부 확인 불가'
       if (this.hasDangerousQuick === true) return '위험 공시 발견 — 상세 분석 권장'

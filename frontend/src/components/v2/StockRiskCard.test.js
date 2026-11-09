@@ -65,3 +65,54 @@ describe('StockRiskCard — 위험 공시 목록(실제 응답 이름)', () => {
     expect(w.text()).not.toContain('단일판매')
   })
 })
+
+// 2026-11-09 재현(운영 알테오젠 196170, −16.3% 날): 화면 위 요약 줄 '리스크 DANGER'·게이지 '위험 11/100 · 🚨 매수 주의' 인데
+// 리스크 카드만 '🟡 주의 필요 · 위험 공시 발견 — 상세 분석 권장' 이었다. 카드는 버튼을 누르기 전엔 빠른 공시 체크만 보고,
+// 화면이 이미 받은 같은 종합 리스크 분석(riskService.analyzeRisk)의 결과를 쓰지 않았다. 그 결과를 받아 더 낮게 말하지 않는다.
+describe('StockRiskCard — 화면이 받은 종합 리스크 분석', () => {
+  beforeEach(() => { quickCheck.mockReset(); checkRisk.mockReset() })
+
+  it('재현(11/9): 화면 분석이 DANGER 면 빠른 체크가 위험 공시만 찾았어도 카드는 🔴 — 🟡 주의 필요가 아니다', async () => {
+    quickCheck.mockResolvedValue({ data: { success: true, checked: true, hasDangerousDisclosure: true } })
+    const w = mount(StockRiskCard, { props: { stockName: '알테오젠', stockCode: '196170',
+      pageRisk: { riskStatus: 'DANGER', riskScore: 72 } } })
+    await flushPromises()
+
+    expect(w.find('.risk-card').classes()).toContain('status-danger')
+    expect(w.find('.risk-label').text()).toBe('매수 금지 권장')
+    expect(w.find('.risk-sublabel').text()).toBe('위험 공시 발견 · 리스크 점수 72/100 — 근거는 상세 분석')
+    expect(checkRisk).not.toHaveBeenCalled()   // 버튼을 누르기 전엔 상세 분석을 부르지 않는다(종전대로)
+  })
+
+  it('화면 분석이 WARNING 이면 빠른 체크가 위험 공시 없음이어도 🟡', async () => {
+    quickCheck.mockResolvedValue({ data: { success: true, checked: true, hasDangerousDisclosure: false } })
+    const w = mount(StockRiskCard, { props: { stockName: '삼성전자', stockCode: '005930',
+      pageRisk: { riskStatus: 'WARNING', riskScore: 45 } } })
+    await flushPromises()
+
+    expect(w.find('.risk-label').text()).toBe('주의 필요')
+    expect(w.find('.risk-sublabel').text()).toBe('리스크 점수 45/100 — 근거는 상세 분석')
+  })
+
+  it('화면 분석이 SAFE 여도 빠른 체크가 확인 불가면 ⚪ — 안전으로 칠하지 않는다(종전 규칙)', async () => {
+    quickCheck.mockResolvedValue({ data: { success: true, checked: false, hasDangerousDisclosure: null } })
+    const w = mount(StockRiskCard, { props: { stockName: '에코프로', stockCode: '086520',
+      pageRisk: { riskStatus: 'SAFE', riskScore: 5 } } })
+    await flushPromises()
+
+    expect(w.text()).not.toContain('리스크 안전')
+    expect(w.text()).toContain('공시 조회 실패')
+  })
+
+  it('상세 분석을 받으면 그 결과가 우선 — 화면 분석보다', async () => {
+    quickCheck.mockResolvedValue({ data: { success: true, checked: true, hasDangerousDisclosure: true } })
+    checkRisk.mockResolvedValue({ data: { success: true, data: { status: 'WARNING', riskScore: 40, disclosuresChecked: true } } })
+    const w = mount(StockRiskCard, { props: { stockName: '알테오젠', stockCode: '196170',
+      pageRisk: { riskStatus: 'DANGER', riskScore: 72 } } })
+    await flushPromises()
+    await w.find('.deep-btn').trigger('click')
+    await flushPromises()
+
+    expect(w.find('.risk-label').text()).toBe('주의 필요')
+  })
+})

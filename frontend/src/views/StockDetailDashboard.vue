@@ -511,6 +511,7 @@
       v-if="hasData && stockName"
       :stockName="stockName"
       :stockCode="stockCode"
+      :pageRisk="riskInfo"
     />
 
     <!-- [심화] 볼륨·지지저항·패턴·관련종목 — 기본 접힘 (자식은 v-show 로 마운트 유지) -->
