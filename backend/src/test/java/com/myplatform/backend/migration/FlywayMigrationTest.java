@@ -88,6 +88,7 @@ class FlywayMigrationTest {
                 .migrate();
         seedStaleFinancialRowsForV68();
         seedTallyRowForV70();
+        seedEstimateRowsForV73();
 
         // --- 검증 1: 마이그레이션이 예외 없이 성공하고 실제로 무언가 적용되었다 ---
         MigrateResult result = flyway.migrate();
@@ -247,6 +248,16 @@ class FlywayMigrationTest {
                 com.myplatform.backend.entity.InvestorDailyTrade.class,
                 com.myplatform.backend.entity.StockQuarterlyFinancial.class);
 
+        // --- 검증 22 (V73): 네이버 행 중 기준일이 아직 오지 않은 행(추정치)만 백업 후 지운다 — 지난 네이버 행·KIS 행은 그대로 ---
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'E00001' AND report_date > CURDATE()"))
+                .as("V73 미래 날짜 네이버 행(추정치)은 지운다").isZero();
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'E00001' AND report_date = '2025-12-31'"))
+                .as("V73 기간이 끝난 네이버 행은 그대로").isEqualTo(1);
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'E00001' AND market_cap IS NOT NULL"))
+                .as("V73 KIS 일별 행(market_cap NOT NULL)은 건드리지 않는다(V56→V57 사고)").isEqualTo(1);
+        assertThat(scalarString("SELECT CONCAT(stock_code, '/', revenue) FROM stock_financial_estimate_backup_v73"))
+                .as("V73 백업은 지운 행 하나 — 되돌릴 수 있다").isEqualTo("E00001/7324732.00");
+
         // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
                 + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "
@@ -280,6 +291,18 @@ class FlywayMigrationTest {
      * V68 검증용 행 — 묵은 종목(S00001)·빈 행뿐인 종목(B00001)·최근 4분기가 끊긴 종목(H00012)·1년 전 기준만 끊긴 종목(H00024)·
      * 정상 종목(F00001). V55·V64 표가 있어야 하므로 V67 까지 올린 뒤 심는다.
      */
+    /** V73 검증용 — 기준일이 아직 오지 않은 네이버 행(추정치)·기간이 끝난 네이버 행·KIS 일별 행. */
+    private void seedEstimateRowsForV73() throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("INSERT INTO stock_financial_data (stock_code, report_date, market_cap, revenue) VALUES "
+                    + "('E00001', DATE_ADD(CURDATE(), INTERVAL 60 DAY), NULL, 7324732.00), "
+                    + "('E00001', '2025-12-31', NULL, 3000000.00), "
+                    + "('E00001', CURDATE(), 1000.00, 3000000.00)");
+        }
+    }
+
     /** V70 은 가집계 행을 통째로 복사해 둔다 — 행이 있어야 백업을 볼 수 있다. */
     private void seedTallyRowForV70() throws Exception {
         try (Connection conn = DriverManager.getConnection(
