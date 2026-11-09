@@ -943,7 +943,9 @@ public class MarketTimingService {
                 .unchangedCount(counted ? entity.getUnchangedCount() : null)
                 .upperLimitCount(counted ? entity.getUpperLimitCount() : null)
                 .lowerLimitCount(counted ? entity.getLowerLimitCount() : null)
-                .dailyRatio(counted ? entity.getDailyRatio() : null)
+                // 등락비도 ADR 처럼 저장 칸을 믿지 않고 등락 수에서 다시 계산한다(2026-11-09) — 옛 식(비율을 먼저 잘라 ×100)으로
+                // 저장된 행이 남아 있어 그날 코스닥 837/838 이 '100.0'(실제 99.88)으로 보였다
+                .dailyRatio(counted ? dailyRatioOf(entity.getAdvancingCount(), entity.getDecliningCount()) : null)
                 .adr20(entity.getAdr20())
                 .condition(determineCondition(entity.getAdr20()))
                 .indexClose(entity.getIndexClose())

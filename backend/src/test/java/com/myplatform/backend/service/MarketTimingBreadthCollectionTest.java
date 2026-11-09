@@ -145,6 +145,30 @@ class MarketTimingBreadthCollectionTest {
         assertThat(t.getStrategy()).contains("ADR 기반 판단은 쓰지 않습니다");
     }
 
+    /**
+     * 재현(운영 11/9 17:52 시장 탭 → 시장타이밍): 16:30 에 옛 식(비율을 먼저 잘라 ×100)으로 저장된 등락비가 그대로 보였다 —
+     * 코스닥 '등락비(11/09) 100.0'(상승 837·하락 838, 실제 99.88). 저장 식을 고쳐도 이미 저장된 행은 그대로라,
+     * ADR 처럼 읽을 때 등락 수에서 다시 계산한다(저장 칸은 믿지 않는다).
+     */
+    @Test
+    @DisplayName("재현(11/9): 화면 등락비는 저장된 값(100.00)이 아니라 등락 수에서 — 코스닥 837/838 = 99.88")
+    void currentTimingRecomputesDailyRatioFromCounts() {
+        LocalDate today = LocalDate.now();
+        MarketDailyStatus kospi = counted(today, 340, 530);
+        kospi.setDailyRatio(new BigDecimal("64.00"));     // 16:30 옛 식으로 저장된 값
+        MarketDailyStatus kosdaq = counted(today, 837, 838);
+        kosdaq.setMarketType("KOSDAQ");
+        kosdaq.setDailyRatio(new BigDecimal("100.00"));
+        when(repo.findLatestAll()).thenReturn(List.of(kospi, kosdaq));
+        when(repo.findByMarketTypeAndTradeDateBetweenOrderByTradeDateDesc(anyString(), any(), any())).thenReturn(List.of());
+
+        MarketTimingDto t = service.getCurrentMarketTiming();
+
+        assertThat(t.getKospi().getDailyRatio()).isEqualByComparingTo("64.15");
+        assertThat(t.getKosdaq().getDailyRatio()).isEqualByComparingTo("99.88");
+        assertThat(t.getDiagnosis()).contains("코스닥 등락비").contains("99.9").doesNotContain("100.0");
+    }
+
     @Test
     @DisplayName("관제실 규칙 입력 — 마지막으로 등락 수가 있는 날과 창 유효일")
     void breadthHealthReportsLatestCountedDay() {
