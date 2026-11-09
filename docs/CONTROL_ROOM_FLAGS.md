@@ -55,17 +55,6 @@ flags:
     recorded_on: 2026-08-28
     ref: SignalWeeklyReportService.weeklyReportCatchUp, SignalWeeklyReportServiceTest catchUpFillsCurrentTargetNotTheMissedWeek
 
-  - id: future-dated-annual-rows
-    severity: info
-    title: 재무 테이블에 미래 날짜(2026-12-31) 행이 342건
-    key: 데이터위생
-    body: >
-      report_date 최댓값이 미래인 2026-12-31 이고 342행 있다(코드 주석의 "미래 일자 12-31 annual row").
-      어닝 서프라이즈는 120일 인접분기 가드가 막아 무해하지만, "최신 행"을 집는 다른 소비자가
-      생기면 미래 연간 행을 오늘 값으로 쓰게 된다. 새 소비자를 붙일 때 report_date <= 오늘 조건을 확인할 것.
-    recorded_on: 2026-08-26
-    ref: stock_financial_data report_date 분포 실측
-
   - id: real-cash-field-unverified
     severity: warning
     title: REAL 가용현금 필드가 D+1 정산값 — 당일 매수 미반영 의심
