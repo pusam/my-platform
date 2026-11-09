@@ -12,6 +12,20 @@
 </template>
 
 <script>
+// 경고 칩 문구 — 40자 안으로, 자연스러운 자리에서 자른다(2026-11-09). 예전엔 40자에서 말없이 잘려
+// '일회성 이익 의심: 순이익이 영업이익 대비 65.1% 높음 (자산매각,' 처럼 괄호 중간에서 끝났다.
+// 순서: 서버가 붙인 ⚠️ 를 떼고 → 끝 괄호 설명을 빼고 → ' — ' 앞에서 자르고 → 그래도 길면 '…' 로 잘렸다는 것을 보인다.
+const CHIP_MAX = 40
+function chipText(warning) {
+  let t = String(warning).replace(/^\s*⚠️?\s*/, '')
+  if (t.length <= CHIP_MAX) return t
+  t = t.replace(/\s*\([^()]*\)\s*$/, '')
+  if (t.length <= CHIP_MAX) return t
+  const dash = t.indexOf(' — ')
+  if (dash > 0 && dash <= CHIP_MAX) return t.slice(0, dash)
+  return t.slice(0, CHIP_MAX - 1) + '…'
+}
+
 export default {
   name: 'StockBriefingHeadline',
   props: {
@@ -66,7 +80,7 @@ export default {
       if (Array.isArray(warnings) && warnings.length) {
         // 펀더멘털 경고가 3개 이상이면 첫 1개만 헤드라인에 노출
         // 서버 문구가 이미 ⚠️ 로 시작한다 — 칩이 한 번 더 붙여 '⚠️ ⚠️'로 보였고 끝도 잘렸다(2026-11-04)
-        list.push(warnings[0].replace(/^\s*\u26A0\uFE0F?\s*/, '').slice(0, 40))
+        list.push(chipText(warnings[0]))
       }
       return list.slice(0, 2)
     },

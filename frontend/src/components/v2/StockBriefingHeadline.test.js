@@ -28,6 +28,32 @@ describe('StockBriefingHeadline — 진단 경고 칩', () => {
     expect(text).not.toContain('⚠️ ⚠️')
     expect(text).toContain('외국인 순매도 1892억 (최근 5일) - 신중히 접근!')
   })
+
+  // 2026-11-09 재현(운영 알테오젠): 칩이 40자에서 말없이 잘려 '일회성 이익 의심: 순이익이 영업이익 대비 65.1% 높음 (자산매각,' 로
+  // 괄호 중간에서 끝났다. 끝 괄호 설명을 먼저 빼고, ' — ' 앞에서 자르고, 그래도 길면 '…' 로 잘렸다는 것을 보인다.
+  const chipOf = (warning) => mount(StockBriefingHeadline, {
+    props: {
+      diagnosisData: { overallScore: 55, technicalAnalysis: { rsi14: 50 }, warnings: [warning] },
+      aiAnalysis: { overallScore: 60, recommendation: 'HOLD' }
+    }
+  }).find('.rec-cautions').text()
+
+  it('재현(11/9): 끝 괄호 설명은 빼고 앞 문장을 온전히 — "(자산매각," 에서 끊기지 않는다', () => {
+    const text = chipOf('⚠️ 일회성 이익 의심: 순이익이 영업이익 대비 65.1% 높음 (자산매각, 환차익 등 확인 필요)')
+    expect(text).toContain('일회성 이익 의심: 순이익이 영업이익 대비 65.1% 높음')
+    expect(text).not.toContain('(자산매각')
+  })
+
+  it('" — " 가 있으면 그 앞에서 자른다', () => {
+    const text = chipOf('일회성 이익 의심: 영업손실인데 순이익 흑자 — 영업외 이익(자산매각·지분법·환차익 등) 확인 필요')
+    expect(text).toContain('일회성 이익 의심: 영업손실인데 순이익 흑자')
+    expect(text).not.toContain('영업외 이익')
+  })
+
+  it('자를 자리가 없으면 "…" 로 잘렸다는 것을 보인다', () => {
+    const text = chipOf('가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하')
+    expect(text).toContain('…')
+  })
 })
 
 describe('StockBriefingHeadline — 수급 키 정합', () => {
