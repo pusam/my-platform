@@ -304,6 +304,56 @@ class OvernightUsMarketServiceTest {
         assertThat(saved.getVixLevel()).isEqualByComparingTo("18.00");
     }
 
+    // ==================== 판정 근거(reason) — 2026-11-09 ====================
+    // 재현(운영 11/9 17:05 '오늘' 탭·종합판단 보드): "🌙 간밤 미국장 약세 · S&P500 +0.31% · 나스닥 +1.35% · SOX +4.21% · VIX 25.6(공포)"
+    // — 세 지수가 모두 올랐는데 '약세'였다. 규칙(VIX ≥ 25 → 약세)은 맞게 돌았지만 화면 어디에도 그 이유가 없어
+    // '간밤 미국장이 빠졌다'로 읽혔다. 판정은 그대로 두고, 어느 규칙으로 정했는지를 같이 준다(표시 전용 — 스냅샷 칸 불변).
+
+    @Test
+    @DisplayName("재현(11/9): 세 지수가 올라도 VIX 25.6 이면 약세 — 근거 'VIX 25 이상(공포 경계) — 지수 등락과 별개'를 같이 준다")
+    void reasonWhenVixAloneMakesBear() {
+        when(futures.getFuturesQuote("SPX")).thenReturn(aged(0.31, 6800.0, "11/07 07:15 (토) KST", FRESH));
+        when(futures.getFuturesQuote("NDX")).thenReturn(aged(1.35, 25000.0, "11/07 07:15 (토) KST", FRESH));
+        when(futures.getFuturesQuote("SOX")).thenReturn(aged(4.21, 7000.0, "11/07 07:15 (토) KST", FRESH));
+        when(futures.getFuturesQuote("VIX")).thenReturn(aged(null, 25.6, "11/07 07:15 (토) KST", FRESH));
+
+        java.util.Map<String, Object> view = new OvernightUsMarketService(futures, snapshotRepo, regimeProvider).getOvernightView();
+
+        assertThat(view.get("tilt")).isEqualTo("BEAR");                     // 판정은 그대로
+        assertThat(view.get("reason")).isEqualTo("VIX 25 이상(공포 경계) — 지수 등락과 별개");
+    }
+
+    @Test
+    @DisplayName("판정 근거는 판정 규칙 그대로 — 여러 규칙이 함께 걸리면 다 적고, 놀랄 것 없는 중립·판단 보류는 비운다")
+    void reasonFollowsRules() {
+        assertThat(OvernightUsMarketService.tiltReason(1.0, 1.5, 2.0, 31.0)).isEqualTo("VIX 30 이상(공포) — 지수 등락과 별개");
+        assertThat(OvernightUsMarketService.tiltReason(0.8, 1.2, 2.0, 14.0)).isEqualTo("지수 평균 +0.6% 이상 · VIX 20 미만");
+        assertThat(OvernightUsMarketService.tiltReason(0.9, 1.1, 1.5, null)).isEqualTo("지수 평균 +0.6% 이상 · VIX 모름");
+        assertThat(OvernightUsMarketService.tiltReason(-0.7, -0.8, -0.5, 18.0)).isEqualTo("지수 평균 -0.6% 이하");
+        assertThat(OvernightUsMarketService.tiltReason(0.5, 0.5, -2.5, 16.0)).isEqualTo("SOX -2% 이하(반도체 급락)");
+        assertThat(OvernightUsMarketService.tiltReason(-1.0, -1.5, -3.0, 27.0))
+                .isEqualTo("지수 평균 -0.6% 이하 · SOX -2% 이하(반도체 급락) · VIX 25 이상(공포 경계)");
+        assertThat(OvernightUsMarketService.tiltReason(-1.0, -1.5, -0.5, 33.0)).isEqualTo("지수 평균 -0.6% 이하 · VIX 30 이상(공포)");
+        assertThat(OvernightUsMarketService.tiltReason(1.0, 1.0, 1.0, 22.0)).isEqualTo("지수 평균 +0.6% 이상이지만 VIX 20 이상 — 강세로 보지 않는다");
+        assertThat(OvernightUsMarketService.tiltReason(0.2, 0.1, 0.0, 18.0)).isNull();     // 보합권 중립 — 근거 줄이 필요 없다
+        assertThat(OvernightUsMarketService.tiltReason(null, null, null, 18.0)).isNull();  // 판단 보류 — drivers 가 이미 말한다
+        assertThat(OvernightUsMarketService.tiltReason(null, null, null, 26.0)).isEqualTo("VIX 25 이상(공포 경계) — 지수 등락과 별개");
+    }
+
+    @Test
+    @DisplayName("근거와 판정은 같은 입력에서 — 근거가 있으면 판정이 강세·약세·중립 중 그 근거가 말하는 쪽이다")
+    void reasonAgreesWithTilt() {
+        double[][] cases = { {1.0, 1.5, 2.0, 31.0}, {0.8, 1.2, 2.0, 14.0}, {-0.7, -0.8, -0.5, 18.0}, {0.5, 0.5, -2.5, 16.0},
+                {1.0, 1.0, 1.0, 22.0}, {0.31, 1.35, 4.21, 25.6} };
+        for (double[] c : cases) {
+            String tilt = OvernightUsMarketService.classifyOvernight(c[0], c[1], c[2], c[3]);
+            String reason = OvernightUsMarketService.tiltReason(c[0], c[1], c[2], c[3]);
+            if ("BULL".equals(tilt)) assertThat(reason).startsWith("지수 평균 +0.6% 이상 ·");
+            if ("BEAR".equals(tilt)) assertThat(reason).doesNotContain("강세로 보지 않는다").doesNotContain("+0.6% 이상");
+            if ("NEUTRAL".equals(tilt)) assertThat(reason).endsWith("강세로 보지 않는다");
+        }
+    }
+
     @Test
     @DisplayName("재현: 기준 시각(asOf)은 판정에 쓴 시세의 것 — 빠진 지수(오래된 세션)의 시각을 붙이지 않는다")
     void asOfComesFromUsedQuotes() {

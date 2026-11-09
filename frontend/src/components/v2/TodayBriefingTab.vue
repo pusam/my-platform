@@ -19,6 +19,8 @@
     <div v-if="overnightAvailable && overnight" class="today-overnight">
       <span class="ov-label">🌙 간밤 미국장</span>
       <span class="ov-tilt" :class="overnightTiltClass(overnight.tilt)">{{ overnightTiltLabel(overnight.tilt) }}</span>
+      <!-- 판정 근거(2026-11-09) — 지수가 올랐는데 '약세'(VIX ≥ 25)처럼 숫자와 이름표가 엇갈려 보일 때 서버가 그 규칙을 준다 -->
+      <span v-if="overnight.reason" class="ov-reason">판정: {{ overnight.reason }}</span>
       <!-- 기준 시각(판정에 쓴 시세의 체결 시각, 2026-10-19) — 월요일 아침의 '간밤'은 금요일 세션이다. 근거 줄 안에 둬 좁은 화면에서도 두 줄 -->
       <span v-if="overnight.drivers && overnight.drivers.length" class="ov-drivers">{{ overnight.drivers.join(' · ') }}<span
           v-if="overnight.asOf" class="ov-asof">{{ overnight.asOf }} 기준</span></span>
@@ -586,6 +588,7 @@ onMounted(() => {
 .ov-label { font-weight: 600; opacity: 0.8; }
 .ov-tilt { font-weight: 700; }
 .ov-drivers { opacity: 0.7; }
+.ov-reason { opacity: 0.85; font-size: 11px; }
 .ov-asof { white-space: nowrap; }
 .ov-asof::before { content: ' · '; }
 .ov-beta { margin-left: auto; } /* amber 룩은 공용 .badge-unverified */
@@ -796,5 +799,6 @@ onMounted(() => {
      줄이 넘칠 때 배지만 따로 한 줄을 차지해 두 행이 각 3줄이 됐다(2026-10-01 375px 실측). */
   .today-overnight .ov-beta, .today-macro .ov-beta { order: 2; margin-left: 0; }
   .today-overnight .ov-drivers, .today-macro .ov-drivers { order: 3; flex-basis: 100%; }
+  .today-overnight .ov-reason { order: 3; flex-basis: 100%; }   /* 판정 근거도 근거 줄과 같이 한 줄 */
 }
 </style>

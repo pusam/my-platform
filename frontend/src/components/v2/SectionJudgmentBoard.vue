@@ -10,6 +10,8 @@
         <strong :class="regimeClass(board.market.regime)">{{ regimeLabel(board.market.regime) }}</strong></span>
       <span class="jbm-item" v-if="board.market.overnightTilt">🌙 간밤 미국장
         <strong :class="tiltClass(board.market.overnightTilt)">{{ tiltLabel(board.market.overnightTilt) }}</strong>
+        <!-- 판정 근거(2026-11-09) — 지수가 올랐는데 '약세'(VIX ≥ 25)일 때 이유. 오늘 탭과 같은 서버 문구 -->
+        <small v-if="board.market.overnightReason" class="jbm-ov-reason">판정: {{ board.market.overnightReason }}</small>
         <small v-if="board.market.overnightDrivers && board.market.overnightDrivers.length">
           {{ board.market.overnightDrivers.join(' · ') }}</small></span>
     </div>

@@ -406,4 +406,28 @@ describe('SectionJudgmentBoard — 간밤 미국장 머리줄', () => {
     const item = w.findAll('.jbm-item').find(i => i.text().includes('간밤 미국장'))
     expect(item.find('strong').text()).toBe('판단 보류')
   })
+
+  // 2026-11-09 재현(운영 17:05 보드): "🌙 간밤 미국장 약세 S&P500 +0.31% · 나스닥 +1.35% · SOX +4.21% · VIX 25.6(공포)" —
+  // 지수가 전부 올랐는데 '약세'인 이유(VIX ≥ 25)가 없었다. 오늘 탭과 같은 판정 근거를 붙인다.
+  it('재현(11/9): 판정 근거가 있으면 이름표 옆에 붙인다', async () => {
+    apiClient.get.mockResolvedValue({ data: { success: true, data: {
+      market: { regime: 'BEAR', overnightTilt: 'BEAR', overnightReason: 'VIX 25 이상(공포 경계) — 지수 등락과 별개',
+        overnightDrivers: ['S&P500 +0.31%', '나스닥 +1.35%', 'SOX +4.21%', 'VIX 25.6(공포)'] },
+      rows: [row()], timingAvailable: true, sectorStrengthAvailable: true, scope: 'momentum', note: '테스트' } } })
+    const w = mount(SectionJudgmentBoard)
+    await flushPromises()
+    const item = w.findAll('.jbm-item').find(i => i.text().includes('간밤 미국장'))
+    expect(item.find('strong').text()).toBe('약세')
+    expect(item.find('.jbm-ov-reason').text()).toBe('판정: VIX 25 이상(공포 경계) — 지수 등락과 별개')
+  })
+
+  it('근거가 없으면 근거 줄을 만들지 않는다', async () => {
+    apiClient.get.mockResolvedValue({ data: { success: true, data: {
+      market: { regime: 'BULL', overnightTilt: 'NEUTRAL', overnightReason: null, overnightDrivers: ['S&P500 +0.10%'] },
+      rows: [row()], timingAvailable: true, sectorStrengthAvailable: true, scope: 'momentum', note: '테스트' } } })
+    const w = mount(SectionJudgmentBoard)
+    await flushPromises()
+    const item = w.findAll('.jbm-item').find(i => i.text().includes('간밤 미국장'))
+    expect(item.find('.jbm-ov-reason').exists()).toBe(false)
+  })
 })

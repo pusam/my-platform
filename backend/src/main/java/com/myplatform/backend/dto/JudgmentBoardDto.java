@@ -59,6 +59,7 @@ public class JudgmentBoardDto {
         private String regime;                 // BULL/BEAR/SIDEWAYS 또는 null(미수집)
         private String overnightTilt;          // BULL/NEUTRAL/BEAR 또는 null
         private List<String> overnightDrivers; // S&P/나스닥/SOX/VIX 요약
+        private String overnightReason;        // 판정 근거(어느 규칙으로 정했나) 또는 null — 표시 전용(2026-11-09)
     }
 
     @Getter

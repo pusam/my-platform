@@ -59,6 +59,9 @@ public class OvernightUsMarketService {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("tilt", tilt);                 // BULL / NEUTRAL / BEAR
+        // 판정 근거(표시 전용, 2026-11-09) — 지수가 올랐는데 '약세'(VIX ≥ 25)처럼 숫자와 이름표가 엇갈려 보일 때 이유를 말한다.
+        // 같은 입력·같은 규칙이라 스냅샷과 어긋나지 않는다. 스냅샷(drivers 칸)에는 넣지 않는다.
+        m.put("reason", tiltReason(in.esRate(), in.nqRate(), in.soxRate(), in.vixLevel()));
         m.put("drivers", buildDrivers(in));
         m.put("dataAvailable", dataAvailable);   // false=Yahoo 미가용(빈 결과가 '중립'과 구분)
         m.put("asOf", in.tradingTime());
@@ -158,6 +161,39 @@ public class OvernightUsMarketService {
                 || (soxRate != null && soxRate <= -2.0)) return "BEAR";         // 약세 / 공포경계 / 반도체 급락
         if (avg3 == null) return "UNKNOWN";                                     // 지수 등락을 모른다 — '중립' 아님
         return "NEUTRAL";
+    }
+
+    /**
+     * 판정 근거 — {@link #classifyOvernight} 가 어느 규칙으로 정했는지(표시 전용, 순수, 2026-11-09).
+     *
+     * <p>재현(운영 11/9): 세 지수가 전부 올랐는데(S&amp;P500 +0.31% · 나스닥 +1.35% · SOX +4.21%) VIX 25.6 이라 '약세'였고,
+     * 화면엔 그 이유가 없어 '간밤 미국장이 빠졌다'로 읽혔다. 판정은 바꾸지 않는다 — 근거만 같이 보인다.
+     * 보합권 중립과 판단 보류는 null(근거 줄이 필요 없거나 drivers 가 이미 말한다).
+     */
+    static String tiltReason(Double esRate, Double nqRate, Double soxRate, Double vixLevel) {
+        String tilt = classifyOvernight(esRate, nqRate, soxRate, vixLevel);
+        Double avg3 = avg(esRate, nqRate, soxRate);
+        switch (tilt) {
+            case "BULL":
+                return "지수 평균 +0.6% 이상 · " + (vixLevel == null ? "VIX 모름" : "VIX 20 미만");
+            case "BEAR": {
+                List<String> r = new ArrayList<>();
+                if (avg3 != null && avg3 <= -0.6) r.add("지수 평균 -0.6% 이하");
+                if (soxRate != null && soxRate <= -2.0) r.add("SOX -2% 이하(반도체 급락)");
+                boolean indexWeak = !r.isEmpty();
+                if (vixLevel != null && vixLevel >= 30.0) r.add("VIX 30 이상(공포)");
+                else if (vixLevel != null && vixLevel >= 25.0) r.add("VIX 25 이상(공포 경계)");
+                String joined = String.join(" · ", r);
+                return indexWeak ? joined : joined + " — 지수 등락과 별개";
+            }
+            case "NEUTRAL":
+                if (avg3 != null && avg3 >= 0.6 && vixLevel != null && vixLevel >= 20.0) {
+                    return "지수 평균 +0.6% 이상이지만 VIX 20 이상 — 강세로 보지 않는다";
+                }
+                return null;
+            default:
+                return null;   // UNKNOWN — drivers 맨 앞의 '미국 지수 간밤 세션 값 없음'이 이미 말한다
+        }
     }
 
     /** null 제외 평균(전부 null 이면 null). */

@@ -482,7 +482,7 @@ public class JudgmentBoardService {
         return null;
     }
 
-    private JudgmentBoardDto.Market buildMarket() {
+    JudgmentBoardDto.Market buildMarket() {   // package-private — JudgmentBoardOvernightReasonTest
         String regime = null;
         try {
             MarketRegimeClient rc = regimeProvider.getIfAvailable();
@@ -491,6 +491,7 @@ public class JudgmentBoardService {
 
         String tilt = null;
         List<String> drivers = null;
+        String reason = null;
         try {
             Map<String, Object> ov = overnightService.getOvernightView();
             if (ov != null && Boolean.TRUE.equals(ov.get("dataAvailable"))) {
@@ -501,11 +502,13 @@ public class JudgmentBoardService {
                     drivers = new ArrayList<>();
                     for (Object o : list) drivers.add(String.valueOf(o));
                 }
+                Object r = ov.get("reason");   // 오늘 탭과 같은 판정 근거(지수가 올랐는데 '약세'일 때 이유)
+                reason = r == null ? null : r.toString();
             }
         } catch (Exception ignore) { /* best-effort */ }
 
         return JudgmentBoardDto.Market.builder()
-                .regime(regime).overnightTilt(tilt).overnightDrivers(drivers).build();
+                .regime(regime).overnightTilt(tilt).overnightDrivers(drivers).overnightReason(reason).build();
     }
 
     private Map<String, String> buildStockSectorMap() {

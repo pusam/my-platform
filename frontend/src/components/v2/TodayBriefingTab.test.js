@@ -651,4 +651,21 @@ describe('TodayBriefingTab — 🌙 간밤 미국장', () => {
     expect(w.find('.today-overnight .ov-tilt').text()).toBe('중립')
     expect(w.find('.today-overnight .ov-asof').exists()).toBe(false)
   })
+
+  // 2026-11-09 재현(운영 17:05): 세 지수가 전부 올랐는데 '약세'였다 — VIX 25.6 ≥ 25 규칙. 이유가 화면에 없어
+  // '간밤 미국장이 빠졌다'로 읽혔다. 서버가 주는 판정 근거(reason)를 이름표 옆에 붙인다.
+  it('재현(11/9): 지수가 올랐는데 약세면 판정 근거를 이름표 옆에 붙인다', async () => {
+    stubOvernight({ tilt: 'BEAR', dataAvailable: true, asOf: '11/07 07:15 (토) KST',
+      reason: 'VIX 25 이상(공포 경계) — 지수 등락과 별개',
+      drivers: ['S&P500 +0.31%', '나스닥 +1.35%', 'SOX +4.21%', 'VIX 25.6(공포)'] })
+    const w = await mountTab()
+    expect(w.find('.today-overnight .ov-tilt').text()).toBe('약세')
+    expect(w.find('.today-overnight .ov-reason').text()).toBe('판정: VIX 25 이상(공포 경계) — 지수 등락과 별개')
+  })
+
+  it('근거가 없으면(보합권 중립) 근거 줄을 만들지 않는다', async () => {
+    stubOvernight({ tilt: 'NEUTRAL', dataAvailable: true, reason: null, drivers: ['S&P500 +0.10%'] })
+    const w = await mountTab()
+    expect(w.find('.today-overnight .ov-reason').exists()).toBe(false)
+  })
 })
