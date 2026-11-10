@@ -106,6 +106,27 @@ if [ -d "$BACKUP_DIR" ]; then
   fi
 fi
 
+# ---- 5분 감시(watch-backend.sh)가 돌고 있나 (2026-11-10) ----
+# 감시는 정상 회차에 로그를 남기지 않아 크론 줄이 죽어도 티가 안 난다. 대신 매 회차 상태 파일을 다시 쓰므로,
+# 그 수정 시각이 15분 넘게 멈췄으면 감시가 안 도는 것이다. 상태 파일이 아예 없으면(설치 전) 조용히 넘어간다.
+# 대체 위치(/dev/shm)에만 쓰고 있으면 홈 쪽 디스크에 쓰지 못하는 것이다.
+WATCH_STATE="${WATCH_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/myplatform}/watch-backend.state"
+WATCH_FALLBACK="${WATCH_FALLBACK_DIR:-/dev/shm/myplatform-watch-$(id -u)}/watch-backend.state"
+WATCH_NEWEST=""
+for f in "$WATCH_STATE" "$WATCH_FALLBACK"; do
+  if [ -f "$f" ] && { [ -z "$WATCH_NEWEST" ] || [ "$f" -nt "$WATCH_NEWEST" ]; }; then WATCH_NEWEST="$f"; fi
+done
+if [ -n "$WATCH_NEWEST" ]; then
+  WATCH_AGE_MIN=$(( ( $(date +%s) - $(stat -c %Y "$WATCH_NEWEST") ) / 60 ))
+  INFO+=("👁 5분 감시: 마지막 회차 ${WATCH_AGE_MIN}분 전")
+  if [ "$WATCH_AGE_MIN" -gt 15 ]; then
+    ALERTS+=("⚠️ 5분 감시(watch-backend.sh)가 ${WATCH_AGE_MIN}분째 돌지 않는다 — crontab 줄과 ~/logs/watch-backend.log 확인")
+  fi
+  if [ "$WATCH_NEWEST" = "$WATCH_FALLBACK" ]; then
+    ALERTS+=("⚠️ 5분 감시가 상태를 대체 위치($WATCH_FALLBACK)에만 쓰고 있다 — 홈 쪽 디스크·권한 확인")
+  fi
+fi
+
 # ---- SSH 의심 시도 (지난 24h) ----
 SSH_FAIL=$(sudo journalctl -u ssh --since "24 hours ago" 2>/dev/null \
             | grep -ciE "failed|invalid" || true)

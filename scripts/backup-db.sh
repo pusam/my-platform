@@ -11,6 +11,10 @@
 # 그래서 이 스크립트는 **호스트 .env 에 의존하지 않는다** — 비밀번호는 mariadb 컨테이너 안에
 # 이미 환경변수로 있다. 크론 라인에서 .env 소싱 자체를 없앴다.
 set -u
+# 2026-11-10: pipefail — 없으면 파이프 `docker exec mariadb-dump | gzip` 의 성공 여부가 gzip 의 것이라, 덤프가
+# 중간에 죽어도(연결 끊김·컨테이너 재시작) 1MB 만 넘으면 '성공'으로 남고 그날 오래된 백업 정리까지 돌았다.
+# 이제 덤프가 실패하거나 마지막 줄 '-- Dump completed' 가 없으면 실패로 끝나고(파일 삭제), 정리도 건너뛴다.
+set -o pipefail
 
 DATE=$(date +%Y%m%d-%H%M)
 DIR="$HOME/backups"
@@ -21,13 +25,14 @@ echo "[$(date '+%F %T')] 백업 시작"
 
 # --single-transaction: InnoDB 잠금 없이 일관된 스냅샷 (운영 중 실행해도 안전)
 if docker exec myplatform-mariadb sh -c 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases --single-transaction --quick' | gzip > "$OUT" \
-   && [ -s "$OUT" ] && [ "$(stat -c%s "$OUT")" -ge 1048576 ]; then
+   && [ -s "$OUT" ] && [ "$(stat -c%s "$OUT")" -ge 1048576 ] \
+   && gzip -dc "$OUT" | tail -n 1 | grep -q '^-- Dump completed'; then
   echo "[$(date '+%F %T')] 백업 성공: $OUT ($(du -h "$OUT" | cut -f1))"
   # 30일 초과 백업 정리 — **성공한 날만**. 백업이 죽은 채 정리만 돌면 옛 백업까지 사라진다.
   find "$DIR" -name "db-*.sql.gz" -mtime +30 -delete
 else
   # 1MB 미만이면 실패로 간주(정상 백업은 30MB대) — 빈 gzip 을 성공으로 위장하지 않는다.
-  echo "[$(date '+%F %T')] 백업 실패 — 출력이 없거나 1MB 미만: $OUT"
+  echo "[$(date '+%F %T')] 백업 실패 — 덤프가 실패했거나, 1MB 미만이거나, 끝까지 써지지 않음('-- Dump completed' 없음): $OUT"
   rm -f "$OUT"
   exit 1
 fi
