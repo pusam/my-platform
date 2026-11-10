@@ -150,6 +150,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/short-selling/collect").hasRole("ADMIN")
                         .requestMatchers("/api/sector/trading/refresh").hasRole("ADMIN")
                         .requestMatchers("/api/paper-trading/portfolio/refresh").hasRole("ADMIN")
+                        // 공유 모의계좌 수동 매수·매도 — 화면(매매 탭)은 관리자 전용. 거래 내역 조회(GET)는 로그인 사용자 그대로.
+                        .requestMatchers(HttpMethod.POST, "/api/paper-trading/trades").hasRole("ADMIN")
                         // QuantTaController 의 @PreAuthorize 는 무효다(@EnableMethodSecurity 없음) — 여기가 실제 게이트
                         .requestMatchers(HttpMethod.POST, "/api/quant-ta/collect-history", "/api/quant-ta/backfill-names")
                                 .hasRole("ADMIN")

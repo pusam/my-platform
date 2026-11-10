@@ -100,6 +100,8 @@ class ApiAccessPolicyTest {
             "POST /api/short-selling/collect",
             "POST /api/sector/trading/refresh",
             "POST /api/paper-trading/portfolio/refresh",
+            // 공유 모의계좌 수동 매매(수집은 아니지만 공유 상태를 바꾼다 — 2026-11-10 사용자 결정)
+            "POST /api/paper-trading/trades",
             "POST /api/quant-ta/collect-history", "POST /api/quant-ta/backfill-names",
             "GET /api/diagnostics/data", "GET /api/diagnostics/price-scaling");
 
@@ -343,6 +345,7 @@ class ApiAccessPolicyTest {
             assertThat(status("GET /api/screener/collect-status", c, USER)).isEqualTo(200);
             assertThat(status("GET /api/ai-strategy/latest", c, USER)).isEqualTo(200);
             assertThat(status("GET /api/paper-trading/portfolio", c, USER)).isEqualTo(200);
+            assertThat(status("GET /api/paper-trading/trades", c, USER)).as("거래 내역 조회").isEqualTo(200);
         }
     }
 
