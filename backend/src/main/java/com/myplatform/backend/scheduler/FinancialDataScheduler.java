@@ -42,6 +42,8 @@ public class FinancialDataScheduler {
     private final SchedulerLockService schedulerLockService;
     private final MarketCalendarService marketCalendar;
     private final com.myplatform.backend.service.StockFinancialDataCollector stockFinancialDataCollector;
+    /** 그날 날짜 판정 — 테스트가 고정한다(수능일 리허설 2026-11-10). */
+    private final java.time.Clock clock;
 
     /**
      * 매일 08:30 자동 수집 (장 시작 전)
@@ -79,6 +81,14 @@ public class FinancialDataScheduler {
     public void collectAfternoon() {
         if (marketCalendar.isMarketClosed()) {
             log.info("[배치] 15:38 휴장일 — 재무데이터 수집 스킵");
+            return;
+        }
+        // 장이 늦게 닫히는 날(수능일)은 15:38 이 장중이다 — 장중 가격으로 그날 일별 행의 시가총액·PER·PBR 을 다시 만들지 않는다.
+        // 그날 행은 08:30 회차 값(직전 거래일 종가 기준)으로 남고, 그날 종가 기준 값은 다음 거래일 08:30 회차가 쓴다(2026-11-10).
+        java.time.LocalDate today = java.time.LocalDate.now(clock);
+        if (marketCalendar.closesLate(today)) {
+            log.info("[배치] 15:38 오늘은 마감이 늦다({}) — 재무데이터 오후 수집 스킵(그날 행은 08:30 값, 다음 거래일 08:30 이 종가 기준으로 쓴다)",
+                    marketCalendar.marketCloseOf(today));
             return;
         }
         if (!schedulerLockService.tryLock("financial-data.afternoon", Duration.ofMinutes(5))) {

@@ -61,6 +61,9 @@ public class AiStrategySnapshotService {
     private final EarningSurpriseService earningSurpriseService;
     private final StockStatusService stockStatusService;
 
+    /** 장 마감 보정이 그날 날짜를 읽는 시계 — 테스트가 고정한다(수능일 리허설 2026-11-10). */
+    java.time.Clock clock = java.time.Clock.system(java.time.ZoneId.of("Asia/Seoul"));
+
     /**
      * 워밍이 거래정지 게이트를 기다리는 한도 — 2초 간격 90회(3분). 2026-09-29 재시작에선 게이트가 기동 63초 뒤에
      * 채워졌다(비동기 풀 차례 대기 60초 + 동기화 3초). 마스터 동기화가 죽으면 영영 안 채워지므로 한도가 있어야 한다.
@@ -245,6 +248,13 @@ public class AiStrategySnapshotService {
     @Scheduled(scheduler = "cacheScheduler", cron = "0 40 15 * * MON-FRI", zone = "Asia/Seoul")
     public void updateClosingPrices() {
         if (closedToday()) return;
+        // 장이 늦게 닫히는 날(수능일)은 15:40 이 장중이다 — 장중 가격을 '최종 종가'로 덮어쓰지 않는다. 그날 뒤로 보정 회차가 없으니
+        // 스냅샷은 만든 시각의 가격으로 남는다(트랙레코드 추천가가 종가인 척하지 않게, 2026-11-10).
+        java.time.LocalDate today = java.time.LocalDate.now(clock);
+        if (marketCalendarService.closesLate(today)) {
+            log.info("[Closing Batch] 오늘은 마감이 늦다({}) — 15:40 은 장중이라 종가 보정 스킵", marketCalendarService.marketCloseOf(today));
+            return;
+        }
         log.info("[Closing Batch] 장 마감 확정 배치 시작");
         long startTime = System.currentTimeMillis();
 

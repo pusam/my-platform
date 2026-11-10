@@ -44,6 +44,13 @@ public class InvestorTradeDto {
      */
     private LocalDateTime asOf;
 
+    /**
+     * KIS 순위로 받은 값이 장중 값인가 — 조회 시각이 그날 마감({@code MarketCalendarService.marketCloseOf}) 10분 뒤 전이면 true
+     * (2026-11-10). 화면이 '15:50' 을 다시 계산하지 않게 서버가 달력으로 판정한다 — 2026-11-19 수능일은 16:50 까지 장중이다.
+     * DB 행은 null.
+     */
+    private Boolean intraday;
+
     /** DB 행의 정체 — TALLY 가집계 · FINAL 장 마감 확정치(2026-11-05). KIS 순위로 바로 받은 장중 값은 null. */
     private String dataBasis;
 }

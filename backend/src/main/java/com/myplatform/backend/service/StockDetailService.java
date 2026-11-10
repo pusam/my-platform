@@ -184,7 +184,7 @@ public class StockDetailService {
             if (supplyDemand != null) {
                 // ★ 데이터 출처 표시 — 장이 닫힌 날은 시각과 무관하게 '휴장'(2026-10-19)
                 supplyDemand.setDataSource(supplySource(closedToday, isBeforeMarket, isAfterMarket));
-                supplyDemand.setInvestorDataExpected(investorDataExpected(closedToday, LocalTime.now(KST)));
+                applyInvestorDataTiming(supplyDemand, closedToday);
                 log.info("[StockDetail] 수급 데이터 - 외국인: {}억, 기관: {}억, 체결강도: {}% [{}]",
                         supplyDemand.getForeignNetBuy(), supplyDemand.getInstNetBuy(),
                         supplyDemand.getVolumePower(), supplyDemand.getDataSource());
@@ -343,7 +343,7 @@ public class StockDetailService {
             SupplyDemand supplyDemand = supplyFuture.get(15, TimeUnit.SECONDS);
             if (supplyDemand != null) {
                 supplyDemand.setDataSource(supplySource(closedToday, isBeforeMarket, isAfterMarket));
-                supplyDemand.setInvestorDataExpected(investorDataExpected(closedToday, LocalTime.now(KST)));
+                applyInvestorDataTiming(supplyDemand, closedToday);
                 builder.supplyDemand(supplyDemand);
             }
 
@@ -1095,7 +1095,21 @@ public class StockDetailService {
      * 그 뒤에 비어 있으면 '마감 뒤 제공'이 아니라 아직 못 받은 것이다. 순수.
      */
     static boolean investorDataExpected(boolean marketClosedToday, LocalTime now) {
-        return !marketClosedToday && now != null && !now.isBefore(ScalpingAnalysisService.INVESTOR_DATA_READY_AFTER);
+        return investorDataExpected(marketClosedToday, now, ScalpingAnalysisService.INVESTOR_DATA_READY_AFTER);
+    }
+
+    /** 그날 마감({@code readyAt}, 달력 — 수능일 16:40)을 받는 판정(2026-11-10). */
+    static boolean investorDataExpected(boolean marketClosedToday, LocalTime now, LocalTime readyAt) {
+        return !marketClosedToday && now != null && readyAt != null && !now.isBefore(readyAt);
+    }
+
+    /** 외국인·기관 당일 집계가 나와 있어야 하는가와 그 시각('HH:mm')을 싣는다 — 그날 마감은 달력 단일 출처(수능일 16:40, 2026-11-10). */
+    void applyInvestorDataTiming(SupplyDemand supplyDemand, boolean closedToday) {
+        LocalTime readyAt = marketCalendar != null
+                ? marketCalendar.marketCloseOf(LocalDate.now(clock)) : ScalpingAnalysisService.INVESTOR_DATA_READY_AFTER;
+        LocalTime now = LocalTime.now(clock);
+        supplyDemand.setInvestorDataExpected(investorDataExpected(closedToday, now, readyAt));
+        supplyDemand.setInvestorDataReadyAt(readyAt.toString());
     }
 
     /**

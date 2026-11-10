@@ -646,7 +646,7 @@ import {
 } from '../utils/api'
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
 import { topNetSum, supplyBasisLabel, supplyTotalNote, consecutiveThroughLabel, VALUE_LIST_BASIS, valueMultiplesLine } from '../utils/marketDataLabels'
-import { kstDateOf, closedTodayFromStatus, closedOn } from '../utils/marketPhase'
+import { kstDateOf, closedTodayFromStatus, closedOn, tradingStartOn } from '../utils/marketPhase'
 import { closeBasisLabel, todayKstIso } from '../utils/stockFormat'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
@@ -963,7 +963,9 @@ export default {
         timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit'
       }).split(':').map(Number)
       const mins = h * 60 + m
-      if (mins < 480) return 'pre'        // ~08:00
+      // 거래 시작은 백엔드 달력(시장 상태의 tradingStartsAt) — 평소 08:00(NXT 프리마켓), 2026-11-19 수능일 10:00. 모르면 08:00(2026-11-10)
+      const startMins = tradingStartOn(this.closedTodayInfo, kstDateOf(this.phaseNow)) ?? 480
+      if (mins < startMins) return 'pre'  // 거래 시작 전
       if (mins < 1200) return 'during'   // 08:00~20:00 (프리+정규+애프터)
       return 'post'                       // 20:00~
     },
@@ -1722,7 +1724,10 @@ export default {
     /** 시장 상태 응답의 휴장 판정을 날짜와 함께 기억한다 — 칸이 없으면 기존 판정을 그대로 둔다(실패로 지우지 않는다). */
     noteClosedToday(raw, nowMs = Date.now()) {
       const closed = closedTodayFromStatus(raw)
-      if (closed !== null) this.closedTodayInfo = { date: kstDateOf(nowMs), closed }
+      if (closed !== null) {
+        const startsAt = raw && typeof raw.tradingStartsAt === 'string' ? raw.tradingStartsAt : undefined
+        this.closedTodayInfo = startsAt ? { date: kstDateOf(nowMs), closed, startsAt } : { date: kstDateOf(nowMs), closed }
+      }
     },
 
     /**

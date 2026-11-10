@@ -16,7 +16,9 @@ export function investorFlowNote(supplyDemand) {
   if (supplyDemand.dataSource === '실시간') {
     // 거래일 15:40 이후인데 비었으면 '마감 뒤 제공'이 아니라 아직 못 받은 것 — 이유를 지어내지 않는다(빈 문자열)
     if (supplyDemand.investorDataExpected === true) return ''
-    return '외국인·기관 당일 집계는 장 마감(15:40) 뒤 제공 — 장중엔 프로그램 매매만 실시간입니다.'
+    // 그날 마감 시각은 서버 달력(investorDataReadyAt — 평소 15:40, 2026-11-19 수능일 16:40)이 준다. 없으면 종전 15:40(2026-11-10)
+    const readyAt = typeof supplyDemand.investorDataReadyAt === 'string' ? supplyDemand.investorDataReadyAt : '15:40'
+    return `외국인·기관 당일 집계는 장 마감(${readyAt}) 뒤 제공 — 장중엔 프로그램 매매만 실시간입니다.`
   }
   if (supplyDemand.dataSource === '장전(초기화)') {
     return '장 시작 전 — 당일 수급은 아직 없습니다.'

@@ -55,6 +55,12 @@ public class MarketTimingDto {
     private Boolean marketClosedToday;
 
     /**
+     * 오늘 거래가 처음 열리는 시각 'HH:mm'({@code MarketCalendarService.tradingStartOf}, 2026-11-10) — 평소 08:00(NXT 프리마켓),
+     * 2026-11-19 수능일은 10:00. 허브 시간대 배너가 그 전엔 '장 진행 중'이라 하지 않게 — 화면에 두 번째 장 시각표를 두지 않는다.
+     */
+    private String tradingStartsAt;
+
+    /**
      * 개별 시장 현황
      */
     @Data

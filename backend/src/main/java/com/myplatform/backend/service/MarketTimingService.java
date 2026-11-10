@@ -353,6 +353,7 @@ public class MarketTimingService {
                 .dataAge(dataAge)
                 .dataStale(dataStale)
                 .marketClosedToday(marketCalendar.isMarketClosed())
+                .tradingStartsAt(tradingStartsToday())
                 .build();
     }
 
@@ -956,6 +957,12 @@ public class MarketTimingService {
                 .build();
     }
 
+    /** 오늘 거래가 처음 열리는 시각 'HH:mm' — 달력 단일 출처(허브 시간대 배너용, 2026-11-10). */
+    String tradingStartsToday() {
+        java.time.LocalTime start = marketCalendar.tradingStartOf(now().toLocalDate());
+        return start == null ? null : start.toString();
+    }
+
     /**
      * 빈 타이밍 데이터 생성
      */
@@ -965,6 +972,7 @@ public class MarketTimingService {
                 .diagnosis("시장 데이터가 없습니다. 먼저 데이터를 수집해주세요.")
                 .strategy("데이터 수집 후 분석을 이용해주세요.")
                 .marketClosedToday(marketCalendar.isMarketClosed())   // 데이터가 없어도 휴장 여부는 안다
+                .tradingStartsAt(tradingStartsToday())
                 .build();
     }
 

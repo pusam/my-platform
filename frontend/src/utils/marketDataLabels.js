@@ -331,7 +331,10 @@ export function supplyBasisLabel(rows) {
   if (fetched.length) {
     const last = fetched[fetched.length - 1]
     const hm = last.slice(11, 16)
-    return hm < '15:50' ? `${toMonthDay(last)} ${hm} 장중 가집계` : `${toMonthDay(last)} ${SUPPLY_TALLY_BASIS}`
+    // 장중인가는 서버가 달력으로 정한 intraday(2026-11-10 — 수능일은 16:50 까지 장중). 칸이 없는 옛 캐시 행만 종전 15:50 경계
+    const row = rows.find((r) => r && r.asOf === last)
+    const intraday = row && typeof row.intraday === 'boolean' ? row.intraday : hm < '15:50'
+    return intraday ? `${toMonthDay(last)} ${hm} 장중 가집계` : `${toMonthDay(last)} ${SUPPLY_TALLY_BASIS}`
   }
   const day = latestTradeDay(rows)
   if (!day) return null

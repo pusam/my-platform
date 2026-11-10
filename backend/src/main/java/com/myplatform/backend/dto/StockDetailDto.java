@@ -97,6 +97,7 @@ public class StockDetailDto {
         // 데이터 출처 표시
         private String dataSource;            // "실시간", "일별(DB)", "장전(초기화)", "휴장"(장이 닫힌 날, 2026-10-19)
         private Boolean investorDataExpected; // 외국인·기관 당일 집계가 이미 나와 있어야 하는가(거래일 15:40 이후, 2026-10-19)
+        private String investorDataReadyAt;   // 그날 그 집계가 나오는 시각 'HH:mm' — 그날 마감(달력, 평소 15:40·수능일 16:40), 화면 안내문이 쓴다(2026-11-10)
     }
 
     /**

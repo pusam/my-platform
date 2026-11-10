@@ -229,6 +229,15 @@ describe('supplyBasisLabel / consecutiveThroughLabel', () => {
     expect(supplyTotalNote([final, tally])).toContain('가집계')
   })
 
+  it('재현: 수능일(2026-11-19, 마감 16:40) 16:05 에 받은 값은 장중이다 — 서버가 달력으로 정한 intraday 를 따른다(2026-11-10)', async () => {
+    const { supplyBasisLabel } = await import('./marketDataLabels')
+    expect(supplyBasisLabel([{ tradeDate: '2026-11-19', asOf: '2026-11-19T16:05:00', intraday: true }])).toBe('11.19 16:05 장중 가집계')
+    expect(supplyBasisLabel([{ tradeDate: '2026-11-19', asOf: '2026-11-19T16:55:00', intraday: false }])).toBe('11.19 가집계(14:30 기준)')
+    // 평소 날 서버 판정도 같은 쪽 — 칸이 없는 옛 캐시 행은 종전 15:50 경계
+    expect(supplyBasisLabel([{ tradeDate: '2026-11-18', asOf: '2026-11-18T15:49:00', intraday: true }])).toBe('11.18 15:49 장중 가집계')
+    expect(supplyBasisLabel([{ tradeDate: '2026-11-18', asOf: '2026-11-18T15:51:00' }])).toBe('11.18 가집계(14:30 기준)')
+  })
+
   it('행이 없으면 null', async () => {
     const { supplyBasisLabel } = await import('./marketDataLabels')
     expect(supplyBasisLabel([])).toBeNull()

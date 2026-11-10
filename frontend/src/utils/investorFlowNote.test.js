@@ -15,6 +15,13 @@ describe('investorFlowNote', () => {
     expect(note).toContain('외국인·기관')
   })
 
+  it('재현: 수능일(2026-11-19)은 서버가 준 그날 마감(16:40)을 말한다 — 15:40 이 아니다(2026-11-10)', () => {
+    const note = investorFlowNote({ dataSource: '실시간', foreignNetBuy: null, instNetBuy: null, investorDataExpected: false, investorDataReadyAt: '16:40' })
+    expect(note).toContain('16:40')
+    expect(note).not.toContain('15:40')
+    expect(investorFlowNote({ dataSource: '실시간', foreignNetBuy: null, instNetBuy: null, investorDataReadyAt: '15:40' })).toContain('장 마감(15:40)')
+  })
+
   it('장 시작 전이면 아직 없다고 말한다', () => {
     expect(investorFlowNote({ dataSource: '장전(초기화)', foreignNetBuy: null, instNetBuy: null })).toContain('장 시작 전')
   })

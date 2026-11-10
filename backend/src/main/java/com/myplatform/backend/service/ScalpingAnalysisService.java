@@ -26,6 +26,12 @@ public class ScalpingAnalysisService {
 
     private final KoreaInvestmentService kisService;
 
+    /** 그날 마감 시각(수능일처럼 늦게 닫히는 날) — 없으면 평소 15:40(2026-11-10 리허설). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    MarketCalendarService marketCalendar;
+    /** 투자자 당일 행 판정 시계 — 테스트가 고정한다. */
+    java.time.Clock clock = java.time.Clock.system(java.time.ZoneId.of("Asia/Seoul"));
+
     /**
      * 종목 단타 분석 정보 조회 (전체)
      * @param stockCode 종목코드 (6자리)
@@ -294,8 +300,8 @@ public class ScalpingAnalysisService {
      * 투자자 매매 데이터 파싱 — 오늘 행만, 장 마감 뒤에만(2026-10-03, {@link #todayInvestorNetEok}).
      */
     private void parseInvestorTrading(JsonNode data, ScalpingAnalysisDto.ScalpingAnalysisDtoBuilder builder) {
-        java.time.ZonedDateTime now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
-        boolean afterClose = now.toLocalTime().isAfter(INVESTOR_DATA_READY_AFTER);
+        java.time.ZonedDateTime now = java.time.ZonedDateTime.now(clock != null ? clock : java.time.Clock.system(java.time.ZoneId.of("Asia/Seoul")));
+        boolean afterClose = now.toLocalTime().isAfter(investorDataReadyAfter(now.toLocalDate()));
         InvestorNet net = todayInvestorNetEok(data.get("output"), now.toLocalDate(), afterClose);
         builder.foreignNetBuy(net.foreignEok());
         builder.instNetBuy(net.institutionEok());
@@ -304,6 +310,11 @@ public class ScalpingAnalysisService {
 
     /** 당일 투자자 데이터가 나오는 시각 — KIS: "당일 데이터는 장 종료 후 제공"(공식 샘플 inquire_investor.py). KRX 종료 15:40 기준. */
     static final java.time.LocalTime INVESTOR_DATA_READY_AFTER = java.time.LocalTime.of(15, 40);
+
+    /** 그날 당일 투자자 데이터가 나오는 시각 — 그날 마감({@link MarketCalendarService#marketCloseOf}), 달력이 없으면 15:40. */
+    java.time.LocalTime investorDataReadyAfter(java.time.LocalDate day) {
+        return marketCalendar != null ? marketCalendar.marketCloseOf(day) : INVESTOR_DATA_READY_AFTER;
+    }
 
     /** 외국인·기관 순매수(억원). 모르면 null. */
     record InvestorNet(BigDecimal foreignEok, BigDecimal institutionEok) {}
