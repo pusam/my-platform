@@ -56,8 +56,8 @@ public class PriceScalingDiagnosticService {
     private static final BigDecimal CTRT_LIMIT = new BigDecimal("31");
 
     /**
-     * 조회 기간 상한(시간) — 2026-11-10. 시세 이력 테이블은 지운 적이 없어 약 400만 행이고 하루 약 2만 행씩 는다.
-     * 이 진단은 기간 안의 행을 엔티티 목록으로 한꺼번에 읽으므로(fetched_at 만으로 거르는 인덱스도 없다) 기간에 상한이
+     * 조회 기간 상한(시간) — 2026-11-10. 시세 이력 테이블은 약 400만 행이고 하루 약 2만 행씩 는다(보존 잡은 기본 꺼짐).
+     * 이 진단은 기간 안의 행을 엔티티 목록으로 한꺼번에 읽으므로(V75 로 fetched_at 인덱스가 생겨 거르기는 빨라졌지만 읽는 행 수는 그대로다) 기간에 상한이
      * 없으면 요청 하나가 수십만 행을 메모리에 올린다(옛 기본값 720시간 ≈ 60만 행). 7일 ≈ 14만 행.
      */
     public static final int MAX_HOURS_BACK = 168;
