@@ -114,7 +114,7 @@ docker exec -it sp-restore mariadb -uroot -prestore restore
 ```
 
 ```bash
-docker rm -f sp-restore
+docker rm -f -v sp-restore
 ```
 
 ## 5. 사용자 결정
