@@ -81,6 +81,7 @@ public final class CrewContextBuilder {
             appendFinancialInput(sb, k.financialInput());
             appendTrustGate(sb, k.trustGate());
             appendBotGate(sb, k.botGate());
+            appendRestartWatch(sb, k.restartWatch());
         }
 
         sb.append("\n[판정 캘린더]\n");
@@ -346,6 +347,34 @@ public final class CrewContextBuilder {
                 .append("재무상태표(자본총계) ").append(f.withBalance());
         String reason = f.noteDetail() != null ? f.noteDetail() : f.note();
         if (reason != null) sb.append(" — ⚠ ").append(reason);
+        sb.append('\n');
+    }
+
+    /**
+     * 장중 재시작(2026-11-10) — 표본 시작일 판단(08:30~15:50 재시작 없는 거래일)의 근거. 카드가 없으면(null) 줄을 만들지 않고,
+     * 조회 실패는 '재시작 없음'이 아니라 '모름'으로 넘긴다(§4c).
+     */
+    private static void appendRestartWatch(StringBuilder sb, ControlRoomSnapshotDto.RestartWatch r) {
+        if (r == null) return;
+        if (!r.dataAvailable()) {
+            sb.append("- 장중 재시작: 데이터 없음 (부팅 기록 조회 실패 — '재시작 없음'이 아니라 '모름')\n");
+            return;
+        }
+        sb.append("- 장중 재시작(오늘 ").append(r.window()).append("): ");
+        if (Boolean.FALSE.equals(r.tradingDay())) {
+            sb.append("휴장일 — 판정 대상 아님");
+        } else if (r.todayIntraday() == null || r.todayIntraday().isEmpty()) {
+            sb.append("없음");
+        } else {
+            sb.append("있음 ");
+            for (int i = 0; i < r.todayIntraday().size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(r.todayIntraday().get(i).toLocalTime());
+            }
+            sb.append(" — 오늘은 표본 시작일 후보가 아니다");
+        }
+        if (r.lastIntradayLine() != null) sb.append(" · ").append(r.lastIntradayLine());
+        if (!r.currentBootRecorded()) sb.append(" · ⚠ 이번 부팅 기록 누락(다른 재시작도 빠졌을 수 있다)");
         sb.append('\n');
     }
 
