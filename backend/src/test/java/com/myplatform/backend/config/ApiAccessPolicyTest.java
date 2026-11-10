@@ -103,6 +103,8 @@ class ApiAccessPolicyTest {
             // 공유 모의계좌 수동 매매(수집은 아니지만 공유 상태를 바꾼다 — 2026-11-10 사용자 결정)
             "POST /api/paper-trading/trades",
             "POST /api/quant-ta/collect-history", "POST /api/quant-ta/backfill-names",
+            // 외부 공개 수치 대조 수동 실행 — 외부 호출을 일으킨다(관제실 밖 /api/admin, 관제실은 읽기 전용)
+            "POST /api/admin/crosscheck/run",
             "GET /api/diagnostics/data", "GET /api/diagnostics/price-scaling");
 
     @RestController

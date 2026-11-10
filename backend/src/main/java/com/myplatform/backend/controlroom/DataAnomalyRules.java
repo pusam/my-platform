@@ -545,6 +545,140 @@ public final class DataAnomalyRules {
                 codes.size() + "종목: " + sample);
     }
 
+    // ==================== ⑯ 외부 공개 수치 대조(종가) ====================
+
+    /** 대조 실행 한 번의 요약 — {@code ExternalCrosscheckService.RunSummary} 를 관제실이 옮겨 담는다(이 클래스는 순수). */
+    public record CrosscheckRunStat(LocalDate runDate, LocalDate targetBarDate, String status,
+                                    int planned, int attempted, int matched, int mismatched, int notCompared,
+                                    java.util.Map<String, Integer> notComparedReasons, List<String> mismatchedCodes,
+                                    boolean staleMixedWithMatch) {}
+
+    /** 그날 대조한 종목 중 이 비율 이상 어긋나면 한꺼번에 틀린 것 — CRITICAL. */
+    static final int CROSSCHECK_WIDE_MISMATCH_PCT = 30;
+    /** 비율 판정에 필요한 최소 대조 종목 수. */
+    static final int CROSSCHECK_WIDE_MIN_COMPARED = 10;
+    /** 이만큼 거래일이 밀리면 대조가 멈춘 것이다. */
+    static final int CROSSCHECK_STALE_TRADING_DAYS = 2;
+
+    private static final String CROSSCHECK_STALE_MIXED_DETAIL =
+            " ⚠ 이 실행엔 '하루 늦음'으로 분류한 종목이 이미 넘어간 종목(앞 봉과 값이 다른데 일치)과 섞여 있다 — 넘어가는 시각은 종목마다 "
+                    + "같을 것이므로 그 종목들은 하루 늦음이 아니라 진짜 불일치일 수 있다(분류는 '대조 못 함' 그대로).";
+
+    /**
+     * 외부 공개 수치 대조 — 우리 마지막 확정 봉 종가 vs 네이버 '전일'(직전 거래일 KRX 종가). 2026년 가을 큰 데이터 오류(저녁 일봉이
+     * KRX 종가가 아니었던 것 등)는 전부 사람이 외부 수치와 손으로 대조해 찾았다 — 그것을 매 거래일 10:20 에 자동으로 한다.
+     *
+     * <p>종가는 정확히 같아야 하는 값이라 <b>한꺼번에 틀리면 하루 만에</b> 올린다(그날 11:30 채점에 들어간다). 종목 하나는 이틀 연속일
+     * 때 WARNING — 권리락처럼 하루짜리 사정을 거르려고. '대조 못 함'은 일치가 아니다(§4c) — 절반이 넘으면 따로 올린다.
+     *
+     * @param recentDesc        최근 실행(새 것부터)
+     * @param behindTradingDays 마지막 실행 뒤 돌았어야 할 거래일 수(실행이 없으면 무시)
+     * @param enabled           설정이 켜져 있는가
+     */
+    public static List<Anomaly> externalCloseCrosscheck(List<CrosscheckRunStat> recentDesc, int behindTradingDays,
+                                                        boolean enabled) {
+        List<Anomaly> out = new ArrayList<>();
+        if (!enabled) {
+            out.add(new Anomaly(INFO, "external-crosscheck-off", "외부 공개 수치 대조가 꺼져 있다",
+                    "우리 종가를 외부 공개 수치와 견주지 않는다. 켜려면 EXTERNAL_CROSSCHECK_ENABLED=true.", "enabled=false"));
+            return out;
+        }
+        if (recentDesc == null || recentDesc.isEmpty()) {
+            out.add(new Anomaly(INFO, "external-crosscheck-none", "외부 공개 수치 대조 기록이 아직 없다",
+                    "매 거래일 10:20 에 돈다. 배포 첫날이면 정상이다 — 다음 거래일 10:20 뒤에도 없으면 로그 grep '[외부 대조]'.",
+                    "실행 0건"));
+            return out;
+        }
+        CrosscheckRunStat latest = recentDesc.get(0);
+        String mixed = latest.staleMixedWithMatch() ? CROSSCHECK_STALE_MIXED_DETAIL : "";
+
+        if (behindTradingDays >= CROSSCHECK_STALE_TRADING_DAYS) {
+            out.add(new Anomaly(WARNING, "external-crosscheck-stale",
+                    "외부 공개 수치 대조가 멈췄다 — 마지막 실행 " + latest.runDate() + " · 거래일 " + behindTradingDays + "일 밀림",
+                    "평일 10:20:40 크론(ExternalCrosscheckService)이 돌지 않았다. 확인 — ① 로그 grep '[외부 대조]' ② 재시작이 그 시각에 걸렸는지 "
+                            + "③ 수동 실행 POST /api/admin/crosscheck/run. 대조가 없는 동안 우리 종가가 맞는지 아무도 모른다.",
+                    "마지막 " + latest.runDate() + " · 밀린 거래일 " + behindTradingDays));
+        }
+
+        String reasons = reasonsText(latest.notComparedReasons());
+        boolean blind = !"COMPLETE".equals(latest.status())
+                || latest.attempted() == 0
+                || latest.notCompared() * 2 >= latest.attempted();
+        if (blind) {
+            out.add(new Anomaly(WARNING, "external-crosscheck-blind",
+                    "외부 대조를 하지 못했다(" + latest.runDate() + ") — '일치'가 아니다",
+                    "상태 " + latest.status() + " · 시도 " + latest.attempted() + "/" + latest.planned() + "종목 중 대조 못 함 "
+                            + latest.notCompared() + ". FETCH_FAILED 가 대부분이면 외부 주소가 막혔거나 바뀐 것 — 헤더를 붙여 우회하지 말 것. "
+                            + "NO_OUR_BAR 가 많으면 07:40 아침 봉 재수집이 그 종목 봉을 못 받은 것(로그 grep '[일봉갱신]'). "
+                            + "EXTERNAL_STALE 가 대부분이면 외부 값이 넘어가는 시각 가정(10:20 이면 넘어가 있다)이 틀린 것." + mixed,
+                    "사유: " + reasons));
+        }
+
+        int compared = latest.matched() + latest.mismatched();
+        List<String> codes = latest.mismatchedCodes() == null ? List.of() : latest.mismatchedCodes();
+        String evidence = latest.targetBarDate() + " 봉 · 대조 " + compared + " · 불일치 " + latest.mismatched()
+                + (codes.isEmpty() ? "" : " · " + String.join(", ", codes.subList(0, Math.min(10, codes.size()))));
+        if (compared >= CROSSCHECK_WIDE_MIN_COMPARED
+                && latest.mismatched() * 100 >= CROSSCHECK_WIDE_MISMATCH_PCT * compared) {
+            out.add(new Anomaly(CRITICAL, "external-close-mismatch-wide",
+                    "외부 종가 대조 — " + compared + "종목 중 " + latest.mismatched() + "종목 종가 불일치(" + latest.targetBarDate() + " 봉)",
+                    "우리 " + latest.targetBarDate() + " 일봉 종가가 네이버 '전일'(KRX 종가)과 다르다. 여러 종목이 한꺼번에 다르면 07:40 아침 봉 "
+                            + "재수집이 저녁 값을 KRX 종가로 바꾸지 못했을 가능성이 크다 — 이 값이 오늘 11:30 기술 채점·D+3 평가에 들어간다. "
+                            + "확인 — ① 로그 grep '[일봉갱신] 아침 갱신' 의 재수집 수·'값이 달라 고친 봉' ② 어긋난 종목의 차이가 저녁 값 수준(0.3~1.4%)인지 "
+                            + "(GET /api/control-room/crosscheck 의 diff_pct) ③ 다음 거래일 대조에서 풀리는지. 값은 고치지 않는다(§3)." + mixed,
+                    evidence));
+        } else {
+            List<String> repeated = repeatedMismatches(recentDesc);
+            if (latest.mismatched() >= 2 || !repeated.isEmpty()) {
+                out.add(new Anomaly(WARNING, "external-close-mismatch",
+                        "외부 종가 대조 — 불일치 " + latest.mismatched() + "종목"
+                                + (repeated.isEmpty() ? "" : " · 이틀 연속 " + String.join(", ", repeated)),
+                        "종목별로 다르면 그 종목의 봉 수집 문제이거나 권리락·액면변경(그날 외부 '전일'은 기준가일 수 있다). 확인 — ① 종목 상세 차트의 "
+                                + "마지막 봉 ② 그 종목 공시(권리락·분할·병합) ③ 관제실 ⑭ 액면변경 규칙에 같은 종목이 있는지. 값은 고치지 않는다(§3)." + mixed,
+                        evidence));
+            } else if (latest.mismatched() == 1) {
+                out.add(new Anomaly(INFO, "external-close-mismatch-single",
+                        "외부 종가 대조 — 1종목 불일치(" + String.join(", ", codes) + ")",
+                        "하루짜리면 권리락·액면변경일 수 있다. 다음 거래일에도 어긋나면 WARNING 으로 올라간다." + mixed, evidence));
+            }
+        }
+
+        if (!blind && latest.staleMixedWithMatch() && out.stream().noneMatch(a -> a.key().startsWith("external-close-mismatch"))) {
+            out.add(new Anomaly(INFO, "external-close-stale-mixed",
+                    "외부 대조 — '하루 늦음' 분류가 넘어간 종목과 섞여 있다(" + latest.runDate() + ")",
+                    CROSSCHECK_STALE_MIXED_DETAIL.trim() + " 확인 — GET /api/control-room/crosscheck 에서 EXTERNAL_STALE 행의 종목을 보고, "
+                            + "그 종목의 우리 " + latest.targetBarDate() + " 봉이 맞는지 본다.",
+                    "사유: " + reasons));
+        }
+        return out;
+    }
+
+    /** 최근 두 실행에서 모두 어긋난 종목(같은 대조 날짜를 두 번 돌린 경우는 같은 사정이라 세지 않는다). */
+    private static List<String> repeatedMismatches(List<CrosscheckRunStat> recentDesc) {
+        if (recentDesc.size() < 2) return List.of();
+        CrosscheckRunStat a = recentDesc.get(0);
+        CrosscheckRunStat b = null;
+        for (int i = 1; i < recentDesc.size(); i++) {
+            if (!java.util.Objects.equals(recentDesc.get(i).targetBarDate(), a.targetBarDate())) {
+                b = recentDesc.get(i);
+                break;
+            }
+        }
+        if (b == null || a.mismatchedCodes() == null || b.mismatchedCodes() == null) return List.of();
+        List<String> out = new ArrayList<>();
+        for (String code : a.mismatchedCodes()) if (b.mismatchedCodes().contains(code)) out.add(code);
+        return out;
+    }
+
+    private static String reasonsText(java.util.Map<String, Integer> reasons) {
+        if (reasons == null || reasons.isEmpty()) return "없음";
+        List<String> parts = new ArrayList<>();
+        reasons.entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Integer>comparingByValue().reversed())
+                .forEach(e -> parts.add(e.getKey() + " " + e.getValue()));
+        return String.join(" · ", parts);
+    }
+
     public static List<Anomaly> sortBySeverity(List<Anomaly> found) {
         List<Anomaly> out = new ArrayList<>();
         if (found == null) return out;

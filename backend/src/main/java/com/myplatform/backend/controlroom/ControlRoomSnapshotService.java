@@ -116,6 +116,13 @@ public class ControlRoomSnapshotService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.myplatform.backend.bootlog.ServerBootLogRepository bootLogRepository;
 
+    /**
+     * 외부 공개 수치 대조(V76) — 이상 점검 ⑯. 필드 주입인 이유는 위와 같다. 없으면(테스트 등) 그 규칙만 건너뛴다.
+     * 관제실은 결과를 읽기만 한다 — 실행은 /api/admin/crosscheck/run(§7 읽기 전용).
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.myplatform.backend.crosscheck.ExternalCrosscheckService crosscheckService;
+
 
     private final AtomicReference<Cached> cache = new AtomicReference<>();
 
@@ -330,6 +337,19 @@ public class ControlRoomSnapshotService {
                         tradingDaysAfter(health.latestCountedDate(),
                                 marketCalendar.lastClosedTradingDay(LocalDateTime.now(clock)), marketCalendar),
                         health.validDays()));
+            }
+
+            // 외부 공개 수치 대조(2026-11-11) — 사람이 손으로 하던 네이버 대조를 매 거래일 10:20 에 자동으로.
+            if (crosscheckService != null) {
+                try {
+                    found.addAll(crosscheckAnomalies(crosscheckService, now));
+                } catch (Exception e) {
+                    // 이 규칙 하나 때문에 다른 규칙까지 '모름'이 되지 않게 — 대신 '대조 기록을 못 읽었다'를 올린다(§4c)
+                    log.warn("[관제실] 외부 대조 기록 조회 실패: {}", e.getMessage());
+                    found.add(new DataAnomalyRules.Anomaly(DataAnomalyRules.WARNING, "external-crosscheck-unreadable",
+                            "외부 공개 수치 대조 기록을 읽지 못했다 — '이상 없음'이 아니다",
+                            "external_crosscheck_run/row 조회가 예외로 실패했다. 로그 grep '[관제실] 외부 대조'.", e.getMessage()));
+                }
             }
 
             List<DataAnomalyRules.Anomaly> items = DataAnomalyRules.sortBySeverity(found);
@@ -636,6 +656,21 @@ public class ControlRoomSnapshotService {
     }
 
     /** {@code from} 다음 날부터 {@code to} 까지(포함) 거래일 수. from 이 null 이면 큰 값(=모름 → 경고). */
+    /** 외부 대조 ⑯ — 최근 실행을 규칙 입력으로 옮긴다. 대조가 돌았어야 할 마지막 날은 거래일 10:30 뒤면 오늘, 아니면 직전 거래일. */
+    private List<DataAnomalyRules.Anomaly> crosscheckAnomalies(
+            com.myplatform.backend.crosscheck.ExternalCrosscheckService svc, LocalDateTime now) {
+        List<DataAnomalyRules.CrosscheckRunStat> stats = svc.recentRuns().stream()
+                .map(r -> new DataAnomalyRules.CrosscheckRunStat(r.runDate(), r.targetBarDate(), r.status(),
+                        r.planned(), r.attempted(), r.matched(), r.mismatched(), r.notCompared(),
+                        r.notComparedReasons(), r.mismatchedCodes(), r.staleMixedWithMatch()))
+                .toList();
+        LocalDate today = now.toLocalDate();
+        LocalDate expected = !marketCalendar.isMarketClosed(today) && !now.toLocalTime().isBefore(java.time.LocalTime.of(10, 30))
+                ? today : marketCalendar.minusTradingDays(today, 1);
+        int behind = stats.isEmpty() ? 0 : tradingDaysAfter(stats.get(0).runDate(), expected, marketCalendar);
+        return DataAnomalyRules.externalCloseCrosscheck(stats, behind, svc.isEnabled());
+    }
+
     static int tradingDaysAfter(LocalDate from, LocalDate to, MarketCalendarService calendar) {
         if (from == null) return 99;
         if (to == null || !to.isAfter(from)) return 0;
