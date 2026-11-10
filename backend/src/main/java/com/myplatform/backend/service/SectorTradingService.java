@@ -190,13 +190,15 @@ public class SectorTradingService {
      * - stockPriceService.getStockPrices()로 전체 종목 시세 조회
      * - accumulatedTradingValue를 시간별로 저장
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 */3 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    // 시간 필드 9-16(2026-11-10 사용자 결정) — 장이 늦게 닫히는 날(수능일 16:40)의 16시대를 받으려고. 평소 거래일 16시대 회차는
+    // 아래 정규장 판정에서 로그 없이 끝난다(§5 — 정상 경로 로그를 반복하지 않는다).
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 */3 9-16 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledSnapshotCollection() {
         // 휴장일(공휴일) — 정적 데이터에 3분마다 KIS 배치(사이클당 100~140초) 낭비 방지.
         // 휴장일 화면 표시는 on-demand 수집(calculateSectorTrading 캐시 미스 경로)이 담당.
         // 정규장 판정은 그날 달력 시각을 따른다(2026-11-10) — 수능일(10:00~16:40)에 09:00~09:57 장 열리기 전 스냅샷이
         // 다음 거래일의 같은 시각 비교 기준이 되고, 15:40 뒤 장중에 수집이 멈춰 17:00 국면 입력이 15:39 값으로 굳었다.
-        // 평소 거래일은 종전과 같다(09:00~15:40, 양 끝 포함). 크론 시간 필드(9-15)는 그대로라 그날 16:00~16:40 은 비어 있다.
+        // 평소 거래일은 종전과 같다(09:00~15:40, 양 끝 포함).
         java.time.LocalDateTime nowAt = java.time.LocalDateTime.now(clock);
         LocalTime now = nowAt.toLocalTime();
         if (!marketCalendar.isRegularSession(nowAt.toLocalDate(), now)) {

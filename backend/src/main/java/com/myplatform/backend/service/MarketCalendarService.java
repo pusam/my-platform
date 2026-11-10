@@ -33,9 +33,10 @@ public class MarketCalendarService {
      * 나오면 대조할 것. 수능일은 해마다 날짜가 바뀌니 휴장일 표와 같은 주기로 갱신한다.
      */
     private static final java.util.Map<LocalDate, SessionHours> SHIFTED_SESSIONS = java.util.Map.of(
-            LocalDate.of(2026, 11, 19), new SessionHours(LocalTime.of(10, 0), LocalTime.of(16, 40)));
+            LocalDate.of(2026, 11, 19), new SessionHours(LocalTime.of(10, 0), LocalTime.of(16, 40), LocalTime.of(10, 0)));
 
-    private record SessionHours(LocalTime open, LocalTime close) {
+    /** {@code tradingStart} = 그날 거래가 처음 열리는 시각(KRX·NXT 중 이른 쪽). 2026-11-19 은 NXT 프리마켓이 없어 10:00(KRX 공지 11/5). */
+    private record SessionHours(LocalTime open, LocalTime close, LocalTime tradingStart) {
     }
 
     /** 한국 고정(양력) 공휴일 + KRX 고정 휴장일 */
@@ -161,6 +162,15 @@ public class MarketCalendarService {
     public LocalTime marketCloseOf(LocalDate date) {
         SessionHours shifted = SHIFTED_SESSIONS.get(date);
         return shifted != null ? shifted.close() : MARKET_CLOSE;
+    }
+
+    /**
+     * 그날 거래가 처음 열리는 시각(KRX·NXT 중 이른 쪽) — 화면 시간대 국면(허브 '장 진행 중')의 시작. 평소 {@link #NXT_OPEN}(NXT 프리마켓 08:00).
+     * 표시 전용이다 — 캐시 워머 창({@link #isNxtSession})은 그대로 둔다.
+     */
+    public LocalTime tradingStartOf(LocalDate date) {
+        SessionHours shifted = SHIFTED_SESSIONS.get(date);
+        return shifted != null ? shifted.tradingStart() : NXT_OPEN;
     }
 
     /** 평소보다 늦게 닫히는 날인가 — 고정 시각 크론(15:50·16:00·16:30)이 장중에 돌게 되는 날이다. */

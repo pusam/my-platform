@@ -17,6 +17,19 @@ export function closedTodayFromStatus(raw) {
   return raw.marketClosedToday
 }
 
+/** 시장 상태 응답의 '오늘 거래가 처음 열리는 시각'(분) — 백엔드 달력(tradingStartsAt 'HH:mm', 2026-11-10). 모르면 null. */
+export function tradingStartMinutesFromStatus(raw) {
+  const s = raw && raw.tradingStartsAt
+  if (typeof s !== 'string' || !/^\d{2}:\d{2}/.test(s)) return null
+  return Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5))
+}
+
+/** 기억해 둔 그날의 거래 시작(분) — 다른 날짜(어제 받은 것)거나 모르면 null. */
+export function tradingStartOn(info, dateKst) {
+  if (!info || info.date !== dateKst || typeof info.startsAt !== 'string') return null
+  return tradingStartMinutesFromStatus({ tradingStartsAt: info.startsAt })
+}
+
 /** 기억해 둔 판정이 그 날짜의 휴장인가 — 다른 날짜(어제 받은 것)면 쓰지 않는다. */
 export function closedOn(info, dateKst) {
   return !!info && info.date === dateKst && info.closed === true

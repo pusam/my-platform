@@ -40,6 +40,8 @@ public class InvestorTradeService {
     private final KoreaInvestmentService koreaInvestmentService;
     private final RedisCacheService redisCacheService;
     private final MarketCalendarService marketCalendarService;
+    /** 장중 순위 행의 조회 시각 — 테스트가 고정한다(수능일 리허설 2026-11-10). */
+    java.time.Clock clock = java.time.Clock.systemDefaultZone();   // 예전 LocalDateTime.now() 와 같은 시간대
 
     /** 종목별 수급 확정치 — 있으면 종목 상세 일별 값이 이 표를 읽는다. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -149,7 +151,8 @@ public class InvestorTradeService {
         String netBuyField = "FOREIGN".equals(investorType) ? "frgn_ntby_tr_pbmn" : "orgn_ntby_tr_pbmn";
         int rank = 1;
         // 장중엔 그 시각까지의 잠정 집계다 — 언제 받은 값인지 행에 남긴다(2026-10-07)
-        java.time.LocalDateTime fetchedAt = java.time.LocalDateTime.now();
+        java.time.LocalDateTime fetchedAt = java.time.LocalDateTime.now(clock != null ? clock : java.time.Clock.systemDefaultZone());
+        Boolean intraday = intradayAt(fetchedAt);
 
         for (JsonNode item : output) {
             if (rank > limit) break;
@@ -175,12 +178,19 @@ public class InvestorTradeService {
             dto.setRankNum(rank);
             dto.setTradeDate(LocalDate.now());
             dto.setAsOf(fetchedAt);
+            dto.setIntraday(intraday);
 
             result.add(dto);
             rank++;
         }
 
         return result;
+    }
+
+    /** 조회 시각이 그날 장중인가 — 마감 10분 뒤 전(InvestorDailyConfirmation 과 같은 경계). */
+    Boolean intradayAt(java.time.LocalDateTime fetchedAt) {
+        java.time.LocalTime close = marketCalendarService != null ? marketCalendarService.marketCloseOf(fetchedAt.toLocalDate()) : null;
+        return !InvestorDailyConfirmation.isConfirmedWindow(fetchedAt, close);
     }
 
     private String getJsonText(JsonNode node, String field) {

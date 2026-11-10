@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doAnswer;
@@ -24,8 +25,8 @@ import static org.mockito.Mockito.verify;
  *
  * <p>재현: 수집 판정이 09:00~15:40 고정이라 2026-11-19(정규장 10:00~16:30, 마감 버퍼 16:40)엔 ① 장이 열리기 전 09:00~09:57 에
  * 스냅샷을 쌓아 그 값이 다음 거래일의 '같은 시각' 자금 흐름 비교 기준이 되고 ② 15:40 뒤로는 장이 열려 있는데 수집을 멈춰,
- * 17:00 스냅샷(시그널 기록)의 국면 입력(섹터 전 종목 평균 등락률)이 15:39 값으로 굳는다. 크론 시간 필드(9-15)는 그대로라
- * 16:00~16:40 은 여전히 비고, 이 수정으로 수집 끝이 15:39 → 15:57 로 늘어난다.
+ * 17:00 스냅샷(시그널 기록)의 국면 입력(섹터 전 종목 평균 등락률)이 15:39 값으로 굳는다. 판정을 달력으로 바꾸고 크론 시간 필드를
+ * 9-16 으로 넓혀(2026-11-10 사용자 결정) 그날 16:39 까지 쌓는다 — 평소 거래일 16시대 회차는 로그 없이 아무것도 하지 않는다.
  */
 class SectorSnapshotLateSessionTest {
 
@@ -67,6 +68,43 @@ class SectorSnapshotLateSessionTest {
         collectAt(CSAT, LocalTime.of(15, 51));
 
         verify(stockPriceService).getStockPrices(anyList());
+    }
+
+    @Test
+    @DisplayName("재현: 크론이 16시대까지 돈다 — 수능일 16:00~16:39 도 수집 대상이다(2026-11-10 사용자 결정)")
+    void cronCoversTheSixteenHour() throws Exception {
+        org.springframework.scheduling.annotation.Scheduled scheduled = SectorTradingService.class
+                .getMethod("scheduledSnapshotCollection")
+                .getAnnotation(org.springframework.scheduling.annotation.Scheduled.class);
+        org.springframework.scheduling.support.CronExpression cron =
+                org.springframework.scheduling.support.CronExpression.parse(scheduled.cron());
+        LocalDateTime next = cron.next(LocalDateTime.of(CSAT, LocalTime.of(15, 58)));
+        assertThat(next).isEqualTo(LocalDateTime.of(CSAT, LocalTime.of(16, 0)));
+
+        collectAt(CSAT, LocalTime.of(16, 39));
+        verify(stockPriceService).getStockPrices(anyList());
+    }
+
+    @Test
+    @DisplayName("평소 거래일 16시대 회차는 아무것도 수집·저장하지 않고 로그도 남기지 않는다(정상 경로 로그 반복 금지)")
+    void ordinaryDaySixteenHourIsSilentNoOp() {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(SectorTradingService.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            for (int minute = 0; minute < 60; minute += 3) {
+                collectAt(DAY_BEFORE, LocalTime.of(16, minute));
+            }
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        verify(stockPriceService, never()).getStockPrices(anyList());
+        assertThat(appender.list).isEmpty();
+        assertThat(service.getSectorRotation()).isEmpty();
     }
 
     @Test
