@@ -33,7 +33,47 @@ public record ControlRoomSnapshotDto(
             Undecided undecided,
             FinancialInput financialInput,
             TrustGate trustGate,
-            BotGate botGate
+            BotGate botGate,
+            RestartWatch restartWatch
+    ) {
+        /** 재시작 카드 이전의 8종 — 기존 호출부(테스트 포함)가 그대로 컴파일되게 둔다. restartWatch=null 은 '카드 없음'. */
+        public Kpis(Candidates candidates, Gates gates, LossBreaker lossBreaker, VolRegime volRegime,
+                    Undecided undecided, FinancialInput financialInput, TrustGate trustGate, BotGate botGate) {
+            this(candidates, gates, lossBreaker, volRegime, undecided, financialInput, trustGate, botGate, null);
+        }
+    }
+
+    /**
+     * 장중 재시작 — 부팅 기록(V74 {@code server_boot_log})으로 본 '오늘 08:30~15:50 재시작'(2026-11-10, 개선 후보 4번).
+     *
+     * <p>표본 시작일은 이 시간대에 재시작이 없던 거래일이어야 한다(CLAUDE.md §7). 예전엔 {@code docker inspect} 의 StartedAt
+     * (마지막 한 번)을 손으로 봤다. 판정은 {@link com.myplatform.backend.bootlog.IntradayRestartRules} 단일 출처 — 화면에서
+     * 다시 계산하지 말 것. <b>읽기 전용</b>(§7) — 이 카드는 배포를 막지도 일으키지도 않는다.
+     *
+     * @param dataAvailable        false = 기록 조회 실패(§4c — '재시작 없음'과 구분)
+     * @param tradingDay           오늘 장이 열리는가. null = 달력을 모름
+     * @param window               판정 시간대 라벨(08:30~15:50)
+     * @param todayIntraday        오늘 그 시간대 재시작 시각(오래된 순). 비면 없음
+     * @param lastIntradayAt       마지막 장중 재시작 시각. null = 기록 시작 이후 없음
+     * @param lastBootAt           가장 최근 부팅(지금 프로세스) 시각
+     * @param currentBootRecorded  지금 프로세스 부팅이 기록에 있는가 — false 면 기록 누락(다른 재시작도 빠졌을 수 있다)
+     * @param recordedSince        기록 시작일. null = 기록 없음
+     * @param lastIntradayLine     '마지막 장중 재시작 …' 한 줄(카드·크루 공용)
+     * @param note                 카드 표면용 한 줄. 정상이면 null(카드가 조용하다)
+     * @param noteDetail           툴팁·크루용 설명. 정상이면 null
+     */
+    public record RestartWatch(
+            boolean dataAvailable,
+            Boolean tradingDay,
+            String window,
+            List<LocalDateTime> todayIntraday,
+            LocalDateTime lastIntradayAt,
+            LocalDateTime lastBootAt,
+            boolean currentBootRecorded,
+            LocalDate recordedSince,
+            String lastIntradayLine,
+            String note,
+            String noteDetail
     ) {}
 
     /**

@@ -109,6 +109,13 @@ public class ControlRoomSnapshotService {
     @Value("${bot.nxt-liquidation.enabled:false}")
     private boolean nxtLiquidationEnabled;
 
+    /**
+     * 부팅 기록(V74) — '장중 재시작' 카드. 필드 주입인 이유: 생성자는 여러 작업이 같이 고치는 자리라 충돌을 줄이려고.
+     * 없으면(테스트 등) 카드가 dataAvailable=false.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.myplatform.backend.bootlog.ServerBootLogRepository bootLogRepository;
+
 
     private final AtomicReference<Cached> cache = new AtomicReference<>();
 
@@ -219,7 +226,8 @@ public class ControlRoomSnapshotService {
                         undecided(decisions),
                         financialInput(),
                         trustGate(),
-                        botGate(today)),
+                        botGate(today),
+                        restartWatch(today)),
                 calendar(decisions, targetMonth, today),
                 flagged(flags, decisions, today),
                 anomalies(today),
@@ -516,6 +524,50 @@ public class ControlRoomSnapshotService {
      * <p><b>판정은 {@link BotGateRules} 단일 출처, 집계는 {@code BotPerformanceService.trustGateSummary}</b>.
      * 여기서는 부르고 DTO 로 옮기기만 한다(추천 게이트와 같은 규약). 조회 실패는 {@code dataAvailable=false}(§4c).
      */
+    /** '장중 재시작'이 마지막으로 언제였는지 찾는 창 — '없음' 문구는 이 범위만 말한다(IntradayRestartRules.lastIntradayLine). */
+    private static final int RESTART_LOOKBACK_DAYS = 180;
+
+    /**
+     * 장중 재시작 카드(2026-11-10) — 부팅 기록과 지금 프로세스의 시작 시각을 대조한다.
+     * 판정은 {@link com.myplatform.backend.bootlog.IntradayRestartRules} 단일 출처. 조회 실패는 dataAvailable=false(§4c).
+     */
+    private ControlRoomSnapshotDto.RestartWatch restartWatch(LocalDate today) {
+        com.myplatform.backend.bootlog.IntradayRestartRules.Calendar cal = marketCalendar == null
+                ? com.myplatform.backend.bootlog.IntradayRestartRules.Calendar.UNKNOWN
+                : new com.myplatform.backend.bootlog.IntradayRestartRules.Calendar(
+                        d -> !marketCalendar.isMarketClosed(d), marketCalendar::marketCloseOf);
+        String window = com.myplatform.backend.bootlog.IntradayRestartRules.windowLabel(today, cal);
+        if (bootLogRepository == null) {
+            return new ControlRoomSnapshotDto.RestartWatch(false, null, window, List.of(), null, null, false, null, null,
+                    "부팅 기록 없음(구성 안 됨)", "server_boot_log 저장소가 없다 — 재시작 여부를 모른다(없다는 뜻이 아니다).");
+        }
+        try {
+            List<com.myplatform.backend.bootlog.IntradayRestartRules.Boot> boots = bootLogRepository
+                    .findByStartedAtGreaterThanEqualOrderByStartedAtAsc(today.minusDays(RESTART_LOOKBACK_DAYS).atStartOfDay())
+                    .stream()
+                    .map(b -> new com.myplatform.backend.bootlog.IntradayRestartRules.Boot(b.getStartedAt(), b.getHost(), b.getRevision(), b.getReadyAt()))
+                    .toList();
+            LocalDate since = bootLogRepository.findFirstByOrderByStartedAtAsc()
+                    .map(b -> b.getStartedAt().toLocalDate()).orElse(null);
+            com.myplatform.backend.bootlog.IntradayRestartRules.Summary s = com.myplatform.backend.bootlog.IntradayRestartRules.summarize(
+                    boots,
+                    com.myplatform.backend.bootlog.ServerBootRecorder.currentProcessStartedAt(clock.getZone()),
+                    today, cal, since, today.minusDays(RESTART_LOOKBACK_DAYS));
+            return new ControlRoomSnapshotDto.RestartWatch(true, s.tradingDay(), s.window(),
+                    s.todayIntraday().stream().map(com.myplatform.backend.bootlog.IntradayRestartRules.Boot::startedAt).toList(),
+                    s.lastIntraday() == null ? null : s.lastIntraday().startedAt(),
+                    s.lastBoot() == null ? null : s.lastBoot().startedAt(),
+                    s.currentBootRecorded(), s.recordedSince(),
+                    com.myplatform.backend.bootlog.IntradayRestartRules.lastIntradayLine(s),
+                    com.myplatform.backend.bootlog.IntradayRestartRules.note(s),
+                    com.myplatform.backend.bootlog.IntradayRestartRules.noteDetail(s));
+        } catch (Exception e) {
+            log.warn("[관제실] 부팅 기록 조회 실패: {}", e.toString());
+            return new ControlRoomSnapshotDto.RestartWatch(false, null, window, List.of(), null, null, false, null, null,
+                    "부팅 기록 조회 실패", "server_boot_log 조회가 예외로 실패했다 — '재시작 없음'이 아니라 '모름'이다(§4c).");
+        }
+    }
+
     private ControlRoomSnapshotDto.BotGate botGate(LocalDate today) {
         try {
             var svc = botPerformanceProvider.getIfAvailable();

@@ -258,6 +258,16 @@ class FlywayMigrationTest {
         assertThat(scalarString("SELECT CONCAT(stock_code, '/', revenue) FROM stock_financial_estimate_backup_v73"))
                 .as("V73 백업은 지운 행 하나 — 되돌릴 수 있다").isEqualTo("E00001/7324732.00");
 
+        // --- 검증 23 (V74): 부팅 기록 표 — 엔티티와 스키마가 맞아야 운영(ddl-auto: validate)이 뜬다, 시각 조회 인덱스 ---
+        validateEntityClassesAgainstSchema(com.myplatform.backend.bootlog.ServerBootLog.class);
+        assertThat(isColumnNullable("server_boot_log", "started_at"))
+                .as("V74 started_at NOT NULL — 시각 없는 부팅 기록은 판정에 못 쓴다").isFalse();
+        assertThat(isColumnNullable("server_boot_log", "revision"))
+                .as("V74 revision NULL 허용 — 커밋을 모르면 비워 둔다").isTrue();
+        assertThat(scalarLong("SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
+                + "AND TABLE_NAME = 'server_boot_log' AND INDEX_NAME = 'idx_sbl_started_at'"))
+                .as("V74 started_at 인덱스").isEqualTo(1);
+
         // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
                 + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "
