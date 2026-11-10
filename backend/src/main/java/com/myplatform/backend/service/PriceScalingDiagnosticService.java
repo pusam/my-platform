@@ -55,6 +55,30 @@ public class PriceScalingDiagnosticService {
     /** 등락률 절대값이 이 값을 넘으면 손상 의심 (KRX 일일 변동제한 ±30% + 여유). P0-1 그물2 와 동일. */
     private static final BigDecimal CTRT_LIMIT = new BigDecimal("31");
 
+    /**
+     * 조회 기간 상한(시간) — 2026-11-10. 시세 이력 테이블은 지운 적이 없어 약 400만 행이고 하루 약 2만 행씩 는다.
+     * 이 진단은 기간 안의 행을 엔티티 목록으로 한꺼번에 읽으므로(fetched_at 만으로 거르는 인덱스도 없다) 기간에 상한이
+     * 없으면 요청 하나가 수십만 행을 메모리에 올린다(옛 기본값 720시간 ≈ 60만 행). 7일 ≈ 14만 행.
+     */
+    public static final int MAX_HOURS_BACK = 168;
+    /** 돌려줄 이벤트 개수 상한. */
+    public static final int MAX_EVENTS = 1000;
+
+    static int clampHours(int hoursBack) {
+        return Math.min(MAX_HOURS_BACK, Math.max(1, hoursBack));
+    }
+
+    static int clampEvents(int maxEvents) {
+        return Math.min(MAX_EVENTS, Math.max(1, maxEvents));
+    }
+
+    /** 요청을 줄였으면 그 사실을 보고서 문구에 붙인다(조용히 줄이지 않는다). */
+    private static String capNote(int requested, int applied) {
+        return requested > applied
+                ? " (요청 " + requested + "시간 → 상한 " + applied + "시간으로 줄여 읽었다)"
+                : "";
+    }
+
     public record Event(String stockCode, String stockName, String market, String session,
                         String kind, BigDecimal multiple, BigDecimal price, BigDecimal anchorMedian,
                         LocalDateTime fetchedAt) {}
@@ -65,11 +89,13 @@ public class PriceScalingDiagnosticService {
                          Map<String, Integer> byKind, List<Event> events, String note) {}
 
     /**
-     * @param hoursBack 스캔 기간(시간). 720=30일 기본.
-     * @param maxEvents 반환 이벤트 상한(과다 방지).
+     * @param requestedHours 스캔 기간(시간). {@link #MAX_HOURS_BACK} 를 넘으면 상한으로 줄이고 보고서 문구에 적는다.
+     * @param requestedEvents 반환 이벤트 상한(과다 방지, 1~{@link #MAX_EVENTS}).
      */
-    public Report scan(int hoursBack, int maxEvents) {
-        LocalDateTime since = LocalDateTime.now().minusHours(Math.max(1, hoursBack));
+    public Report scan(int requestedHours, int requestedEvents) {
+        int hoursBack = clampHours(requestedHours);
+        int maxEvents = clampEvents(requestedEvents);
+        LocalDateTime since = LocalDateTime.now().minusHours(hoursBack);
         List<StockPrice> rows;
         try {
             rows = stockPriceRepository.findAllSince(since);
@@ -142,7 +168,8 @@ public class PriceScalingDiagnosticService {
                   + "BATCH_SCALED 우세 → '응답 자체 ×N', CURRENT_FIELD_OUTLIER 우세 → '현재가 필드 매핑 오류'.";
 
         return new Report(hoursBack, rows.size(), byCode.size(),
-                enriched.size(), codes.size(), byMarket, bySession, byKind, capped, note);
+                enriched.size(), codes.size(), byMarket, bySession, byKind, capped,
+                note + capNote(requestedHours, hoursBack));
     }
 
     /** 종목 시세 이력의 median 현재가 (정상 앵커). ×N 이상치는 소수라 median 은 정상값으로 수렴. */
@@ -179,8 +206,10 @@ public class PriceScalingDiagnosticService {
      *
      * @param tickThreshold 연속 동일 틱 임계 (기본 권장 20 ≈ 3분틱 1시간). 정상 저유동 종목 오탐 방지 위해 넉넉히.
      */
-    public StaleReport scanStaleFeeds(int hoursBack, int tickThreshold, int maxEvents) {
-        LocalDateTime since = LocalDateTime.now().minusHours(Math.max(1, hoursBack));
+    public StaleReport scanStaleFeeds(int requestedHours, int tickThreshold, int requestedEvents) {
+        int hoursBack = clampHours(requestedHours);
+        int maxEvents = clampEvents(requestedEvents);
+        LocalDateTime since = LocalDateTime.now().minusHours(hoursBack);
         List<StockPrice> rows;
         try {
             rows = stockPriceRepository.findAllSince(since); // stock_code, fetched_at ASC 정렬
@@ -257,7 +286,8 @@ public class PriceScalingDiagnosticService {
                   + "corruptCtrt = 등락률 ±31% 초과(손상 의심). 모두 관측용 — 가격 보정 없음.";
 
         return new StaleReport(hoursBack, tickThreshold, rows.size(), byCode.size(),
-                activeFrozen, suspendedFrozen, corruptCtrt.size(), cappedFrozen, cappedCtrt, note);
+                activeFrozen, suspendedFrozen, corruptCtrt.size(), cappedFrozen, cappedCtrt,
+                note + capNote(requestedHours, hoursBack));
     }
 
     /** fetched_at → 세션 시간대. NXT 단독 구간을 별도 라벨로 분리 (NXT 관여 프록시). */

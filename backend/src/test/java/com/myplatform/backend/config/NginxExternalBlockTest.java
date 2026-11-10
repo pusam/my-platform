@@ -65,6 +65,45 @@ class NginxExternalBlockTest {
         assertThat(body).contains("proxy_pass $upstream_backend;");
     }
 
+    /**
+     * 백엔드로 넘기는 location 은 전부 {@code X-Real-IP} 를 nginx 가 본 주소로 덮어쓴다 (2026-11-10).
+     * 백엔드의 '서버 안 요청' 판정({@code InternalCaller})이 이 헤더가 없을 때만 내부로 본다 — 새 프록시 location 에서
+     * 이 줄이 빠지면 밖의 요청이 nginx 컨테이너(사설) 주소로 보여 서버 안으로 판정된다.
+     */
+    @Test
+    @DisplayName("백엔드로 넘기는 location 마다 proxy_set_header X-Real-IP $remote_addr 가 있다")
+    void everyProxiedLocationSetsRealIp() {
+        Matcher m = Pattern.compile("(?m)^ *location\\b([^{]*)[{]").matcher(httpsServer);
+        int proxied = 0;
+        while (m.find()) {
+            String body = blockBody(m.end());
+            if (body == null || !body.contains("proxy_pass")) {
+                continue;
+            }
+            proxied++;
+            assertThat(body).as("location" + m.group(1).stripTrailing() + " 블록")
+                    .containsPattern("proxy_set_header +X-Real-IP +\\$remote_addr *;");
+        }
+        // SSE·로그인·회원가입·일반 API — 하나도 못 찾으면 위 검사가 헛통과한다
+        assertThat(proxied).as("백엔드로 넘기는 location 수").isGreaterThanOrEqualTo(4);
+        assertThat(httpsServer).as("백엔드 프록시 대상").contains("proxy_pass $upstream_backend;");
+    }
+
+    /** 여는 중괄호 바로 뒤 위치부터 짝이 맞는 닫는 중괄호까지의 본문. 짝이 안 맞으면 null. */
+    private static String blockBody(int start) {
+        int depth = 1;
+        int i = start;
+        while (i < httpsServer.length() && depth > 0) {
+            char c = httpsServer.charAt(i++);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+            }
+        }
+        return depth == 0 ? httpsServer.substring(start, i - 1) : null;
+    }
+
     /** {@code location <prefix> { ... }} 의 본문. 수식어(=, ~, ^~)가 붙은 블록은 보지 않는다. 없으면 null. */
     private static String locationBody(String prefix) {
         Matcher m = Pattern.compile("(?m)^ *location +" + Pattern.quote(prefix) + " *[{]").matcher(httpsServer);

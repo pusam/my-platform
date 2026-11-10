@@ -273,4 +273,74 @@ class PriceScalingDiagnosticServiceTest {
         assertThat(r.corruptCtrtRows()).isZero();
         assertThat(r.note()).contains("없음");
     }
+
+    /**
+     * 조회 범위 상한(2026-11-10) — 시세 이력 테이블은 지운 적이 없어 약 400만 행이고 하루 약 2만 행씩 는다.
+     * 이 진단은 기간 안의 행을 엔티티 목록으로 한꺼번에 읽으므로 기간에 상한이 없으면 요청 하나가 수십만 행을 메모리에 올린다.
+     */
+    @org.junit.jupiter.api.Nested
+    @DisplayName("조회 범위 상한 — 요청이 길어도 최대 7일만 읽는다")
+    class LookbackCap {
+
+        private LocalDateTime capturedSince() {
+            org.mockito.ArgumentCaptor<LocalDateTime> since = org.mockito.ArgumentCaptor.forClass(LocalDateTime.class);
+            org.mockito.Mockito.verify(priceRepo).findAllSince(since.capture());
+            return since.getValue();
+        }
+
+        @Test
+        @DisplayName("스케일 진단: 720시간(옛 기본값)·10만 시간 요청 → 168시간만 읽고, 줄였다고 말한다")
+        void scanCapped() {
+            when(priceRepo.findAllSince(any())).thenReturn(List.of());
+            LocalDateTime before = LocalDateTime.now();
+
+            PriceScalingDiagnosticService.Report r = service.scan(100_000, 200);
+
+            assertThat(capturedSince()).isAfterOrEqualTo(before.minusHours(PriceScalingDiagnosticService.MAX_HOURS_BACK).minusMinutes(1));
+            assertThat(r.hoursBack()).isEqualTo(PriceScalingDiagnosticService.MAX_HOURS_BACK);
+            assertThat(r.note()).contains("요청 100000시간").contains("168시간");
+        }
+
+        @Test
+        @DisplayName("동결 진단도 같은 상한")
+        void staleCapped() {
+            when(priceRepo.findAllSince(any())).thenReturn(List.of());
+            LocalDateTime before = LocalDateTime.now();
+
+            PriceScalingDiagnosticService.StaleReport r = service.scanStaleFeeds(720, 20, 200);
+
+            assertThat(capturedSince()).isAfterOrEqualTo(before.minusHours(PriceScalingDiagnosticService.MAX_HOURS_BACK).minusMinutes(1));
+            assertThat(r.hoursBack()).isEqualTo(PriceScalingDiagnosticService.MAX_HOURS_BACK);
+            assertThat(r.note()).contains("요청 720시간");
+        }
+
+        @Test
+        @DisplayName("상한 안의 요청은 그대로 · 줄였다는 말도 없다")
+        void withinCapUntouched() {
+            when(priceRepo.findAllSince(any())).thenReturn(List.of());
+            LocalDateTime before = LocalDateTime.now();
+
+            PriceScalingDiagnosticService.Report r = service.scan(24, 200);
+
+            assertThat(capturedSince()).isBetween(before.minusHours(24).minusMinutes(1), before.minusHours(24).plusMinutes(1));
+            assertThat(r.hoursBack()).isEqualTo(24);
+            assertThat(r.note()).doesNotContain("상한");
+        }
+
+        @Test
+        @DisplayName("이벤트 개수도 상한 — 음수·과대 요청이 예외나 거대 응답을 만들지 않는다")
+        void maxEventsClamped() {
+            LocalDateTime t = LocalDateTime.of(2026, 6, 1, 9, 0);
+            List<StockPrice> rows = new ArrayList<>(List.of(
+                    row("011930", "신성이엔지", bd("39950"), bd("0"), bd("0"), bd("900.00"), t),
+                    row("011930", "신성이엔지", bd("39950"), bd("0"), bd("0"), bd("800.00"), t.plusMinutes(3))));
+            when(priceRepo.findAllSince(any())).thenReturn(rows);
+
+            PriceScalingDiagnosticService.StaleReport r = service.scanStaleFeeds(24, 5, -1);
+
+            assertThat(r.corruptCtrtRows()).isEqualTo(2);
+            assertThat(r.corruptCtrt()).hasSize(1);
+            assertThat(PriceScalingDiagnosticService.clampEvents(1_000_000)).isEqualTo(PriceScalingDiagnosticService.MAX_EVENTS);
+        }
+    }
 }

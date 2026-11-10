@@ -5,7 +5,11 @@ import com.myplatform.jwtredis.filter.JwtAuthenticationFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
+import org.springframework.security.authorization.AuthorityAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -94,10 +98,12 @@ public class SecurityConfig {
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // 인증 API (로그인, 회원가입 등)
+                        // ── 로그인 없이 어디서나 — 로그인 전 화면이 쓰는 것과 헬스체크뿐 (2026-11-10 정리) ──
+                        // 목록은 ApiAccessPolicyTest.PUBLIC 이 고정한다. 공개 주소를 늘리면 그 테스트가 실패한다.
+                        // 인증 API (로그인, 회원가입, 토큰 갱신 등)
                         .requestMatchers("/api/auth/**").permitAll()
 
-                        // 비밀번호 재설정 API
+                        // 비밀번호 재설정 API — 로그인 못 하는 사람이 쓴다
                         .requestMatchers("/api/password/**").permitAll()
 
                         // WebAuthn 로그인 / 패스키 — 비로그인 상태에서 호출 필요
@@ -106,44 +112,49 @@ public class SecurityConfig {
                         // WebAuthn 등록/관리 — 로그인 필요
                         .requestMatchers("/api/webauthn/**").authenticated()
 
-                        // 금/은 시세 조회 API (공개)
-                        .requestMatchers("/api/gold/price", "/api/silver/price").permitAll()
-                        .requestMatchers("/api/gold/history/**", "/api/silver/history/**").permitAll()
-
-                        // AI 서버 상태 확인 API (공개)
-                        .requestMatchers("/api/ai/status").permitAll()
-
-                        // Actuator health check
-                        .requestMatchers("/actuator/health/**").permitAll()
-
-                        // Docker healthcheck 전용 (actuator/health 매핑 이슈 우회)
+                        // 헬스체크 — 컨테이너(curl localhost:8080/actuator/health)·배포(curl localhost:8080/api/health)
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/api/health").permitAll()
 
-                        // phase 32~35 — 시스템 검증/분석 API. 종목별 매매 정보가 아니라 시스템
-                        // 성능 메타데이터(시그널 hit-rate, alpha, 카테고리 빈도) 라 외부 노출 OK.
-                        // 운영자가 토큰 없이 curl 로 빠르게 검증할 수 있도록 permitAll.
+                        // ── 서버 안에서만 로그인 없이 (InternalCaller: 루프백·사설 주소 + nginx 표시 헤더 없음) ──
+                        // 운영자 점검(서버 안 curl). 밖에서는 관리자만 — 진단은 화면이 쓰지 않는다.
+                        // /data?refresh=true 는 종합추천 재계산을 일으키고, price-scaling·stale-feeds 는 시세 이력을 크게 읽는다.
+                        .requestMatchers("/api/diagnostics/**").access(AuthorizationManagers.anyOf(
+                                InternalCaller.authorizationManager(), AuthorityAuthorizationManager.hasRole("ADMIN")))
+                        // 액추에이터의 health 밖(prometheus·metrics·info)과 API 문서 — 서버 안에서만 (prod 는 API 문서 꺼짐)
+                        .requestMatchers("/actuator/**", "/swagger-ui/**", "/swagger-ui.html",
+                                "/v3/api-docs", "/v3/api-docs/**", "/v3/api-docs.yaml")
+                                .access(InternalCaller.authorizationManager())
+                        // 서버 안에서는 토큰 없이, 밖에서는 로그인 사용자:
+                        //  · KOSPI 지수 일봉 — python 시장 국면·섹터 강도가 토큰 없이 부른다(python app/utils/index_source.py)
+                        //  · 측정 메타데이터 — 예전엔 '운영자 curl 검증용'으로 누구에게나 열려 있었다. 화면은 로그인한 채로 부른다.
                         .requestMatchers(
+                                "/api/market/index/**",
                                 "/api/signal-outcomes/accuracy",
                                 "/api/signal-outcomes/compare",
                                 "/api/signal-outcomes/timeseries",
                                 "/api/recommendation/strong-value-frequency",
-                                // 차트기법 보조 시그널(미검증 베타) — 분석 메타데이터, 운영자 curl 검증용.
                                 "/api/recommendation/sector-strength",
-                                "/api/recommendation/trend-pullback-top10",
-                                "/api/diagnostics/**",
-                                // KOSPI 지수 일봉(공개 시장데이터) — python regime/sector 가 내부 소비.
-                                "/api/market/index/**"
-                        ).permitAll()
-
-                        // 테스트 API - public 엔드포인트
-                        .requestMatchers("/api/test/public").permitAll()
-
-                        // Swagger UI
-                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers("/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
+                                "/api/recommendation/trend-pullback-top10"
+                        ).access(AuthorizationManagers.anyOf(
+                                InternalCaller.authorizationManager(), AuthenticatedAuthorizationManager.authenticated()))
 
                         // SSE (Server-Sent Events) - JwtAuthenticationFilter가 ?token= 쿼리 파라미터 허용
                         .requestMatchers("/api/sse/**").authenticated()
+
+                        // ── 수집·배치를 일으키는 쓰기 주소 — ADMIN 만 (2026-11-10) ──
+                        // 재무 배치(약 38분, 추천 입력을 바꾼다)·성장률 계산·종목 단건 수집 — 스크리너의 POST 는 전부 수집이다
+                        .requestMatchers(HttpMethod.POST, "/api/screener/**").hasRole("ADMIN")
+                        .requestMatchers("/api/market/collect").hasRole("ADMIN")
+                        .requestMatchers("/api/ai-strategy/collect", "/api/ai-strategy/collect/**").hasRole("ADMIN")
+                        .requestMatchers("/api/short-selling/collect").hasRole("ADMIN")
+                        .requestMatchers("/api/sector/trading/refresh").hasRole("ADMIN")
+                        .requestMatchers("/api/paper-trading/portfolio/refresh").hasRole("ADMIN")
+                        // 공유 모의계좌 수동 매수·매도 — 화면(매매 탭)은 관리자 전용. 거래 내역 조회(GET)는 로그인 사용자 그대로.
+                        .requestMatchers(HttpMethod.POST, "/api/paper-trading/trades").hasRole("ADMIN")
+                        // QuantTaController 의 @PreAuthorize 는 무효다(@EnableMethodSecurity 없음) — 여기가 실제 게이트
+                        .requestMatchers(HttpMethod.POST, "/api/quant-ta/collect-history", "/api/quant-ta/backfill-names")
+                                .hasRole("ADMIN")
 
                         // 자동매매 봇 + 실전투자 API - ADMIN만 허용
                         // V59 교정 평가 실행·비교표 — KIS 호출·DB 쓰기라 ADMIN 한정(2026-09-17)

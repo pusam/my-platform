@@ -368,7 +368,8 @@
     <div class="data-management">
       <h3>데이터 관리</h3>
       <div class="management-actions">
-        <button @click="collectData" :disabled="isCollecting" class="btn-collect">
+        <!-- 수동 수집은 관리자만(서버가 POST /api/market/collect 를 관리자만 받는다, 2026-11-10) -->
+        <button v-if="isAdmin" @click="collectData" :disabled="isCollecting" class="btn-collect">
           <span v-if="isCollecting" class="btn-loading">
             <span class="spinner-small"></span>
             수집 중...
@@ -405,6 +406,7 @@ import { ref, computed, onMounted, reactive, defineProps } from 'vue';
 const props = defineProps({
   embedded: { type: Boolean, default: false }
 });
+const isAdmin = localStorage.getItem('role') === 'ADMIN';
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI } from '../utils/api';
 import { commodityFromResponse, krwFromFuturesQuote, impactLabel, impactTone, marketConditionText, signedPercentOrDash, dailyRatioLabel } from '../utils/marketDataLabels';

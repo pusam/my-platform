@@ -22,7 +22,8 @@ import java.util.Map;
  * 시스템 검증 / 운영 진단 — phase 35b.
  *
  * <p>운영자가 "데이터가 누적되고 있는지 / cron 이 도는지 / 평가 batch 가 작동하는지" 즉시 확인하는
- * 용도. 종목별 매매 정보가 아니라 시스템 상태 메타데이터만 노출하므로 permitAll.
+ * 용도. 권한(2026-11-10): 서버 안(루프백·사설 주소, nginx 표시 헤더 없음)에서는 로그인 없이, 밖에서는 관리자만
+ * ({@code SecurityConfig} · {@code InternalCaller}). 화면은 이 주소들을 쓰지 않는다.
  */
 @RestController
 @RequestMapping("/api/diagnostics")
@@ -147,10 +148,11 @@ public class DiagnosticsController {
         summary = "P0-2 ×10 가격 스케일 이상치 진단·분류 (읽기 전용)",
         description = "stock_price 이력에서 정상가(median) 대비 ×N(기본 5배+)으로 튄 행을 찾아 두 가설" +
                      "(BATCH_SCALED=응답 자체 ×N / CURRENT_FIELD_OUTLIER=현재가 필드 매핑)으로 분류하고, " +
-                     "market·세션시간대(NXT 단독 구간 08~09·15:40~20:00)별로 군집을 집계한다. 가격 보정 없음."
+                     "market·세션시간대(NXT 단독 구간 08~09·15:40~20:00)별로 군집을 집계한다. 가격 보정 없음. " +
+                     "기간은 최대 168시간(7일) — 더 길게 요청하면 줄여 읽고 note 에 적는다."
     )
     public ResponseEntity<Map<String, Object>> priceScaling(
-            @RequestParam(defaultValue = "720") int hoursBack,
+            @RequestParam(defaultValue = "168") int hoursBack,
             @RequestParam(defaultValue = "200") int maxEvents) {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", true);
@@ -163,10 +165,11 @@ public class DiagnosticsController {
         summary = "P2-11 스테일/동결 피드 + 손상 등락률 진단 (읽기 전용)",
         description = "stock_price 이력에서 정규장(09:00~15:30) 현재가가 tickThreshold 틱 이상 연속 동일(동결)인 " +
                      "종목을 찾아 활성/정지 교차로 분류(ACTIVE_FROZEN=이상 / SUSPENDED_FROZEN=정상)하고, " +
-                     "등락률 ±31% 초과(손상 의심) 행을 함께 보고한다. 가격 보정 없음 — 관측 전용."
+                     "등락률 ±31% 초과(손상 의심) 행을 함께 보고한다. 가격 보정 없음 — 관측 전용. " +
+                     "기간은 최대 168시간(7일) — 더 길게 요청하면 줄여 읽고 note 에 적는다."
     )
     public ResponseEntity<Map<String, Object>> staleFeeds(
-            @RequestParam(defaultValue = "720") int hoursBack,
+            @RequestParam(defaultValue = "168") int hoursBack,
             @RequestParam(defaultValue = "20") int tickThreshold,
             @RequestParam(defaultValue = "200") int maxEvents) {
         Map<String, Object> response = new LinkedHashMap<>();
