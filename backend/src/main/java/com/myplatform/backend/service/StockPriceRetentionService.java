@@ -64,7 +64,7 @@ public class StockPriceRetentionService {
             "SELECT sp.id FROM stock_price sp JOIN ("
                     + "SELECT stock_code, MAX(fetched_at) AS mf FROM stock_price GROUP BY stock_code"
                     + ") m ON sp.stock_code = m.stock_code AND sp.fetched_at = m.mf";
-    /** (fetched_at, id) 순서로 기준일 이전 행을 앞에서부터 — V76 인덱스(fetched_at, 뒤에 PK id) 범위 읽기. */
+    /** (fetched_at, id) 순서로 기준일 이전 행을 앞에서부터 — V75 인덱스(fetched_at, 뒤에 PK id) 범위 읽기. */
     private static final String NEXT_CANDIDATES =
             "SELECT id, fetched_at FROM stock_price "
                     + "WHERE fetched_at < :cutoff "

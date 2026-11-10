@@ -258,6 +258,14 @@ class FlywayMigrationTest {
         assertThat(scalarString("SELECT CONCAT(stock_code, '/', revenue) FROM stock_financial_estimate_backup_v73"))
                 .as("V73 백업은 지운 행 하나 — 되돌릴 수 있다").isEqualTo("E00001/7324732.00");
 
+        // --- 검증 24 (V75): stock_price.fetched_at 인덱스 — 기간 조회·보존 잡용. 종목별 최신 행 인덱스는 그대로 ---
+        assertThat(scalarString("SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics "
+                + "WHERE table_schema = DATABASE() AND table_name = 'stock_price' AND index_name = 'idx_stock_price_fetched_at'"))
+                .as("V75 fetched_at 단독 인덱스").isEqualTo("fetched_at");
+        assertThat(scalarString("SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics "
+                + "WHERE table_schema = DATABASE() AND table_name = 'stock_price' AND index_name = 'idx_stock_price_code_fetched'"))
+                .as("V20 (stock_code, fetched_at) — 가격 이상치 그물·DB 폴백의 최신 행 조회").isEqualTo("stock_code,fetched_at");
+
         // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
                 + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "

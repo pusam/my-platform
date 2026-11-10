@@ -1,4 +1,4 @@
--- V76: stock_price.fetched_at 조회용 인덱스 (2026-11-10, 개선 후보 6번)
+-- V75: stock_price.fetched_at 조회용 인덱스 (2026-11-10, 개선 후보 6번)
 --
 -- 시세 캐시 표 stock_price 는 2026-01-14 부터 한 번도 지운 적이 없어 약 399만 행이다(11/10 운영).
 -- 인덱스가 PK 와 (stock_code, fetched_at) 뿐이라, fetched_at 만으로 거르는 조회가 표 전체를 훑었다:
