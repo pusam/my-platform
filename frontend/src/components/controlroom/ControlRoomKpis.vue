@@ -217,6 +217,24 @@
       </template>
       <NoData v-else :reason="bot && bot.note" :title="bot && bot.noteDetail" />
     </div>
+
+    <!--
+      ⑨ 장중 재시작 — 부팅 기록(V74)으로 본 오늘 08:30~(마감 10분 뒤) 재시작(2026-11-10).
+      표본 시작일은 이 시간대에 재시작이 없던 거래일이어야 한다(CLAUDE.md §7). 예전엔 서버에서 docker inspect 로
+      마지막 한 번만 봤다. 판정은 백엔드 IntradayRestartRules 단일 출처 — 여기서 시각을 다시 비교하지 않는다.
+      재시작은 고장이 아니라 상태라 빨강 대신 주황(warn), 정상이면 조용하다.
+    -->
+    <div class="kpi" :class="{ warn: restartWarn }">
+      <div class="eyebrow">장중 재시작</div>
+      <template v-if="restart && restart.dataAvailable">
+        <div class="v word restart-state">{{ restartHeadline }}</div>
+        <div class="s">오늘 {{ restart.window }}</div>
+        <div v-if="restart.lastIntradayLine" class="s restart-last">{{ restart.lastIntradayLine }}</div>
+        <div v-if="restart.note" class="s note" :title="restart.noteDetail || restart.note">{{ restart.note }}</div>
+        <span class="basis">부팅 기록 · 표본 시작일 판단용</span>
+      </template>
+      <NoData v-else :reason="restart && restart.note" :title="restart && restart.noteDetail" />
+    </div>
   </div>
 </template>
 
@@ -306,6 +324,20 @@ const botMoeTitle = (line) => {
   if (line.lossBelowUncertainty) return '하루 평균 손실이 95% 불확실성 폭 밖이다 — 0 보다 유의하게 나쁘다.'
   return '하루 평균 수익이 불확실성 폭 안에 있다 — 0 과 구분되지 않는다(우연일 수 있다).'
 }
+
+// ── ⑨ 장중 재시작 ──────────────────────────────────────────────────────────
+// 판정은 백엔드(IntradayRestartRules). 여기서는 받은 시각을 HH:mm 로 보이기만 한다.
+const restart = computed(() => props.kpis?.restartWatch ?? null)
+const hm = (v) => (v == null ? '' : String(v).replace('T', ' ').slice(11, 16))
+const restartHeadline = computed(() => {
+  const r = restart.value
+  if (!r) return ''
+  if (r.tradingDay === false) return '휴장일'
+  const list = r.todayIntraday ?? []
+  if (list.length === 0) return '없음'
+  return `있음 ${list.map(hm).join(', ')}`
+})
+const restartWarn = computed(() => !!restart.value?.dataAvailable && !!restart.value?.note)
 
 /** 승률은 결측이면 '-'. */
 const rate = (v) => (v == null ? '-' : `${Number(v).toFixed(1)}%`)

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.function.Predicate;
 
@@ -20,8 +21,12 @@ class IntradayRestartRulesTest {
     private static final LocalDate MON = LocalDate.of(2026, 11, 9);
     private static final LocalDate TUE = LocalDate.of(2026, 11, 10);
     /** 주말만 휴장으로 보는 달력(테스트용). */
-    private static final Predicate<LocalDate> WEEKDAYS = d ->
+    private static final Predicate<LocalDate> WEEKDAY = d ->
             d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY;
+    /** 수능일 — 정규장 마감이 16:30(종가 버퍼 포함 16:40)으로 밀린다(MarketCalendarService.SHIFTED_SESSIONS). */
+    private static final LocalDate SUNEUNG = LocalDate.of(2026, 11, 19);
+    private static final IntradayRestartRules.Calendar WEEKDAYS = new IntradayRestartRules.Calendar(WEEKDAY,
+            d -> d.equals(SUNEUNG) ? LocalTime.of(16, 40) : LocalTime.of(15, 40));
 
     private static IntradayRestartRules.Boot boot(LocalDateTime t) {
         return new IntradayRestartRules.Boot(t, "a1b2c3d4e5f6", "1e3fb164aaaa");
@@ -44,6 +49,25 @@ class IntradayRestartRulesTest {
         assertThat(IntradayRestartRules.inWindow(sat.atTime(10, 0), WEEKDAYS)).isFalse();
         // 달력을 모르면 거래일로 본다 — 숨기는 쪽보다 낫다
         assertThat(IntradayRestartRules.inWindow(sat.atTime(10, 0), null)).isTrue();
+    }
+
+    @Test
+    @DisplayName("마감이 밀린 날(2026-11-19 수능일, 마감 16:40)은 그 10분 뒤 16:50 까지 장중이다 — 시작 08:30 은 고정")
+    void lateCloseDayExtendsWindow() {
+        assertThat(IntradayRestartRules.inWindow(SUNEUNG.atTime(16, 20), WEEKDAYS)).isTrue();
+        assertThat(IntradayRestartRules.inWindow(SUNEUNG.atTime(16, 50), WEEKDAYS)).isTrue();
+        assertThat(IntradayRestartRules.inWindow(SUNEUNG.atTime(16, 55), WEEKDAYS)).isFalse();
+        assertThat(IntradayRestartRules.inWindow(SUNEUNG.atTime(8, 29), WEEKDAYS)).isFalse();
+        assertThat(IntradayRestartRules.windowLabel(SUNEUNG, WEEKDAYS)).isEqualTo("08:30~16:50");
+        assertThat(IntradayRestartRules.windowLabel(TUE, WEEKDAYS)).isEqualTo("08:30~15:50");
+        // 달력을 모르면 평소 마감
+        assertThat(IntradayRestartRules.windowLabel(SUNEUNG, null)).isEqualTo("08:30~15:50");
+
+        LocalDateTime current = SUNEUNG.atTime(16, 20);
+        var s = IntradayRestartRules.summarize(List.of(boot(current)), current, SUNEUNG, WEEKDAYS, MON);
+        assertThat(s.window()).isEqualTo("08:30~16:50");
+        assertThat(IntradayRestartRules.note(s)).isEqualTo("오늘 장중 재시작 16:20 — 표본 시작일 후보 아님");
+        assertThat(IntradayRestartRules.noteDetail(s)).startsWith("오늘 08:30~16:50 에 백엔드가 다시 떴다");
     }
 
     @Test

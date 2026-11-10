@@ -532,7 +532,11 @@ public class ControlRoomSnapshotService {
      * 판정은 {@link com.myplatform.backend.bootlog.IntradayRestartRules} 단일 출처. 조회 실패는 dataAvailable=false(§4c).
      */
     private ControlRoomSnapshotDto.RestartWatch restartWatch(LocalDate today) {
-        String window = com.myplatform.backend.bootlog.IntradayRestartRules.WINDOW_LABEL;
+        com.myplatform.backend.bootlog.IntradayRestartRules.Calendar cal = marketCalendar == null
+                ? com.myplatform.backend.bootlog.IntradayRestartRules.Calendar.UNKNOWN
+                : new com.myplatform.backend.bootlog.IntradayRestartRules.Calendar(
+                        d -> !marketCalendar.isMarketClosed(d), marketCalendar::marketCloseOf);
+        String window = com.myplatform.backend.bootlog.IntradayRestartRules.windowLabel(today, cal);
         if (bootLogRepository == null) {
             return new ControlRoomSnapshotDto.RestartWatch(false, null, window, List.of(), null, null, false, null, null,
                     "부팅 기록 없음(구성 안 됨)", "server_boot_log 저장소가 없다 — 재시작 여부를 모른다(없다는 뜻이 아니다).");
@@ -545,12 +549,11 @@ public class ControlRoomSnapshotService {
                     .toList();
             LocalDate since = bootLogRepository.findFirstByOrderByStartedAtAsc()
                     .map(b -> b.getStartedAt().toLocalDate()).orElse(null);
-            java.util.function.Predicate<LocalDate> tradingDay = marketCalendar == null ? null : d -> !marketCalendar.isMarketClosed(d);
             com.myplatform.backend.bootlog.IntradayRestartRules.Summary s = com.myplatform.backend.bootlog.IntradayRestartRules.summarize(
                     boots,
                     com.myplatform.backend.bootlog.ServerBootRecorder.currentProcessStartedAt(clock.getZone()),
-                    today, tradingDay, since);
-            return new ControlRoomSnapshotDto.RestartWatch(true, s.tradingDay(), window,
+                    today, cal, since);
+            return new ControlRoomSnapshotDto.RestartWatch(true, s.tradingDay(), s.window(),
                     s.todayIntraday().stream().map(com.myplatform.backend.bootlog.IntradayRestartRules.Boot::startedAt).toList(),
                     s.lastIntraday() == null ? null : s.lastIntraday().startedAt(),
                     s.lastBoot() == null ? null : s.lastBoot().startedAt(),

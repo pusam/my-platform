@@ -511,3 +511,69 @@ describe('ControlRoomKpis ⑧ — "봇을 믿고 맡겨도 되나" 게이트', (
     expect(c.findAll('.trust-state').map((s) => s.text())).toEqual(['모의 · 평가 가능', '실전 · 표본 수집 중'])
   })
 })
+
+/**
+ * ⑨ 장중 재시작(2026-11-10) — 부팅 기록으로 본 오늘 08:30~(마감 10분 뒤) 재시작.
+ * 표본 시작일은 이 시간대에 재시작이 없던 거래일이어야 한다(CLAUDE.md §7). 판정은 백엔드 — 화면은 보이기만.
+ */
+describe('ControlRoomKpis — ⑨ 장중 재시작', () => {
+  function restartWatch(overrides = {}) {
+    return {
+      dataAvailable: true,
+      tradingDay: true,
+      window: '08:30~15:50',
+      todayIntraday: [],
+      lastIntradayAt: '2026-11-09T09:12:03',
+      lastBootAt: '2026-11-10T16:25:10',
+      currentBootRecorded: true,
+      recordedSince: '2026-11-09',
+      lastIntradayLine: '마지막 장중 재시작 11/09 09:12',
+      note: null,
+      noteDetail: null,
+      ...overrides
+    }
+  }
+  function restartCard(overrides) {
+    const w = mount(ControlRoomKpis, {
+      props: { kpis: { restartWatch: restartWatch(overrides) } },
+      global: { stubs: { NoData: { props: ['reason'], template: '<div class="nodata">{{ reason }}</div>' } } }
+    })
+    return w.findAll('.kpi').find((k) => k.find('.eyebrow').text() === '장중 재시작')
+  }
+
+  it('오늘 장중 재시작이 없으면 "없음" + 마지막 장중 재시작 날짜, 조용하다', () => {
+    const c = restartCard()
+    expect(c.find('.restart-state').text()).toBe('없음')
+    expect(c.text()).toContain('마지막 장중 재시작 11/09 09:12')
+    expect(c.text()).toContain('오늘 08:30~15:50')
+    expect(c.classes()).not.toContain('warn')
+    expect(c.find('.note').exists()).toBe(false)
+  })
+
+  it('오늘 장중 재시작이 있으면 시각과 사유, 주황', () => {
+    const c = restartCard({
+      todayIntraday: ['2026-11-10T09:05:00', '2026-11-10T10:04:12'],
+      note: '오늘 장중 재시작 09:05 외 1회 — 표본 시작일 후보 아님',
+      noteDetail: '오늘 08:30~15:50 에 백엔드가 다시 떴다 …'
+    })
+    expect(c.find('.restart-state').text()).toBe('있음 09:05, 10:04')
+    expect(c.find('.note').text()).toBe('오늘 장중 재시작 09:05 외 1회 — 표본 시작일 후보 아님')
+    expect(c.find('.note').attributes('title')).toContain('백엔드가 다시 떴다')
+    expect(c.classes()).toContain('warn')
+  })
+
+  it('마감이 밀린 날은 서버가 준 시간대를 그대로 보인다(11/19 08:30~16:50)', () => {
+    expect(restartCard({ window: '08:30~16:50' }).text()).toContain('오늘 08:30~16:50')
+  })
+
+  it('휴장일은 "휴장일"', () => {
+    expect(restartCard({ tradingDay: false }).find('.restart-state').text()).toBe('휴장일')
+  })
+
+  it('조회 실패는 "없음"이 아니라 NoData + 사유(§4c)', () => {
+    const c = restartCard({ dataAvailable: false, todayIntraday: [], note: '부팅 기록 조회 실패' })
+    expect(c.find('.restart-state').exists()).toBe(false)
+    expect(c.text()).toContain('부팅 기록 조회 실패')
+    expect(c.text()).not.toContain('없음')
+  })
+})
