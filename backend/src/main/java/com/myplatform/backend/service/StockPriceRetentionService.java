@@ -23,7 +23,7 @@ import java.util.Set;
  *
  * <p>이 표는 2026-01-14 부터 한 번도 지운 적이 없다(11/10 운영 약 399만 행·484MB, 하루 약 2만 행). 읽는 곳을 전수로
  * 보니 옛 행이 필요한 소비처는 없다 — 전부 <b>종목별 최신 1행</b>이거나 <b>최근 7일</b>이다
- * (docs/STOCK_PRICE_RETENTION.md 의 소비처 표). 그래서 보존 기간이 지난 행을 지우되 다음 둘은 지키지 않는다:
+ * (docs/STOCK_PRICE_RETENTION.md 의 소비처 표). 그래서 보존 기간이 지난 행을 지우되 다음 둘은 지킨다:
  *
  * <ul>
  *   <li><b>종목별 최신 행은 기간과 무관하게 남긴다.</b> 거래정지 종목처럼 오래 시세가 안 들어온 종목의 마지막 행이
@@ -34,7 +34,7 @@ import java.util.Set;
  *   <li><b>장이 열린 시간(NXT 08:00~20:00, 장이 열린 날)엔 지우지 않는다.</b> 묶음마다 다시 본다.</li>
  * </ul>
  *
- * <p>작은 묶음(기본 2,000행)으로 fetched_at·id 순서를 따라가며 지운다(묶음마다 자동 커밋 — 긴 트랜잭션·긴 잠금 없음).
+ * <p>작은 묶음(기본 1,000행 — MariaDB 의 IN 목록 서브쿼리 변환 임계 {@code in_predicate_conversion_threshold}=1000 을 넘지 않게)으로 fetched_at·id 순서를 따라가며 지운다(묶음마다 자동 커밋 — 긴 트랜잭션·긴 잠금 없음).
  * 회차 상한(행 수·시간)에 닿으면 멈추고 다음 날 이어서 한다. 회차 끝에 요약 한 줄(삭제 수·남은 행). 실패는 ERROR 로 남기고
  * 다시 던진다 — 배치 모니터({@code ScheduledJobMonitorAspect})가 FAILED 로 기록한다(§4c 침묵 금지).
  *
@@ -52,7 +52,14 @@ public class StockPriceRetentionService {
      */
     public static final int MIN_RETENTION_DAYS = 8;
 
-    /** 회차 시간 상한 — 05:10 에 시작해 NXT 시작(08:00) 훨씬 전에 끝난다. 400만 행 실측은 회차당 수 분이다. */
+    /**
+     * 보존 기간 상한(일, 10년). '사실상 영구 보존'의 뜻으로 큰 값(예: 2,000,000)을 넣으면 기준일이 기원전으로 넘어가는데,
+     * MariaDB Connector/J 는 날짜를 기원 연도({@code yyyy})로 찍어 보내 서기 연도 리터럴이 되고 <b>모든 행이 삭제 대상</b>이
+     * 된다(H2 로는 안 보인다). 넘으면 하한과 같이 지우지 않고 WARN 으로 거절한다 — 영구 보존은 잡을 끄는 것이다.
+     */
+    public static final int MAX_RETENTION_DAYS = 3650;
+
+    /** 회차 시간 상한 — 05:10 에 시작해 NXT 시작(08:00) 훨씬 전에 끝난다. 400만 행 실측으로 회차(50만 행)는 1분 안팎이다. */
     static final Duration MAX_RUN_DURATION = Duration.ofMinutes(30);
 
     /** 지우기 대상 순회의 시작 커서 — fetched_at 이 이보다 이른 행은 없다. */
@@ -90,7 +97,7 @@ public class StockPriceRetentionService {
                                       Clock clock,
                                       @Value("${stock-price.retention.enabled:false}") boolean enabled,
                                       @Value("${stock-price.retention.days:90}") int retentionDays,
-                                      @Value("${stock-price.retention.batch-size:2000}") int batchSize,
+                                      @Value("${stock-price.retention.batch-size:1000}") int batchSize,
                                       @Value("${stock-price.retention.max-rows-per-run:500000}") int maxRowsPerRun) {
         this.jdbc = jdbc;
         this.calendar = calendar;
@@ -108,9 +115,10 @@ public class StockPriceRetentionService {
             log.warn("[시세 보존] stock_price 보존 잡이 꺼져 있다 — 표가 하루 약 2만 행씩 계속 는다(지운 적 없음). "
                     + "켜려면 STOCK_PRICE_RETENTION_ENABLED=true (보존 {}일, STOCK_PRICE_RETENTION_DAYS). "
                     + "켜기 전에 옛 행 내보내기: docs/STOCK_PRICE_RETENTION.md", retentionDays);
-        } else if (retentionDays < MIN_RETENTION_DAYS) {
-            log.warn("[시세 보존] 보존 기간 {}일은 하한 {}일보다 짧아 지우지 않는다 — 최근 7일을 보는 조회가 있다. "
-                    + "STOCK_PRICE_RETENTION_DAYS 를 {} 이상으로", retentionDays, MIN_RETENTION_DAYS, MIN_RETENTION_DAYS);
+        } else if (!retentionDaysValid()) {
+            log.warn("[시세 보존] 보존 기간 {}일이 허용 범위 {}~{}일 밖이라 지우지 않는다 — 하한은 최근 7일을 보는 조회 때문, "
+                    + "상한은 기준일이 기원전으로 넘어가면 모든 행이 대상이 되기 때문(영구 보존은 잡을 끈다). "
+                    + "STOCK_PRICE_RETENTION_DAYS 를 고칠 것", retentionDays, MIN_RETENTION_DAYS, MAX_RETENTION_DAYS);
         } else {
             log.info("[시세 보존] 켜짐 — 매일 05:10, {}일 이전 행(종목별 최신 행 제외)을 묶음 {}행·회차 상한 {}행으로 지운다",
                     retentionDays, batchSize, maxRowsPerRun);
@@ -134,16 +142,17 @@ public class StockPriceRetentionService {
     public record Report(LocalDateTime cutoff, long deleted, int batches, long protectedRows,
                          Long remainingOlder, Long totalRows, String stopReason, long elapsedMillis) {}
 
-    /** 회차 한 번 — 켜짐 여부는 보지 않는다(크론 입구가 본다). */
-    Report run() {
+    /** 회차 한 번 — 켜짐 여부는 보지 않는다(크론 입구가 본다). public 은 실제 MariaDB 검증(FlywayMigrationTest 검증 24)용. */
+    public Report run() {
         LocalDateTime startedAt = LocalDateTime.now(clock);
         long started = System.currentTimeMillis();
+        if (!retentionDaysValid()) {
+            log.warn("[시세 보존] 보존 기간 {}일이 허용 범위 {}~{}일 밖 — 이번 회차는 지우지 않는다",
+                    retentionDays, MIN_RETENTION_DAYS, MAX_RETENTION_DAYS);
+            return new Report(null, 0, 0, 0, null, null, "기간 범위 밖", 0);
+        }
         LocalDateTime cutoff = startedAt.minusDays(retentionDays);
 
-        if (retentionDays < MIN_RETENTION_DAYS) {
-            log.warn("[시세 보존] 보존 기간 {}일 < 하한 {}일 — 이번 회차는 지우지 않는다", retentionDays, MIN_RETENTION_DAYS);
-            return new Report(cutoff, 0, 0, 0, null, null, "기간 하한 미만", 0);
-        }
         if (marketOpenAt(startedAt)) {
             log.info("[시세 보존] 장이 열린 시간이라 건너뜀 ({})", startedAt);
             return new Report(cutoff, 0, 0, 0, null, null, "장이 열린 시간", 0);
@@ -201,6 +210,10 @@ public class StockPriceRetentionService {
                 remainingOlder == null ? "모름" : remainingOlder, protectedRows,
                 totalRows == null ? "모름" : totalRows, stopReason);
         return new Report(cutoff, deleted, batches, protectedRows, remainingOlder, totalRows, stopReason, elapsed);
+    }
+
+    private boolean retentionDaysValid() {
+        return retentionDays >= MIN_RETENTION_DAYS && retentionDays <= MAX_RETENTION_DAYS;
     }
 
     /** 종목별 최신 행 id — fetched_at 최대(동률이면 전부)와 id 최대를 모두. */
