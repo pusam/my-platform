@@ -46,8 +46,8 @@
           {{ tab.icon }} {{ tab.label }}
         </button>
 
-        <!-- 관리자 모드 토글 (작은 버튼) -->
-        <button class="admin-toggle-btn"
+        <!-- 관리자 모드 토글 (작은 버튼) — 관리자 계정에만 보인다(2026-11-10: 수집 주소는 서버가 관리자만 받는다) -->
+        <button v-if="isAdmin" class="admin-toggle-btn"
                 @dblclick="showAdminTab = !showAdminTab"
                 :title="showAdminTab ? '관리자 탭 숨기기 (더블클릭)' : '관리자 탭 표시 (더블클릭)'">
           {{ showAdminTab ? '🔓' : '🔒' }}
@@ -740,7 +740,9 @@ const adminTabs = [
   { value: 'data-management', label: '관리자', icon: '🔧', admin: true }
 ];
 
-// 관리자 모드 (더블클릭으로 활성화)
+// 관리자 모드 (더블클릭으로 활성화) — 관리자 계정만. 일반 계정은 탭도 토글도 없다:
+// 원버튼 수집(POST /api/screener/collect-all-in-one)은 서버가 관리자만 받는다(SecurityConfig, 2026-11-10).
+const isAdmin = localStorage.getItem('role') === 'ADMIN';
 const showAdminTab = ref(false);
 
 // 데이터
