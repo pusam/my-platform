@@ -231,7 +231,7 @@
         <div class="s">오늘 {{ restart.window }}</div>
         <div v-if="restart.lastIntradayLine" class="s restart-last">{{ restart.lastIntradayLine }}</div>
         <div v-if="restart.note" class="s note" :title="restart.noteDetail || restart.note">{{ restart.note }}</div>
-        <span class="basis">부팅 기록 · 표본 시작일 판단용</span>
+        <span class="basis" :title="RESTART_LIMITATION">부팅 기록 · 표본 시작일 판단용</span>
       </template>
       <NoData v-else :reason="restart && restart.note" :title="restart && restart.noteDetail" />
     </div>
@@ -334,9 +334,14 @@ const restartHeadline = computed(() => {
   if (!r) return ''
   if (r.tradingDay === false) return '휴장일'
   const list = r.todayIntraday ?? []
-  if (list.length === 0) return '없음'
-  return `있음 ${list.map(hm).join(', ')}`
+  if (list.length > 0) return `있음 ${list.map(hm).join(', ')}`
+  // 지금 부팅이 기록에 없으면 저장이 실패하는 중일 수 있다 — '없음'이라고 말하지 않는다(§4c)
+  if (r.currentBootRecorded === false) return '확인 불가'
+  return '없음'
 })
+/** 기록으로 못 잡는 경우 — 백엔드 IntradayRestartRules.LIMITATION 과 같은 뜻. */
+const RESTART_LIMITATION =
+  '창 안에서 서버가 죽고 창이 끝난 뒤에야 다시 뜬 날은 부팅 기록으로 잡히지 않는다(기록은 뜬 순간만 남는다) — "없음"은 "창 안에서 뜬 적 없음"이다.'
 const restartWarn = computed(() => !!restart.value?.dataAvailable && !!restart.value?.note)
 
 /** 승률은 결측이면 '-'. */

@@ -12,12 +12,12 @@ count=0
 
 utc_epoch() { date -u -d "$1" +%s; }
 
-# check <UTC 시각> <기대 decision> <기대 wait_seconds> <설명> [DEPLOY_MESSAGES] [FORCE_DEPLOY] [TZ]
+# check <UTC 시각> <기대 decision> <기대 wait_seconds> <설명> [DEPLOY_HEAD_MESSAGE] [FORCE_DEPLOY] [TZ] [옛 DEPLOY_MESSAGES]
 check() {
-  local utc="$1" want="$2" want_wait="$3" label="$4" msgs="${5:-}" force="${6:-false}" tz="${7:-UTC}"
+  local utc="$1" want="$2" want_wait="$3" label="$4" msgs="${5:-}" force="${6:-false}" tz="${7:-UTC}" old="${8:-}"
   local out decision wait_s
   count=$((count + 1))
-  out=$(TZ="$tz" DEPLOY_MESSAGES="$msgs" FORCE_DEPLOY="$force" bash "$SCRIPT" "$(utc_epoch "$utc")") || {
+  out=$(TZ="$tz" DEPLOY_HEAD_MESSAGE="$msgs" DEPLOY_MESSAGES="$old" FORCE_DEPLOY="$force" bash "$SCRIPT" "$(utc_epoch "$utc")") || {
     echo "FAIL  $label — 스크립트가 실패로 끝났다"; fail=$((fail + 1)); return
   }
   decision=$(printf '%s\n' "$out" | sed -n 's/^decision=//p')
@@ -55,12 +55,24 @@ check "2026-11-13 23:30:00" deploy 0 "토 08:30 KST (UTC 는 금요일)"
 check "2026-11-13 07:00:00" defer  0 "금 16:00 KST"
 check "2026-11-12 14:00:00" deploy 0 "목 23:00 KST"
 
-# --- 표시·수동 실행은 보류와 기다림을 건너뛴다 ---
-check "2026-11-11 03:00:00" deploy 0 "장중 + [deploy-now]" "fix: 급한 수정 [deploy-now]"
-check "2026-11-11 07:55:00" deploy 0 "기다림 + [deploy-now]" "a
-b [deploy-now]"
+# --- 표시·수동 실행은 보류와 기다림을 건너뛴다 — 표시는 마지막 커밋의 제목 줄에 있을 때만 ---
+check "2026-11-11 03:00:00" deploy 0 "장중 + 제목 줄 [deploy-now]" "fix: 급한 수정 [deploy-now]"
+check "2026-11-11 07:55:00" deploy 0 "기다림 + 제목 줄 [deploy-now]" "fix: 급한 수정 [deploy-now]
+본문"
+check "2026-11-11 03:00:00" defer  0 "장중 + 본문에만 [deploy-now] → 표시 아님" "feat: 배포 가드
+
+- 커밋 메시지 [deploy-now] 는 건너뛴다"
+check "2026-11-11 03:00:00" defer  0 "장중 + 앞선 커밋에만 [deploy-now] → 표시 아님" "docs: 마지막 커밋" "false" "UTC" "fix: 앞선 커밋 [deploy-now]"
 check "2026-11-11 03:00:00" defer  0 "장중 + 비슷한 글자는 표시가 아니다" "deploy-now 아님 [deploy now]"
 check "2026-11-11 03:00:00" deploy 0 "장중 + 수동 실행 deploy_now" "" "true"
+
+# --- 늦게 닫는 날(2026-11-19 목, 정규장 16:30 마감) — 보류가 16:49 까지, 이어서 기다림 ---
+check "2026-11-19 07:26:00" defer  0   "11/19 16:26 KST — 평소면 배포, 그날은 장중"
+check "2026-11-19 07:49:59" defer  0   "11/19 16:49:59 KST"
+check "2026-11-19 07:50:00" wait   780 "11/19 16:50 KST → 17:03 까지"
+check "2026-11-19 08:03:00" deploy 0   "11/19 17:03 KST"
+check "2026-11-19 08:12:00" deploy 0   "11/19 17:12 KST (그날 밀린 배포를 받는 일정)"
+check "2026-11-18 07:26:00" deploy 0   "11/18 16:26 KST — 전날은 평소대로"
 
 # --- 러너 시간대와 무관 ---
 check "2026-11-10 23:20:00" defer  0 "TZ=America/New_York 에서도 같은 판정" "" "false" "America/New_York"

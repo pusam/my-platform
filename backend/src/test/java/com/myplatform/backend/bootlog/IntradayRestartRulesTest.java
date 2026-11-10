@@ -137,6 +137,50 @@ class IntradayRestartRulesTest {
     }
 
     @Test
+    @DisplayName("재현(2026-11-10 검토): 08:29:40 시작·08:30:15 준비는 08:30 크론을 놓친다 — 시작~완료 구간이 창과 겹치면 장중 재시작")
+    void bootSpanOverlappingWindowStartCounts() {
+        var straddle = new IntradayRestartRules.Boot(TUE.atTime(8, 29, 40), "h", "r", TUE.atTime(8, 30, 15));
+        assertThat(IntradayRestartRules.overlapsWindow(straddle, WEEKDAYS)).isTrue();
+
+        var s = IntradayRestartRules.summarize(List.of(straddle), TUE.atTime(8, 29, 40), TUE, WEEKDAYS, MON);
+        assertThat(s.todayIntraday()).hasSize(1);
+        assertThat(IntradayRestartRules.note(s)).isEqualTo("오늘 장중 재시작 08:29 — 표본 시작일 후보 아님");
+
+        // 창 앞에서 시작해 창 앞에서 준비 → 아님 / 준비 시각을 모르면 시작 시각만 본다
+        assertThat(IntradayRestartRules.overlapsWindow(
+                new IntradayRestartRules.Boot(TUE.atTime(8, 25), "h", "r", TUE.atTime(8, 29, 59)), WEEKDAYS)).isFalse();
+        assertThat(IntradayRestartRules.overlapsWindow(
+                new IntradayRestartRules.Boot(TUE.atTime(8, 29, 40), "h", "r", null), WEEKDAYS)).isFalse();
+        // 창 끝 직전에 시작하면 준비가 창 뒤여도 장중
+        assertThat(IntradayRestartRules.overlapsWindow(
+                new IntradayRestartRules.Boot(TUE.atTime(15, 49, 50), "h", "r", TUE.atTime(15, 51, 0)), WEEKDAYS)).isTrue();
+        // 창 끝 뒤 시작 → 아님
+        assertThat(IntradayRestartRules.overlapsWindow(
+                new IntradayRestartRules.Boot(TUE.atTime(15, 50, 1), "h", "r", TUE.atTime(15, 51, 0)), WEEKDAYS)).isFalse();
+    }
+
+    @Test
+    @DisplayName("'없음' 문구는 실제로 조회한 범위만 말한다 — 기록이 조회 범위보다 오래되면 조회 시작일로(2026-11-10 검토)")
+    void noIntradayLineLimitedToLookback() {
+        LocalDateTime current = TUE.atTime(16, 25);
+        LocalDate lookbackFrom = TUE.minusDays(180);
+        var old = IntradayRestartRules.summarize(List.of(boot(current)), current, TUE, WEEKDAYS,
+                LocalDate.of(2025, 1, 2), lookbackFrom);
+        assertThat(IntradayRestartRules.lastIntradayLine(old)).isEqualTo("조회한 05/14 이후 장중 재시작 없음(그 전은 보지 않았다)");
+
+        var fresh = IntradayRestartRules.summarize(List.of(boot(current)), current, TUE, WEEKDAYS, TUE, lookbackFrom);
+        assertThat(IntradayRestartRules.lastIntradayLine(fresh)).isEqualTo("기록 시작(11/10) 이후 장중 재시작 없음");
+    }
+
+    @Test
+    @DisplayName("상세 설명은 기록으로 못 잡는 경우(창 안에서 죽고 창 뒤에 뜬 날)를 함께 말한다")
+    void detailStatesLimitation() {
+        LocalDateTime current = TUE.atTime(10, 0);
+        var s = IntradayRestartRules.summarize(List.of(boot(current)), current, TUE, WEEKDAYS, MON);
+        assertThat(IntradayRestartRules.noteDetail(s)).endsWith(IntradayRestartRules.LIMITATION);
+    }
+
+    @Test
     @DisplayName("휴장일엔 tradingDay=false 이고 그날 재시작은 세지 않는다")
     void holidayToday() {
         LocalDate sat = LocalDate.of(2026, 11, 14);

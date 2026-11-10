@@ -566,6 +566,20 @@ describe('ControlRoomKpis — ⑨ 장중 재시작', () => {
     expect(restartCard({ window: '08:30~16:50' }).text()).toContain('오늘 08:30~16:50')
   })
 
+  it('재현(2026-11-10 검토): 지금 부팅이 기록에 없으면 큰 글자가 "없음"이 아니라 "확인 불가"', () => {
+    const c = restartCard({
+      currentBootRecorded: false,
+      note: '이번 부팅 기록 누락 — 재시작 기록이 빠졌을 수 있다',
+      noteDetail: '… "없음"을 그대로 믿으면 안 된다.'
+    })
+    expect(c.find('.restart-state').text()).toBe('확인 불가')
+    expect(c.classes()).toContain('warn')
+  })
+
+  it('기록으로 못 잡는 경우를 기준 줄 툴팁으로 말한다', () => {
+    expect(restartCard().find('.basis').attributes('title')).toContain('창이 끝난 뒤에야 다시 뜬 날')
+  })
+
   it('휴장일은 "휴장일"', () => {
     expect(restartCard({ tradingDay: false }).find('.restart-state').text()).toBe('휴장일')
   })

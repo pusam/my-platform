@@ -524,7 +524,7 @@ public class ControlRoomSnapshotService {
      * <p><b>판정은 {@link BotGateRules} 단일 출처, 집계는 {@code BotPerformanceService.trustGateSummary}</b>.
      * 여기서는 부르고 DTO 로 옮기기만 한다(추천 게이트와 같은 규약). 조회 실패는 {@code dataAvailable=false}(§4c).
      */
-    /** '장중 재시작'이 마지막으로 언제였는지 찾는 창 — 그보다 오래되면 '기록 시작 이후 없음'과 같다고 보지 않고 날짜만 말한다. */
+    /** '장중 재시작'이 마지막으로 언제였는지 찾는 창 — '없음' 문구는 이 범위만 말한다(IntradayRestartRules.lastIntradayLine). */
     private static final int RESTART_LOOKBACK_DAYS = 180;
 
     /**
@@ -545,14 +545,14 @@ public class ControlRoomSnapshotService {
             List<com.myplatform.backend.bootlog.IntradayRestartRules.Boot> boots = bootLogRepository
                     .findByStartedAtGreaterThanEqualOrderByStartedAtAsc(today.minusDays(RESTART_LOOKBACK_DAYS).atStartOfDay())
                     .stream()
-                    .map(b -> new com.myplatform.backend.bootlog.IntradayRestartRules.Boot(b.getStartedAt(), b.getHost(), b.getRevision()))
+                    .map(b -> new com.myplatform.backend.bootlog.IntradayRestartRules.Boot(b.getStartedAt(), b.getHost(), b.getRevision(), b.getReadyAt()))
                     .toList();
             LocalDate since = bootLogRepository.findFirstByOrderByStartedAtAsc()
                     .map(b -> b.getStartedAt().toLocalDate()).orElse(null);
             com.myplatform.backend.bootlog.IntradayRestartRules.Summary s = com.myplatform.backend.bootlog.IntradayRestartRules.summarize(
                     boots,
                     com.myplatform.backend.bootlog.ServerBootRecorder.currentProcessStartedAt(clock.getZone()),
-                    today, cal, since);
+                    today, cal, since, today.minusDays(RESTART_LOOKBACK_DAYS));
             return new ControlRoomSnapshotDto.RestartWatch(true, s.tradingDay(), s.window(),
                     s.todayIntraday().stream().map(com.myplatform.backend.bootlog.IntradayRestartRules.Boot::startedAt).toList(),
                     s.lastIntraday() == null ? null : s.lastIntraday().startedAt(),

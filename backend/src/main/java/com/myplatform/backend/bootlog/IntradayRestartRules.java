@@ -34,8 +34,21 @@ public final class IntradayRestartRules {
 
     private IntradayRestartRules() {}
 
-    /** 부팅 한 번. host 가 같으면 같은 컨테이너의 재시작, 바뀌었으면 재생성(배포). */
-    public record Boot(LocalDateTime startedAt, String host, String revision) {}
+    /**
+     * 기록으로 못 잡는 경우 — 카드 상세·문서에 같은 문장(조용한 거짓 '없음' 금지).
+     */
+    public static final String LIMITATION = "창 안에서 서버가 죽고 창이 끝난 뒤에야 다시 뜬 날은 부팅 기록으로 잡히지 않는다"
+            + "(기록은 뜬 순간만 남는다) — '없음'은 '창 안에서 뜬 적 없음'이다.";
+
+    /**
+     * 부팅 한 번. host 가 같으면 같은 컨테이너의 재시작, 바뀌었으면 재생성(배포).
+     * readyAt = 부팅 완료 시각. 시작~완료 구간 전체를 서버가 일을 못 하던 시간으로 본다(null 이면 시작 시각만).
+     */
+    public record Boot(LocalDateTime startedAt, String host, String revision, LocalDateTime readyAt) {
+        public Boot(LocalDateTime startedAt, String host, String revision) {
+            this(startedAt, host, revision, null);
+        }
+    }
 
     /**
      * 달력 — 장이 열리는 날인가와 그날 마감. 둘 다 null 이면 모름(모든 날을 거래일로, 마감은 평소로 본다 — 숨기는 쪽보다 낫다).
@@ -62,6 +75,7 @@ public final class IntradayRestartRules {
      * @param currentBootRecorded  지금 프로세스의 부팅이 기록에 있는가 — false 면 저장이 실패했거나 아직 기록 전이라
      *                             다른 재시작도 빠졌을 수 있다(§4c)
      * @param recordedSince        기록 시작일(가장 오래된 행). null = 기록이 하나도 없다
+     * @param lookbackFrom         실제로 조회한 범위의 시작일. null = 범위 제한 없음
      */
     public record Summary(Boolean tradingDay,
                           String window,
@@ -69,12 +83,27 @@ public final class IntradayRestartRules {
                           Boot lastIntraday,
                           Boot lastBoot,
                           boolean currentBootRecorded,
-                          LocalDate recordedSince) {}
+                          LocalDate recordedSince,
+                          LocalDate lookbackFrom) {}
 
     /** 그날의 판정 시간대 라벨 — 평소 '08:30~15:50', 마감이 밀린 날은 그만큼. */
     public static String windowLabel(LocalDate date, Calendar calendar) {
         Calendar c = calendar == null ? Calendar.UNKNOWN : calendar;
         return WINDOW_START.format(HM) + "~" + c.windowEnd(date).format(HM);
+    }
+
+    /**
+     * 부팅이 창과 겹치는가 — 시작~완료 구간 [startedAt, readyAt] 이 그날(시작일) 08:30~(마감 + 10분)과 겹치면 장중 재시작이다.
+     * 08:29:40 에 시작해 08:30:15 에 준비되면 08:30:00 크론을 놓친다 — 시작 시각만 보면 조용히 지나간다(2026-11-10 검토).
+     */
+    public static boolean overlapsWindow(Boot b, Calendar calendar) {
+        if (b == null || b.startedAt() == null) return false;
+        Calendar c = calendar == null ? Calendar.UNKNOWN : calendar;
+        LocalDate d = b.startedAt().toLocalDate();
+        if (!c.tradingDay(d)) return false;
+        LocalDateTime start = b.startedAt();
+        LocalDateTime end = (b.readyAt() != null && b.readyAt().isAfter(start)) ? b.readyAt() : start;
+        return !start.isAfter(d.atTime(c.windowEnd(d))) && !end.isBefore(d.atTime(WINDOW_START));
     }
 
     public static boolean inWindow(LocalDateTime t, Calendar calendar) {
@@ -94,6 +123,12 @@ public final class IntradayRestartRules {
      */
     public static Summary summarize(List<Boot> boots, LocalDateTime currentProcessStart, LocalDate today,
                                     Calendar calendar, LocalDate recordedSince) {
+        return summarize(boots, currentProcessStart, today, calendar, recordedSince, null);
+    }
+
+    /** @param lookbackFrom 실제로 조회한 범위의 시작일 — '없음' 문구가 그보다 넓게 말하지 않게. */
+    public static Summary summarize(List<Boot> boots, LocalDateTime currentProcessStart, LocalDate today,
+                                    Calendar calendar, LocalDate recordedSince, LocalDate lookbackFrom) {
         Calendar cal = calendar == null ? Calendar.UNKNOWN : calendar;
         List<Boot> all = new ArrayList<>();
         if (boots != null) boots.stream().filter(Objects::nonNull).filter(b -> b.startedAt() != null).forEach(all::add);
@@ -108,15 +143,15 @@ public final class IntradayRestartRules {
         Boolean tradingDay = cal.isTradingDay() == null ? null : cal.isTradingDay().test(today);
         List<Boot> todayIntraday = all.stream()
                 .filter(b -> b.startedAt().toLocalDate().equals(today))
-                .filter(b -> inWindow(b.startedAt(), cal))
+                .filter(b -> overlapsWindow(b, cal))
                 .toList();
         Boot lastIntraday = null;
         for (Boot b : all) {
-            if (inWindow(b.startedAt(), cal)) lastIntraday = b;
+            if (overlapsWindow(b, cal)) lastIntraday = b;
         }
         Boot lastBoot = all.isEmpty() ? null : all.get(all.size() - 1);
         return new Summary(tradingDay, windowLabel(today, cal), todayIntraday, lastIntraday, lastBoot, recorded,
-                recordedSince);
+                recordedSince, lookbackFrom);
     }
 
     /** 카드 표면용 한 줄 — 정상(오늘 장중 재시작 없음·기록 누락 없음)이면 null(카드가 조용하다). */
@@ -151,14 +186,19 @@ public final class IntradayRestartRules {
                     .append("저장이 실패하는 중이면 다른 재시작도 빠졌을 수 있어 '없음'을 그대로 믿으면 안 된다. ");
         }
         String out = sb.toString().trim();
-        return out.isEmpty() ? null : out;
+        return out.isEmpty() ? null : out + " " + LIMITATION;
     }
 
     /** '마지막 장중 재시작' 한 줄 — 카드·크루 공용. */
     public static String lastIntradayLine(Summary s) {
         if (s == null) return null;
         if (s.lastIntraday() != null) return "마지막 장중 재시작 " + s.lastIntraday().startedAt().format(MD_HM);
-        if (s.recordedSince() != null) return "기록 시작(" + s.recordedSince().format(MD) + ") 이후 장중 재시작 없음";
+        if (s.recordedSince() != null) {
+            if (s.lookbackFrom() != null && s.recordedSince().isBefore(s.lookbackFrom())) {
+                return "조회한 " + s.lookbackFrom().format(MD) + " 이후 장중 재시작 없음(그 전은 보지 않았다)";
+            }
+            return "기록 시작(" + s.recordedSince().format(MD) + ") 이후 장중 재시작 없음";
+        }
         return "장중 재시작 기록 없음(기록 전)";
     }
 
