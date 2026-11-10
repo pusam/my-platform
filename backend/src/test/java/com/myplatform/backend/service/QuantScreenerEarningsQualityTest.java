@@ -140,6 +140,32 @@ class QuantScreenerEarningsQualityTest {
     }
 
     @Test
+    @DisplayName("재현(11/10 08:54): 재무 수집 중이라 오늘 행에 성장률이 아직 없으면 최근 행의 성장률로 판정한다 — 액토즈소프트 +540% 가 마법의 공식 3위로 돌아왔다")
+    void spikeJudgedFromRecentRowWhileBatchFillsGrowth() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        // 오늘(08:41) 1단계가 쓴 행 — 성장률은 2단계가 약 40분 뒤에 채운다
+        StockFinancialData actoz = magicWithCap("052790", "액토즈소프트", "1.00", "17.90", "742", "379", "531", "534");
+        StockFinancialData showbox = magicWithCap("086980", "쇼박스", "2.60", "25.96", "1158", "411", "351", "928");
+        when(stockFinancialDataRepository.findForMagicFormula(any())).thenReturn(List.of(actoz, showbox));
+        when(stockFinancialDataRepository.findRecentGrowthRows(any())).thenReturn(List.<Object[]>of(
+                new Object[]{"052790", LocalDate.of(2026, 11, 9), new BigDecimal("539.76"), new BigDecimal("539.76")}));
+
+        // 쇼박스는 최근 행에도 성장률이 없다 — 모르면 판정하지 않는다(§4c)
+        assertThat(service.getMagicFormulaStocks(10, null)).extracting(ScreenerResultDto::getStockCode).containsExactly("086980");
+    }
+
+    @Test
+    @DisplayName("최근 성장률 조회가 실패해도 스크리너는 돈다 — 그때는 종전처럼 '모름'")
+    void recentGrowthLookupFailureFallsBackToUnknown() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        StockFinancialData actoz = magicWithCap("052790", "액토즈소프트", "1.00", "17.90", "742", "379", "531", "534");
+        when(stockFinancialDataRepository.findForMagicFormula(any())).thenReturn(List.of(actoz));
+        when(stockFinancialDataRepository.findRecentGrowthRows(any())).thenThrow(new RuntimeException("db down"));
+
+        assertThat(service.getMagicFormulaStocks(10, null)).extracting(ScreenerResultDto::getStockCode).containsExactly("052790");
+    }
+
+    @Test
     @DisplayName("재현: PEG 도 같은 규칙 — 10/7 AI 가치 1·2위(동원모빌리티 +151%·화승코퍼레이션 +115%, PEG 0.01)는 빠지고 +100% 이하는 남는다")
     void lowPegExcludesEarningsSpike() {
         when(stockStatusService.isActive(anyString())).thenReturn(true);

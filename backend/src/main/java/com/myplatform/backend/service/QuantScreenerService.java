@@ -80,7 +80,16 @@ public class QuantScreenerService {
         int nonOperating = 0;
         int exceedsRevenue = 0;
         int spiked = 0;
+        Map<String, BigDecimal> recentGrowth = null;   // 성장률이 빈 행이 있을 때만 읽는다
         for (StockFinancialData s : rows) {
+            BigDecimal growth = s.getProfitGrowth() != null ? s.getProfitGrowth() : s.getEpsGrowth();
+            if (growth == null) {
+                // 재무 수집 중(08:30·15:38 회차, 약 40분)엔 오늘 행에 성장률이 아직 없다 — 2단계가 끝나야 채운다. 그 틈에 '모름'으로
+                // 읽으면 이익 급증 종목이 다시 들어온다(11/10 08:54 액토즈소프트 +540% 가 마법의 공식 3위, 16:00 AI 스윙 회차도 그 창 안).
+                // 그 종목의 최근 7일 안 마지막 성장률로 본다 — 종합추천이 최근 행에서 첫 값을 이어 쓰는 것과 같은 규칙.
+                if (recentGrowth == null) recentGrowth = recentGrowthByStock();
+                growth = recentGrowth.get(s.getStockCode());
+            }
             // 순이익은 PER 이 실제로 쓴 값(시총 ÷ PER) — 지배주주 PER 과 KIS 연결 순이익이 갈리면 그 이익을 못 봤다(2026-10-07, 디에이피)
             EarningsQuality.Verdict v = EarningsQuality.judge(s.getRevenue(), s.getOperatingProfit(),
                     EarningsQuality.perImpliedNetIncome(s.getMarketCap(), s.getPer(), s.getNetIncome(),
@@ -89,7 +98,7 @@ public class QuantScreenerService {
             else if (v == EarningsQuality.Verdict.OPERATING_EXCEEDS_REVENUE) exceedsRevenue++;
             // 이익 급증(2026-10-07) — 한 해의 이익이 PER 을 끌어내리고(PEG 면 성장률까지 올려) 순위 1등이 되던 것. 순이익 증가율이 없으면
             // EPS 증가율(성장률 배치에선 같은 값)로, 둘 다 모르면 판정하지 않는다.
-            else if (EarningsQuality.isEarningsSpike(s.getProfitGrowth() != null ? s.getProfitGrowth() : s.getEpsGrowth())) spiked++;
+            else if (EarningsQuality.isEarningsSpike(growth)) spiked++;
             else kept.add(s);
         }
         if (kept.size() != rows.size()) {
@@ -98,6 +107,21 @@ public class QuantScreenerService {
         }
         return kept;
     }
+    /** 종목별 최근 7일 안 마지막 성장률(순이익 증가율, 없으면 EPS 증가율). 조회 실패면 빈 맵 — 종전처럼 '모름'(§4c). */
+    private Map<String, BigDecimal> recentGrowthByStock() {
+        Map<String, BigDecimal> map = new HashMap<>();
+        try {
+            for (Object[] r : stockFinancialDataRepository.findRecentGrowthRows(java.time.LocalDate.now().minusDays(7))) {
+                String code = (String) r[0];
+                BigDecimal g = r[2] != null ? (BigDecimal) r[2] : (BigDecimal) r[3];
+                if (code != null && g != null) map.putIfAbsent(code, g);   // 최신순이라 처음 본 값이 마지막 성장률
+            }
+        } catch (Exception e) {
+            log.warn("[스크리너] 최근 성장률 조회 실패 — 성장률이 빈 행은 이익 급증 판정 안 함: {}", e.getMessage());
+        }
+        return map;
+    }
+
     private static final BigDecimal MIN_NET_INCOME = new BigDecimal("30");  // 최소 순이익 30억원
 
     // 데이터 클렌징 상수 (PEG 스크리너용)

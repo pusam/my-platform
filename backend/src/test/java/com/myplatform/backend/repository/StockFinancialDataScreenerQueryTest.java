@@ -83,6 +83,29 @@ class StockFinancialDataScreenerQueryTest {
     }
 
     @Test
+    @DisplayName("최근 성장률 — KIS 행 중 성장률이 있는 행만 최신순, 범위 밖·미래·네이버 행은 빼고 오늘 행(성장률 아직 없음)도 뺀다(2026-11-10)")
+    void recentGrowthRowsForTheBatchWindow() {
+        // 어제 행: 2단계가 채운 성장률 / 오늘 행: 1단계만 지나 성장률 없음(재무 수집 중)
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("052790").stockName("액토즈").market("KOSDAQ")
+                .reportDate(TODAY.minusDays(1)).marketCap(new BigDecimal("534")).profitGrowth(new BigDecimal("539.76")).build());
+        kisRow("052790", "1.0", "17.9", "51.1", null, null, null);
+        // 범위(7일) 밖·네이버 행(시총 없음)·미래 행은 읽지 않는다
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("000001").stockName("옛").market("KOSPI")
+                .reportDate(TODAY.minusDays(30)).marketCap(new BigDecimal("1000")).profitGrowth(new BigDecimal("10")).build());
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("000002").stockName("네이버").market("KOSPI")
+                .reportDate(TODAY.minusDays(2)).profitGrowth(new BigDecimal("20")).build());
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("000003").stockName("미래").market("KOSPI")
+                .reportDate(ESTIMATE_DATE).marketCap(new BigDecimal("1000")).profitGrowth(new BigDecimal("30")).build());
+
+        List<Object[]> rows = repo.findRecentGrowthRows(TODAY.minusDays(7));
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0)[0]).isEqualTo("052790");
+        assertThat(rows.get(0)[1]).isEqualTo(TODAY.minusDays(1));
+        assertThat((BigDecimal) rows.get(0)[2]).isEqualByComparingTo("539.76");
+    }
+
+    @Test
     @DisplayName("마법의 공식 — 오늘 행이 조건을 넘으면 미래 추정치 행(PER 없음) 때문에 종목이 빠지지 않는다")
     void magicFormulaKeepsStockWithFutureEstimateRow() {
         kisRow("A00001", "5.0", "15.0", "10.0", null, null, null);

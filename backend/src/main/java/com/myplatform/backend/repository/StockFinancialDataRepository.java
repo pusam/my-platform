@@ -65,6 +65,17 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
            "ORDER BY s.operatingMargin DESC, s.roe DESC")
     List<StockFinancialData> findForMagicFormula(@Param("minMarketCap") BigDecimal minMarketCap);
 
+    /**
+     * 최근 KIS 일별 행의 성장률(종목코드·기준일·순이익 증가율·EPS 증가율) — 성장률이 있는 행만, 최신순(2026-11-10).
+     * 재무 수집 1단계가 오늘 행을 먼저 쓰고 성장률은 2단계가 약 40분 뒤에 채워서, 그 사이 스크리너가 오늘 행의 빈 성장률을
+     * '모름'으로 읽어 이익 급증 종목을 통과시켰다(11/10 08:54 마법의 공식 3위 액토즈소프트 +540%). 그 틈을 메우는 데만 쓴다.
+     */
+    @Query("SELECT s.stockCode, s.reportDate, s.profitGrowth, s.epsGrowth FROM StockFinancialData s " +
+           "WHERE s.marketCap IS NOT NULL AND s.reportDate >= :since AND s.reportDate <= CURRENT_DATE " +
+           "AND (s.profitGrowth IS NOT NULL OR s.epsGrowth IS NOT NULL) " +
+           "ORDER BY s.reportDate DESC")
+    List<Object[]> findRecentGrowthRows(@Param("since") java.time.LocalDate since);
+
     // PEG 기준 저평가 종목 조회 (epsGrowth 있는 경우)
     @Query("SELECT s FROM StockFinancialData s WHERE " +
            "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode " +
