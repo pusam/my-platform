@@ -66,6 +66,9 @@ public class SectorTradingService {
     private final RedisCacheService redisCacheService;
     private final MarketCalendarService marketCalendar;
 
+    /** 스냅샷 수집 판정 시계 — 테스트가 고정한다(수능일 리허설 2026-11-10). */
+    java.time.Clock clock = java.time.Clock.system(java.time.ZoneId.of("Asia/Seoul"));
+
     // ========== 스냅샷 저장소 ==========
     // Key: 종목코드, Value: 시간순 정렬된 누적 거래대금 (TreeMap)
     private final ConcurrentMap<String, TreeMap<LocalDateTime, BigDecimal>> tradingHistoryStore = new ConcurrentHashMap<>();
@@ -130,8 +133,8 @@ public class SectorTradingService {
             log.info("[섹터거래대금] 휴장일 - 초기 스냅샷 수집 스킵");
             return;
         }
-        LocalTime now = LocalTime.now();
-        if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
+        java.time.LocalDateTime startAt = java.time.LocalDateTime.now(clock);
+        if (!marketCalendar.isRegularSession(startAt.toLocalDate(), startAt.toLocalTime())) {   // 그날 정규장 시각(수능일 10:00~16:40)
             log.info("[섹터거래대금] 장외 시간 - 초기 스냅샷 수집 스킵 (스케줄러가 장중 자동 수집)");
             return;
         }
@@ -191,11 +194,12 @@ public class SectorTradingService {
     public void scheduledSnapshotCollection() {
         // 휴장일(공휴일) — 정적 데이터에 3분마다 KIS 배치(사이클당 100~140초) 낭비 방지.
         // 휴장일 화면 표시는 on-demand 수집(calculateSectorTrading 캐시 미스 경로)이 담당.
-        if (isMarketClosed()) {
-            return;
-        }
-        LocalTime now = LocalTime.now();
-        if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
+        // 정규장 판정은 그날 달력 시각을 따른다(2026-11-10) — 수능일(10:00~16:40)에 09:00~09:57 장 열리기 전 스냅샷이
+        // 다음 거래일의 같은 시각 비교 기준이 되고, 15:40 뒤 장중에 수집이 멈춰 17:00 국면 입력이 15:39 값으로 굳었다.
+        // 평소 거래일은 종전과 같다(09:00~15:40, 양 끝 포함). 크론 시간 필드(9-15)는 그대로라 그날 16:00~16:40 은 비어 있다.
+        java.time.LocalDateTime nowAt = java.time.LocalDateTime.now(clock);
+        LocalTime now = nowAt.toLocalTime();
+        if (!marketCalendar.isRegularSession(nowAt.toLocalDate(), now)) {
             return;
         }
 

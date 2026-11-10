@@ -38,7 +38,7 @@ class FinancialDataSchedulerGrowthCatchUpTest {
         collector = mock(StockFinancialDataCollector.class);
         scheduler = new FinancialDataScheduler(mock(StockFinancialDataService.class), repo, crawler,
                 mock(BatchJobMonitorService.class), mock(SchedulerLockService.class),
-                mock(MarketCalendarService.class), collector);
+                mock(MarketCalendarService.class), collector, java.time.Clock.systemDefaultZone());
         when(repo.count()).thenReturn(120_000L);
     }
 

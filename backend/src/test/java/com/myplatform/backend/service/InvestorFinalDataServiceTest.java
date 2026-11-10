@@ -275,6 +275,27 @@ class InvestorFinalDataServiceTest {
     }
 
     @Test
+    @DisplayName("수능일(마감 16:40)은 16:15 를 건너뛰고 18:10 회차가 그날 확정치를 받아 순위를 만든다 — 시각은 바꾸지 않는다(2026-11-10 리허설)")
+    void lateCloseDayIsCollectedAtEvening() {
+        LocalDate csat = LocalDate.of(2026, 11, 19);
+        List<String> codes = new ArrayList<>();
+        for (int i = 1; i <= 320; i++) {
+            String code = String.format("%06d", i);
+            codes.add(code);
+            responses.put(code, ok(row(csat, i), row(csat.minusDays(1), -i)));
+        }
+        when(tradeRepo.findDistinctStockCodesSince(any())).thenReturn(codes);
+
+        newService(csat.atTime(16, 15)).runScheduled("16:15");
+        verify(kis, never()).getInvestorTradeByStockDaily(anyString(), any());
+
+        newService(csat.atTime(18, 10)).runScheduled("18:10");
+
+        assertThat(store).filteredOn(r -> r.getTradeDate().equals(csat)).hasSize(320);
+        assertThat(finalDays).contains(csat);
+    }
+
+    @Test
     @DisplayName("다음 거래일 16:15 회차가 어제 행의 종가·금액을 고치고 순위 행을 다시 만든다 — 아침엔 KIS 가 이 API 를 거부해 그 전엔 고칠 길이 없다(11/5 행 910개 중 610개 금액이 다음 날 달랐다)")
     void nextDayAfterCloseFixesYesterdaysRows() {
         stocks(320);
