@@ -188,6 +188,14 @@ alert:
   scheduler:
     enabled: ${ALERT_SCHEDULER_ENABLED:false}
 
+# 시세 캐시 표(stock_price) 보존 잡(2026-11-10, 개선 후보 6번) — 기본 꺼짐. StockPriceRetentionService.
+stock-price:
+  retention:
+    enabled: ${STOCK_PRICE_RETENTION_ENABLED:false}
+    days: ${STOCK_PRICE_RETENTION_DAYS:90}
+    batch-size: 2000
+    max-rows-per-run: 500000
+
 # 유튜브 투자 의견(참고 표시·기록 전용, 2026-09-28) — 추천 점수·순위·봇·signal_outcome 미편입.
 # 공개 영상 자막은 YouTube Data API 로 못 받는다(captions.download = 영상 편집 권한 필요) → 관리자 자막 등록만(자동 수집 미연결).
 youtube-opinion:
