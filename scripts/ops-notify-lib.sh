@@ -26,10 +26,16 @@ ops_env_value() {
   [ -n "$line" ] || return 1
   val="${line#*=}"
   val="${val%$'\r'}"
-  case "$val" in
-    \"*\") val="${val#\"}"; val="${val%\"}" ;;
-    \'*\') val="${val#\'}"; val="${val%\'}" ;;
-  esac
+  # 따옴표 값은 따옴표 안만, 따옴표 없는 값은 ' #' 뒤 주석과 끝 공백을 뗀다(compose .env 규칙과 같게)
+  local sq="'"
+  if [[ "$val" =~ ^\"([^\"]*)\" ]]; then
+    val="${BASH_REMATCH[1]}"
+  elif [[ "$val" == "$sq"* ]] && [[ "${val:1}" == *"$sq"* ]]; then
+    val="${val:1}"; val="${val%%"$sq"*}"
+  else
+    val="${val%%[[:space:]]#*}"
+    val="${val%"${val##*[![:space:]]}"}"
+  fi
   printf '%s' "$val"
 }
 

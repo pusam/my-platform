@@ -23,7 +23,7 @@ if [ "${1:-}" = "--real" ]; then
   export MARIADB_ROOT_PASSWORD="srcpw-$$"
   # 원본도 리허설 라벨을 달아 둔다 — 중간에 죽으면 restore-drill.sh --cleanup 으로 같이 지워진다
   docker run -d --name "$SRC" --label myplatform.restore-drill=1 --network none -e MARIADB_ROOT_PASSWORD "$IMG" >/dev/null || { echo "원본 컨테이너 기동 실패"; exit 1; }
-  trap 'docker rm -f "$SRC" >/dev/null 2>&1; rm -rf "$T"' EXIT
+  trap 'docker rm -f -v "$SRC" >/dev/null 2>&1; rm -rf "$T"' EXIT
   q() { docker exec -i "$SRC" sh -c 'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" --protocol=tcp -h127.0.0.1' ; }
   for _ in $(seq 60); do echo "SELECT 1" | q >/dev/null 2>&1 && break; sleep 2; done
   q <<'SQL'
@@ -52,11 +52,12 @@ INSERT INTO users VALUES (1,'drill-test-user');
 CREATE USER 'should_not_copy'@'%' IDENTIFIED BY 'x';
 SQL
   docker exec "$SRC" sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --protocol=tcp -h127.0.0.1 --all-databases --single-transaction --quick' | gzip > "$T/db-20261110-0300.sql.gz"
-  docker rm -f "$SRC" >/dev/null
+  docker rm -f -v "$SRC" >/dev/null
   N_IN=$(gzip -dc "$T/db-20261110-0300.sql.gz" | grep -c "should_not_copy")
   N_OUT=$(gzip -dc "$T/db-20261110-0300.sql.gz" | (. "$SUT"; filter_system_dbs) | grep -c "should_not_copy")
   check "테스트 덤프에 계정 표(mysql)가 들어 있다 — 걸러낼 대상이 실제로 있다" test "$N_IN" -ge 1
   check "필터를 거치면 계정 표가 빠진다" eq "$N_OUT" 0
+  check "실제 mariadb-dump 의 마지막 줄은 '-- Dump completed'(리허설·백업이 보는 완결 표시)" contains "$(gzip -dc "$T/db-20261110-0300.sql.gz" | tail -n 1)" "-- Dump completed"
   unset MARIADB_ROOT_PASSWORD
   BACKUP_DIR="$T" DRILL_IMAGE="$IMG" bash "$SUT" > "$T/out.log" 2>&1; rc=$?
   cat "$T/out.log"
@@ -71,6 +72,7 @@ SQL
 fi
 
 # ---------------------------------------------------------------- 가짜 docker
+# 컨테이너·볼륨을 "이름|라벨값" 줄로 기억하고, --filter label=K=V 를 실제로 적용한다.
 setup() {
   T="$(mktemp -d)"; mkdir -p "$T/bin" "$T/backups"
   : > "$T/containers"; : > "$T/volumes"; : > "$T/calls"
@@ -78,28 +80,35 @@ setup() {
 #!/usr/bin/env bash
 D="$FAKE_DIR"; last="${*: -1}"
 echo "$*" >> "$D/calls"
-has() { grep -qx -- "$2" "$D/$1"; }
+[ -f "$D/down" ] && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
+label_of() { local prev="" a; for a in "$@"; do [ "$prev" = "--label" ] && { printf '%s' "${a#*=}"; return; }; prev="$a"; done; printf '-'; }
+filter_label() { local prev="" a; for a in "$@"; do [ "$prev" = "--filter" ] && case "$a" in label=*) printf '%s' "${a#label=myplatform.restore-drill=}"; return ;; esac; prev="$a"; done; }
+list() { # $1=파일 나머지=인자
+  local f="$1"; shift; local want; want=$(filter_label "$@")
+  while IFS='|' read -r n l; do [ -z "$want" ] || [ "$l" = "$want" ] && printf '%s\n' "$n"; done < "$D/$f"
+}
+drop() { grep -v "^$2|" "$D/$1" > "$D/$1.tmp"; mv "$D/$1.tmp" "$D/$1"; }
 case "$1" in
   volume)
     case "$2" in
-      create) echo "$last" >> "$D/volumes"; echo "$last" ;;
-      inspect) has volumes "$last" || exit 1; [ "$3" = "-f" ] && echo 1; exit 0 ;;
-      rm) grep -vx -- "$last" "$D/volumes" > "$D/v.tmp"; mv "$D/v.tmp" "$D/volumes" ;;
-      ls) cat "$D/volumes" ;;
+      create) echo "$last|$(label_of "$@")" >> "$D/volumes"; echo "$last" ;;
+      ls) shift 2; list volumes "$@" ;;
+      rm) drop volumes "$last" ;;
     esac ;;
   run)
-    prev=""; for a in "$@"; do [ "$prev" = "--name" ] && echo "$a" >> "$D/containers"; prev="$a"; done
+    prev=""; for a in "$@"; do [ "$prev" = "--name" ] && echo "$a|$(label_of "$@")" >> "$D/containers"; prev="$a"; done
     [ -n "${MARIADB_ROOT_PASSWORD:-}" ] && echo yes > "$D/pw-from-env"
     echo deadbeef ;;
-  inspect)
-    [ "$last" = "myplatform-mariadb" ] && exit 1
-    has containers "$last" || exit 1
-    [ "$2" = "-f" ] && echo 1; exit 0 ;;
-  rm) grep -vx -- "$last" "$D/containers" > "$D/c.tmp"; mv "$D/c.tmp" "$D/containers" ;;
-  ps) cat "$D/containers" ;;
+  ps) shift; list containers "$@" ;;
+  inspect) exit 1 ;;   # 운영 컨테이너 이미지 읽기 — 없는 것으로(기본 이미지)
+  rm) drop containers "$last" ;;
   logs) echo "fake log" ;;
   exec)
-    if [ "$2" = "-i" ]; then cat > "$D/restored.sql"; exit "${FAKE_RESTORE_RC:-0}"; fi
+    if [ "$2" = "-i" ]; then
+      cat > "$D/restored.sql"
+      [ -n "${FAKE_DOWN_AFTER_RESTORE:-}" ] && touch "$D/down"
+      exit "${FAKE_RESTORE_RC:-0}"
+    fi
     sql="$last"
     case "$sql" in
       "SELECT 1") echo 1 ;;
@@ -108,15 +117,27 @@ case "$1" in
       *flyway*) echo 73 ;;
       *"MAX("*) echo 2026-11-09 ;;
       *'`users`'*) echo "${FAKE_USERS:-3}" ;;
+      *'`recommendation_snapshot`'*) echo "${FAKE_SNAPSHOTS:-4}" ;;
       *"COUNT("*) echo 5 ;;
     esac ;;
 esac
 exit 0
 EOF
   chmod +x "$T/bin/docker"
-  printf '%s\n' '-- Current Database: `myplatform`' 'CREATE TABLE a (id int);' '-- Current Database: `mysql`' 'INSERT INTO global_priv VALUES (1);' '-- Current Database: `other`' 'CREATE TABLE b (id int);' | gzip > "$T/backups/db-20261110-0300.sql.gz"
+  make_dump "$T/backups/db-20261110-0300.sql.gz"
+  echo "myplatform-mariadb|-" >> "$T/containers"          # 운영 컨테이너(라벨 없음)
+  echo "myplatform-restore-drill-nolabel|-" >> "$T/containers"   # 이름만 비슷하고 라벨 없음 — 지우면 안 된다
+}
+make_dump() { # $1=경로 [$2=complete|truncated|nocomments]
+  case "${2:-complete}" in
+    nocomments) printf '%s\n' 'CREATE TABLE a (id int);' 'INSERT INTO global_priv VALUES (1);' | gzip > "$1" ;;
+    truncated) printf '%s\n' '-- Current Database: `myplatform`' 'CREATE TABLE a (id int);' 'INSERT INTO a VALUES (1),' | gzip > "$1" ;;
+    *) printf '%s\n' '-- Current Database: `myplatform`' 'CREATE TABLE a (id int);' '-- Current Database: `mysql`' 'INSERT INTO global_priv VALUES (1);' '-- Current Database: `other`' 'CREATE TABLE b (id int);' '-- Dump completed on 2026-11-10  3:00:41' | gzip > "$1" ;;
+  esac
 }
 run() { env PATH="$T/bin:$PATH" FAKE_DIR="$T" BACKUP_DIR="$T/backups" DRILL_READY_TIMEOUT_SEC=5 "$@" bash "$SUT" > "$T/out.log" 2>&1; RC=$?; }
+run_args() { env PATH="$T/bin:$PATH" FAKE_DIR="$T" bash "$SUT" "$@" > "$T/out.log" 2>&1; RC=$?; }
+ours_left() { grep -c '^myplatform-restore-drill-[0-9]' "$T/$1"; }
 teardown() { rm -rf "$T"; }
 
 echo "■ mysql 계정 표 구간만 빠진다"
@@ -128,24 +149,51 @@ echo "■ 정상 — 통과, 비밀번호는 환경변수로만, 끝나면 컨�
 setup; run
 check "종료코드 0" eq "$RC" 0
 check "통과 로그" contains "$(cat "$T/out.log")" "복구 리허설 통과"
+check "삭제 완료 로그" contains "$(cat "$T/out.log")" "삭제 완료"
 check "복원 입력에 mysql 구간 없음" lacks "$(cat "$T/restored.sql")" "global_priv"
 check "복원 입력에 앱 DB 있음" contains "$(cat "$T/restored.sql")" "CREATE TABLE b"
 check "네트워크 없이 기동" contains "$(grep '^run' "$T/calls")" "--network none"
 check "비밀번호 값은 명령줄에 없음(-e 이름만)" contains "$(grep '^run' "$T/calls")" "-e MARIADB_ROOT_PASSWORD -e"
 check "비밀번호는 환경으로 전달" test -f "$T/pw-from-env"
-check "컨테이너 남지 않음" eq "$(grep -c . "$T/containers")" 0
-check "볼륨 남지 않음" eq "$(grep -c . "$T/volumes")" 0
+check "리허설 컨테이너 남지 않음" eq "$(ours_left containers)" 0
+check "리허설 볼륨 남지 않음" eq "$(ours_left volumes)" 0
+check "라벨 없는 비슷한 이름은 그대로" contains "$(cat "$T/containers")" "myplatform-restore-drill-nolabel"
+check "운영 컨테이너는 그대로" contains "$(cat "$T/containers")" "myplatform-mariadb"
+teardown
+
+echo "■ 비어도 되는 표(recommendation_snapshot) 0행은 경고만 — 통과"
+setup; run FAKE_SNAPSHOTS=0
+check "종료코드 0" eq "$RC" 0
+check "⚠ 표시" contains "$(grep '^recommendation_snapshot' "$T/out.log")" "⚠️"
 teardown
 
 echo "■ 복원 실패 — 실패로 끝나도 정리한다"
 setup; run FAKE_RESTORE_RC=1
 check "종료코드 1" eq "$RC" 1
 check "복원 실패 로그" contains "$(cat "$T/out.log")" "복원 실패"
-check "컨테이너 삭제됨" eq "$(grep -c . "$T/containers")" 0
-check "볼륨 삭제됨" eq "$(grep -c . "$T/volumes")" 0
+check "컨테이너 삭제됨" eq "$(ours_left containers)" 0
+check "볼륨 삭제됨" eq "$(ours_left volumes)" 0
 teardown
 
-echo "■ 주요 테이블 없음 · 0행은 실패"
+echo "■ 정리할 때 도커에 못 닿으면 '삭제 완료'라고 하지 않는다"
+setup; run FAKE_DOWN_AFTER_RESTORE=1
+check "종료코드 1" eq "$RC" 1
+check "정리 확인 못 함" contains "$(cat "$T/out.log")" "정리 확인 못 함"
+check "삭제 완료라고 하지 않음" lacks "$(cat "$T/out.log")" "삭제 완료"
+teardown
+
+echo "■ 시작할 때 지난 회차가 남긴 것(라벨·접두사)을 알리고 지운다"
+setup
+echo "myplatform-restore-drill-20261101-043000-99|1" >> "$T/containers"; echo "myplatform-restore-drill-20261101-043000-99|1" >> "$T/volumes"
+run
+check "종료코드 0" eq "$RC" 0
+check "잔여 컨테이너 삭제 로그" contains "$(cat "$T/out.log")" "남아 있던 리허설 container 삭제: myplatform-restore-drill-20261101-043000-99"
+check "잔여 볼륨 삭제 로그" contains "$(cat "$T/out.log")" "남아 있던 리허설 volume 삭제"
+check "리허설 것 전부 없음" eq "$(ours_left containers)$(ours_left volumes)" "00"
+check "라벨 없는 비슷한 이름은 그대로" contains "$(cat "$T/containers")" "myplatform-restore-drill-nolabel"
+teardown
+
+echo "■ 주요 테이블 없음 · 필수 표 0행은 실패"
 setup; run FAKE_MISSING_TABLE=signal_outcome
 check "테이블 없음 → 1" eq "$RC" 1
 check "없음 표시" contains "$(grep '^signal_outcome' "$T/out.log")" "없음"
@@ -154,11 +202,20 @@ setup; run FAKE_USERS=0
 check "users 0행 → 1" eq "$RC" 1
 teardown
 
-echo "■ 깨진 덤프는 컨테이너를 띄우기 전에 멈춘다"
-setup; echo "not gzip" > "$T/backups/db-20261111-0300.sql.gz"; touch -d '2030-01-01' "$T/backups/db-20261111-0300.sql.gz" 2>/dev/null; run
-check "종료코드 1" eq "$RC" 1
+echo "■ 덤프 확인 — 깨짐·끝까지 안 써짐·표시 없는 덤프는 컨테이너를 띄우기 전에 멈춘다"
+setup; echo "not gzip" > "$T/backups/db-20261111-0300.sql.gz"; touch -d '2030-01-01' "$T/backups/db-20261111-0300.sql.gz"; run
+check "gzip 손상 → 1" eq "$RC" 1
 check "gzip 손상 로그" contains "$(cat "$T/out.log")" "gzip 이 깨져"
 check "docker run 안 함" eq "$(grep -c '^run' "$T/calls")" 0
+teardown
+setup; make_dump "$T/backups/db-20261111-0300.sql.gz" truncated; touch -d '2030-01-01' "$T/backups/db-20261111-0300.sql.gz"; run
+check "중간에 끊긴 덤프 → 1" eq "$RC" 1
+check "끊김 로그" contains "$(cat "$T/out.log")" "끝까지 써지지 않았다"
+check "docker run 안 함" eq "$(grep -c '^run' "$T/calls")" 0
+teardown
+setup; make_dump "$T/backups/db-20261111-0300.sql.gz" nocomments; touch -d '2030-01-01' "$T/backups/db-20261111-0300.sql.gz"; run
+check "표시 없는 덤프 → 1" eq "$RC" 1
+check "표시 없음 로그" contains "$(cat "$T/out.log")" "표시가 없는 덤프"
 teardown
 
 echo "■ 덤프가 없으면 실패"
@@ -168,14 +225,15 @@ teardown
 
 echo "■ --cleanup 은 라벨 달린 리허설 것만 지운다"
 setup
-echo "myplatform-restore-drill-old-1" >> "$T/containers"; echo "myplatform-restore-drill-old-1" >> "$T/volumes"
-echo "myplatform-mariadb" >> "$T/containers"
-run_args() { env PATH="$T/bin:$PATH" FAKE_DIR="$T" bash "$SUT" "$@" > "$T/out.log" 2>&1; RC=$?; }
+echo "myplatform-restore-drill-old-1|1" >> "$T/containers"; echo "myplatform-restore-drill-old-1|1" >> "$T/volumes"
 run_args --cleanup
+check "종료코드 0" eq "$RC" 0
 check "리허설 컨테이너 삭제" lacks "$(cat "$T/containers")" "restore-drill-old-1"
-check "리허설 볼륨 삭제" eq "$(grep -c . "$T/volumes")" 0
-check "운영 컨테이너는 그대로" contains "$(cat "$T/containers")" "myplatform-mariadb"
+check "리허설 볼륨 삭제" lacks "$(cat "$T/volumes")" "restore-drill-old-1"
+check "라벨 없는 비슷한 이름은 그대로" contains "$(cat "$T/containers")" "myplatform-restore-drill-nolabel"
 check "운영 컨테이너에 rm 호출 없음" eq "$(grep -c '^rm .*myplatform-mariadb' "$T/calls")" 0
+touch "$T/down"; run_args --cleanup
+check "도커에 못 닿으면 --cleanup 도 1" eq "$RC" 1
 teardown
 
 echo; echo "결과: 통과 $PASS · 실패 $FAIL"
