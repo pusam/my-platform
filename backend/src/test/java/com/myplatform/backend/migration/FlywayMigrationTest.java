@@ -258,6 +258,25 @@ class FlywayMigrationTest {
         assertThat(scalarString("SELECT CONCAT(stock_code, '/', revenue) FROM stock_financial_estimate_backup_v73"))
                 .as("V73 백업은 지운 행 하나 — 되돌릴 수 있다").isEqualTo("E00001/7324732.00");
 
+        // --- 검증 23 (V74): 부팅 기록 표 — 엔티티와 스키마가 맞아야 운영(ddl-auto: validate)이 뜬다, 시각 조회 인덱스 ---
+        validateEntityClassesAgainstSchema(com.myplatform.backend.bootlog.ServerBootLog.class);
+        assertThat(isColumnNullable("server_boot_log", "started_at"))
+                .as("V74 started_at NOT NULL — 시각 없는 부팅 기록은 판정에 못 쓴다").isFalse();
+        assertThat(isColumnNullable("server_boot_log", "revision"))
+                .as("V74 revision NULL 허용 — 커밋을 모르면 비워 둔다").isTrue();
+        assertThat(scalarLong("SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
+                + "AND TABLE_NAME = 'server_boot_log' AND INDEX_NAME = 'idx_sbl_started_at'"))
+                .as("V74 started_at 인덱스").isEqualTo(1);
+
+        // --- 검증 24 (V75): stock_price.fetched_at 인덱스 — 기간 조회·보존 잡용. 종목별 최신 행 인덱스는 그대로 ---
+        assertThat(scalarString("SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics "
+                + "WHERE table_schema = DATABASE() AND table_name = 'stock_price' AND index_name = 'idx_stock_price_fetched_at'"))
+                .as("V75 fetched_at 단독 인덱스").isEqualTo("fetched_at");
+        assertThat(scalarString("SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics "
+                + "WHERE table_schema = DATABASE() AND table_name = 'stock_price' AND index_name = 'idx_stock_price_code_fetched'"))
+                .as("V20 (stock_code, fetched_at) — 가격 이상치 그물·DB 폴백의 최신 행 조회").isEqualTo("stock_code,fetched_at");
+        verifyStockPriceRetentionOnMariaDb();
+
         // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
                 + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "
@@ -291,6 +310,44 @@ class FlywayMigrationTest {
      * V68 검증용 행 — 묵은 종목(S00001)·빈 행뿐인 종목(B00001)·최근 4분기가 끊긴 종목(H00012)·1년 전 기준만 끊긴 종목(H00024)·
      * 정상 종목(F00001). V55·V64 표가 있어야 하므로 V67 까지 올린 뒤 심는다.
      */
+    /**
+     * 검증 24 후반 — 보존 잡(StockPriceRetentionService)의 SQL 을 실제 MariaDB 드라이버로 한 번 돌린다(단위 테스트는 H2).
+     * LIMIT 바인딩·IN 목록·DATETIME(6) 마이크로초 커서·종목별 최신 행 보호·보존 기간 상한 거절을 본다.
+     * 스텁의 fetched_at 은 DATETIME 이라 운영처럼 마이크로초를 담도록 바꾼 뒤 심는다(이 테스트 DB 안에서만).
+     */
+    private void verifyStockPriceRetentionOnMariaDb() throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("ALTER TABLE stock_price MODIFY fetched_at DATETIME(6) NULL");
+            stmt.execute("INSERT INTO stock_price (stock_code, fetched_at) VALUES "
+                    + "('R00001', '2026-03-02 10:00:00.000001'), ('R00001', '2026-03-02 10:00:00.000002'), "
+                    + "('R00001', '2026-03-02 10:00:00.000003'), ('R00001', '2026-11-13 15:00:00.500000'), "
+                    + "('R00002', '2026-03-02 10:00:00.000002'), ('R00002', '2026-04-01 09:00:00.000000')");
+        }
+        org.springframework.jdbc.datasource.DriverManagerDataSource ds = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+        java.time.ZoneId kst = java.time.ZoneId.of("Asia/Seoul");
+        // 2026-11-14 토요일 05:10 KST — 장이 닫힌 날. 보존 90일 → 기준 2026-08-16 05:10.
+        java.time.Clock saturday = java.time.Clock.fixed(
+                java.time.LocalDateTime.of(2026, 11, 14, 5, 10).atZone(kst).toInstant(), kst);
+        var jdbc = new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(ds);
+        var calendar = new com.myplatform.backend.service.MarketCalendarService();
+
+        var refused = new com.myplatform.backend.service.StockPriceRetentionService(
+                jdbc, calendar, saturday, true, 2_000_000, 2, 1000).run();
+        assertThat(refused.deleted()).as("보존 기간 상한 밖(2,000,000일)은 지우지 않는다 — 기준일이 기원전이면 모든 행이 대상").isZero();
+        assertThat(scalarLong("SELECT COUNT(*) FROM stock_price WHERE stock_code IN ('R00001', 'R00002')")).isEqualTo(6);
+
+        var report = new com.myplatform.backend.service.StockPriceRetentionService(
+                jdbc, calendar, saturday, true, 90, 2, 1000).run();
+        assertThat(report.deleted()).as("보존 잡 — 기준일 이전 행 4개(같은 초 마이크로초 3개 포함)").isEqualTo(4);
+        assertThat(scalarString("SELECT GROUP_CONCAT(CONCAT(stock_code, '@', fetched_at) ORDER BY stock_code SEPARATOR ',') "
+                + "FROM stock_price WHERE stock_code IN ('R00001', 'R00002')"))
+                .as("남는 행 — 최근 행, 그리고 거래정지 종목처럼 오래 시세가 없는 종목의 최신 행(기간과 무관)")
+                .isEqualTo("R00001@2026-11-13 15:00:00.500000,R00002@2026-04-01 09:00:00.000000");
+    }
+
     /** V73 검증용 — 기준일이 아직 오지 않은 네이버 행(추정치)·기간이 끝난 네이버 행·KIS 일별 행. */
     private void seedEstimateRowsForV73() throws Exception {
         try (Connection conn = DriverManager.getConnection(

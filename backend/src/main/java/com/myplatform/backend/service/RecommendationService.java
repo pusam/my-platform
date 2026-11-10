@@ -349,20 +349,50 @@ public class RecommendationService {
     private void refreshPrices(List<RecommendationDto> items) {
         try {
             List<String> codes = items.stream().map(RecommendationDto::getStockCode).toList();
-            Map<String, com.myplatform.backend.dto.StockPriceDto> prices =
-                    stockPriceService.getStockPricesFromCacheOnly(codes);
-            for (RecommendationDto dto : items) {
-                com.myplatform.backend.dto.StockPriceDto p = prices.get(dto.getStockCode());
-                if (p != null) {
-                    if (p.getChangeRate() != null) {
-                        dto.setChangeRate(p.getChangeRate());
-                        dto.setChangeRateBasisDate(null);   // 실시간 시세 — 확정 봉 기준일을 지운다(2026-10-19)
-                    }
-                    if (p.getCurrentPrice() != null) dto.setCurrentPrice(p.getCurrentPrice());
-                }
-            }
+            applyQuotes(items, stockPriceService.getStockPricesFromCacheOnly(codes));
         } catch (Exception e) {
             log.debug("[종합추천] 실시간 시세 갱신 실패: {}", e.getMessage());
+        }
+    }
+
+    /** 받은 시세를 후보에 얹는다 — 시세가 없는 후보는 그대로 둔다(모르는 값을 채우지 않는다). */
+    private static void applyQuotes(List<RecommendationDto> items,
+                                    Map<String, com.myplatform.backend.dto.StockPriceDto> prices) {
+        if (prices == null || prices.isEmpty()) return;
+        for (RecommendationDto dto : items) {
+            com.myplatform.backend.dto.StockPriceDto p = prices.get(dto.getStockCode());
+            if (p != null) {
+                if (p.getChangeRate() != null) {
+                    dto.setChangeRate(p.getChangeRate());
+                    dto.setChangeRateBasisDate(null);   // 실시간 시세 — 확정 봉 기준일을 지운다(2026-10-19)
+                }
+                if (p.getCurrentPrice() != null) dto.setCurrentPrice(p.getCurrentPrice());
+            }
+        }
+    }
+
+    /**
+     * 시그널을 기록하는 스냅샷(11:30·14:00·17:00)은 컷(55) 통과 후보의 시세를 그 자리에서 받는다(2026-11-10).
+     *
+     * <p>예전엔 5분 캐시({@link #refreshPrices})만 보고, 없으면 그 후보를 기록하지 않았다. 그런데 후보 시세를 5분마다 받는
+     * 가격 알림 크론({@link #checkRecommendationPriceTargets})과 스냅샷 크론이 같은 초(:00)에 시작한다 — 계산이 끝나는
+     * 약 4초 뒤엔 5분 전 시세는 막 만료됐고 새 시세는 받는 중이다. 11/10 17:00 운영: 후보 10건 중 그때까지 받아진 5건만
+     * 기록되고 5건이 '시세 캐시 미스'로 빠졌다(받는 순서가 늦은 후보부터 — 표본이 한쪽으로 치우친다). 후보가 0~2건이던
+     * 동안엔 드러나지 않았고, 100점 환산 분모 58 로 후보가 10건 안팎이 되면서 매 회차 절반이 빠지게 됐다.
+     *
+     * <p>일괄 시세 경로({@code getStockPrices} — 메모리·DB 1분, 없으면 KIS, 시세 단일 경로 §1)를 한 번 부른다. 그래서 기록가는
+     * 후보마다 1분 안에 받은 값이다. 끝내 못 받은 후보는 기록하지 않는다(아래 WARN 이 센다 — 모르는 가격으로 기록하지 않는다 §4c).
+     * 조회가 실패하면 캐시에 있던 값만 쓴다. 20:05 마감 스냅샷은 기록하지 않는 회차라 부르지 않는다. 점수·순위는 그대로다.
+     */
+    private void fetchQuotesForRecording(List<RecommendationDto> items) {
+        List<String> codes = items.stream()
+                .filter(dto -> dto.getTotalScore() >= 55)
+                .map(RecommendationDto::getStockCode).toList();
+        if (codes.isEmpty()) return;
+        try {
+            applyQuotes(items, stockPriceService.getStockPrices(codes));
+        } catch (Exception e) {
+            log.warn("[종합추천] 기록용 시세 조회 실패 — 캐시에 있던 시세만 쓴다: {}", e.getMessage());
         }
     }
 
@@ -711,6 +741,9 @@ public class RecommendationService {
             // STRONG_BUY/BUY 시그널이 signal_outcome 에 0 건 record 되던 잠재 버그(phase 12부터).
             // refreshPrices 가 메모리/DB 캐시만 사용해 응답 시간 영향 0.
             refreshPrices(result);
+            // 기록하는 회차는 컷 통과 후보의 시세를 그 자리에서 받는다(2026-11-10) — 5분 캐시만 보면 가격 알림 크론과
+            // 같은 초에 시작하는 탓에 후보의 절반이 '시세 없음'으로 기록에서 빠졌다(fetchQuotesForRecording).
+            if (recordSignals) fetchQuotesForRecording(result);
 
             LocalDateTime snapTime = LocalDateTime.now();
             List<RecommendationSnapshot> entities = new ArrayList<>(result.size());
@@ -764,12 +797,12 @@ public class RecommendationService {
                                 dto.getTechnical(), dto.getSectorMomentum());
                     } catch (Exception ignore) { /* 적중률 추적은 best-effort */ }
                 }
-                // 시세 캐시(cache-only 5분)가 콜드한 크론에서 시그널이 조용히 미기록되면 표본이
-                // "캐시가 따뜻했던 평온한 날"로 편향된다(좋아 보이는 방향) — 침묵 대신 warn 으로
-                // 관측 가능하게(§4c. countAbandonedPending 이 생존편향을 가시화한 것과 같은 원칙).
+                // 시세를 못 받은 후보가 조용히 미기록되면 표본이 "시세가 받아졌던 종목"으로 편향된다 — 침묵 대신
+                // warn 으로 관측 가능하게(§4c. countAbandonedPending 이 생존편향을 가시화한 것과 같은 원칙).
+                // 2026-11-10 부터 기록 회차는 시세를 그 자리에서 받으므로, 이 줄은 조회까지 실패했다는 뜻이다.
                 if (priceSkipped > 0) {
-                    log.warn("[종합추천] 시그널 record 스킵 {}건 — 컷(55) 통과했으나 시세 캐시 미스"
-                            + "(currentPrice 없음). 이 크론의 signal_outcome 표본이 불완전합니다", priceSkipped);
+                    log.warn("[종합추천] 시그널 record 스킵 {}건 — 컷(55) 통과했으나 시세를 받지 못함"
+                            + "(캐시에도 없고 조회도 실패). 이 크론의 signal_outcome 표본이 불완전합니다", priceSkipped);
                 }
             }
 

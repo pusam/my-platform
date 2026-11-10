@@ -159,6 +159,9 @@ services:
       # 재무 수집·추천 캐시·스냅샷까지 반영된 뒤 첫 온전한 거래일을 넣고(잠정), 그날 첫 추천 반영을 확인하면 CONFIRMED=true.
       - RECOMMENDATION_SAMPLE_SINCE=${RECOMMENDATION_SAMPLE_SINCE:-}
       - RECOMMENDATION_SAMPLE_CONFIRMED=${RECOMMENDATION_SAMPLE_CONFIRMED:-false}
+      # 시세 캐시 표(stock_price) 보존 잡(2026-11-10) — 기본 꺼짐, 꺼져 있으면 부팅 WARN. 켜기 전 옛 행 내보내기는 docs 참고.
+      - STOCK_PRICE_RETENTION_ENABLED=${STOCK_PRICE_RETENTION_ENABLED:-false}
+      - STOCK_PRICE_RETENTION_DAYS=${STOCK_PRICE_RETENTION_DAYS:-90}
       # OOM 때 힙 덤프를 남긴다(2026-09-15). 9/11 16:37 OOM 이 Tomcat Acceptor 스레드만 죽이고 JVM 은
       # 살아남아 배치·텔레그램은 정상으로 보인 채 API 가 3.5일간 죽어 있었는데, 이미지에 jmap/jcmd 가
       # 없어 원인을 특정할 증거가 재시작과 함께 사라졌다. 다음 OOM 은 덤프로 잡는다.

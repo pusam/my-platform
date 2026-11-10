@@ -20,6 +20,11 @@ ENV TZ=Asia/Seoul
 # GitHub Actions가 빌드한 'app.jar'를 이미지 안으로 복사합니다.
 COPY app.jar app.jar
 
+# 이미지가 담은 커밋 — 부팅 기록(server_boot_log.revision, V74)이 읽는다. deploy.yml 이 build-args 로 넣고, 없으면 빈 값(=모름).
+# jar 뒤에 둔다(앞에 두면 커밋마다 위 계층 캐시가 깨진다).
+ARG APP_REVISION=
+ENV APP_REVISION=${APP_REVISION}
+
 # 3. 권한 변경
 RUN chown spring:spring app.jar
 

@@ -195,6 +195,27 @@ class CrewContextBuilderTest {
     }
 
     @Test
+    @DisplayName("장중 재시작 — 오늘 08:30~15:50 재시작과 마지막 장중 재시작이 크루에 가고, 조회 실패는 '모름'이다(2026-11-10)")
+    void restartWatchReachesCrew() {
+        ControlRoomSnapshotDto.Kpis k = kpis();
+        ControlRoomSnapshotDto.RestartWatch restarted = new ControlRoomSnapshotDto.RestartWatch(true, true, "08:30~15:50",
+                List.of(LocalDateTime.of(2026, 11, 9, 9, 12, 3)), LocalDateTime.of(2026, 11, 9, 9, 12, 3),
+                LocalDateTime.of(2026, 11, 9, 9, 12, 3), true, LocalDate.of(2026, 11, 9),
+                "마지막 장중 재시작 11/09 09:12", "오늘 장중 재시작 09:12 — 표본 시작일 후보 아님", "…");
+        String text = CrewContextBuilder.build(snapshot(new ControlRoomSnapshotDto.Kpis(k.candidates(), k.gates(),
+                k.lossBreaker(), k.volRegime(), k.undecided(), k.financialInput(), k.trustGate(), k.botGate(), restarted)),
+                8192).text();
+        assertThat(text).contains("- 장중 재시작(오늘 08:30~15:50): 있음 09:12:03 — 오늘은 표본 시작일 후보가 아니다 · 마지막 장중 재시작 11/09 09:12");
+
+        ControlRoomSnapshotDto.RestartWatch failed = new ControlRoomSnapshotDto.RestartWatch(false, null, "08:30~15:50",
+                List.of(), null, null, false, null, null, "부팅 기록 조회 실패", "…");
+        String failedText = CrewContextBuilder.build(snapshot(new ControlRoomSnapshotDto.Kpis(k.candidates(), k.gates(),
+                k.lossBreaker(), k.volRegime(), k.undecided(), k.financialInput(), k.trustGate(), k.botGate(), failed)),
+                8192).text();
+        assertThat(failedText).contains("- 장중 재시작: 데이터 없음 (부팅 기록 조회 실패 — '재시작 없음'이 아니라 '모름')");
+    }
+
+    @Test
     @DisplayName("게이트 집계 실패는 '근거 없음'이 아니라 측정 불가로 크루에 전달된다(§4c)")
     void trustGateFailureIsNotSilentlyNoEvidence() {
         ControlRoomSnapshotDto s = snapshot(new ControlRoomSnapshotDto.Kpis(
