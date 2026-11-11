@@ -277,6 +277,15 @@ class FlywayMigrationTest {
                 .as("V20 (stock_code, fetched_at) — 가격 이상치 그물·DB 폴백의 최신 행 조회").isEqualTo("stock_code,fetched_at");
         verifyStockPriceRetentionOnMariaDb();
 
+        // --- 검증 25 (V76): 외부 공개 수치 대조 표 — 엔티티와 스키마가 맞아야 운영(ddl-auto: validate)이 뜬다, 실행을 지우면 종목 행도 지워진다 ---
+        validateEntityClassesAgainstSchema(com.myplatform.backend.crosscheck.ExternalCrosscheckRun.class,
+                com.myplatform.backend.crosscheck.ExternalCrosscheckRow.class);
+        assertThat(isColumnNullable("external_crosscheck_row", "external_value"))
+                .as("V76 external_value NULL 허용 — 외부 값이 없으면 비워 둔다(0 으로 위장 금지)").isTrue();
+        assertThat(isColumnNullable("external_crosscheck_run", "not_compared"))
+                .as("V76 not_compared NOT NULL — '대조 못 함' 수는 늘 센다").isFalse();
+        verifyCrosscheckCascadeOnMariaDb();
+
         // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
                 + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "
@@ -346,6 +355,22 @@ class FlywayMigrationTest {
                 + "FROM stock_price WHERE stock_code IN ('R00001', 'R00002')"))
                 .as("남는 행 — 최근 행, 그리고 거래정지 종목처럼 오래 시세가 없는 종목의 최신 행(기간과 무관)")
                 .isEqualTo("R00001@2026-11-13 15:00:00.500000,R00002@2026-04-01 09:00:00.000000");
+    }
+
+    /** 검증 25 — 보존 정리가 실행을 지우면 FK CASCADE 로 종목 행도 지워진다(실제 MariaDB). */
+    private void verifyCrosscheckCascadeOnMariaDb() throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                Statement stmt = conn.createStatement()) {
+            stmt.execute("INSERT INTO external_crosscheck_run (id, run_date, target_bar_date, source, trigger_type, status, "
+                    + "planned, attempted, matched, mismatched, not_compared, started_at) VALUES "
+                    + "(900001, '2025-01-02', '2024-12-30', 'NAVER_INTEGRATION', 'CRON', 'COMPLETE', 1, 1, 0, 1, 0, NOW())");
+            stmt.execute("INSERT INTO external_crosscheck_row (run_id, stock_code, sample_reason, item, our_value, external_value, "
+                    + "external_raw, status) VALUES (900001, '005930', 'MCAP', 'CLOSE', 222000, 219500, '219,500', 'MISMATCH')");
+            stmt.execute("DELETE FROM external_crosscheck_run WHERE id = 900001");
+        }
+        assertThat(scalarLong("SELECT COUNT(*) FROM external_crosscheck_row WHERE run_id = 900001"))
+                .as("V76 실행을 지우면 종목 행도 지워진다(ON DELETE CASCADE)").isZero();
     }
 
     /** V73 검증용 — 기준일이 아직 오지 않은 네이버 행(추정치)·기간이 끝난 네이버 행·KIS 일별 행. */

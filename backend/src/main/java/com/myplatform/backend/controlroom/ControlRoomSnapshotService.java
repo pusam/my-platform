@@ -116,6 +116,13 @@ public class ControlRoomSnapshotService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.myplatform.backend.bootlog.ServerBootLogRepository bootLogRepository;
 
+    /**
+     * 외부 공개 수치 대조(V76) — 이상 점검 ⑯. 필드 주입인 이유는 위와 같다. 없으면(테스트 등) 그 규칙만 건너뛴다.
+     * 관제실은 결과를 읽기만 한다 — 실행은 /api/admin/crosscheck/run(§7 읽기 전용).
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.myplatform.backend.crosscheck.ExternalCrosscheckService crosscheckService;
+
 
     private final AtomicReference<Cached> cache = new AtomicReference<>();
 
@@ -330,6 +337,19 @@ public class ControlRoomSnapshotService {
                         tradingDaysAfter(health.latestCountedDate(),
                                 marketCalendar.lastClosedTradingDay(LocalDateTime.now(clock)), marketCalendar),
                         health.validDays()));
+            }
+
+            // 외부 공개 수치 대조(2026-11-11) — 사람이 손으로 하던 네이버 대조를 매 거래일 10:20 에 자동으로.
+            if (crosscheckService != null) {
+                try {
+                    found.addAll(crosscheckAnomalies(crosscheckService, now));
+                } catch (Exception e) {
+                    // 이 규칙 하나 때문에 다른 규칙까지 '모름'이 되지 않게 — 대신 '대조 기록을 못 읽었다'를 올린다(§4c)
+                    log.warn("[관제실] 외부 대조 기록 조회 실패: {}", e.getMessage());
+                    found.add(new DataAnomalyRules.Anomaly(DataAnomalyRules.WARNING, "external-crosscheck-unreadable",
+                            "외부 공개 수치 대조 기록을 읽지 못했다 — '이상 없음'이 아니다",
+                            "external_crosscheck_run/row 조회가 예외로 실패했다. 로그 grep '[관제실] 외부 대조'.", e.getMessage()));
+                }
             }
 
             List<DataAnomalyRules.Anomaly> items = DataAnomalyRules.sortBySeverity(found);
@@ -633,6 +653,43 @@ public class ControlRoomSnapshotService {
     private static ControlRoomSnapshotDto.BotGate unavailableBotGate(String why) {
         return new ControlRoomSnapshotDto.BotGate(false, null, null, null, List.of(), why,
                 "봇 성적 게이트를 집계하지 못했다. 거래가 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.");
+    }
+
+    /** 외부 대조 ⑯ — 최근 실행을 규칙 입력으로 옮기고, 대조가 돌았어야 하는지(기한)를 달력·시계로 계산해 넘긴다. */
+    private List<DataAnomalyRules.Anomaly> crosscheckAnomalies(
+            com.myplatform.backend.crosscheck.ExternalCrosscheckService svc, LocalDateTime now) {
+        List<DataAnomalyRules.CrosscheckRunStat> stats = svc.recentRuns().stream()
+                .map(r -> new DataAnomalyRules.CrosscheckRunStat(r.runDate(), r.targetBarDate(), r.status(), r.planned(),
+                        r.closeStatusByCode(), r.diffPctByCode(), r.staleMixedWithMatch(), r.detailed()))
+                .toList();
+        DataAnomalyRules.CrosscheckDue due = crosscheckDue(now, stats.isEmpty() ? null : stats.get(0).runDate(),
+                bootedAt, marketCalendar);
+        return DataAnomalyRules.externalCloseCrosscheck(stats, due, svc.isEnabled());
+    }
+
+    /**
+     * 그 거래일의 외부 대조 기한 — 크론(10:20:40)이 끝났어야 할 시각. 평소 10:30, 늦게 여는 날은 장 시작 + 30분 중 늦은 쪽
+     * (2026-11-19 10:00 개장도 10:30 — 크론 창은 장 시작 10분 뒤부터라 10:20:40 은 창 안이다).
+     */
+    static LocalDateTime crosscheckDueAt(LocalDate day, MarketCalendarService calendar) {
+        java.time.LocalTime base = java.time.LocalTime.of(10, 30);
+        java.time.LocalTime fromOpen = calendar.marketOpenOf(day).plusMinutes(30);
+        return day.atTime(fromOpen.isAfter(base) ? fromOpen : base);
+    }
+
+    /**
+     * 대조가 돌았어야 하는가 — 실행이 있어야 할 마지막 거래일(오늘 기한이 지났으면 오늘, 아니면 직전 거래일)과, 마지막 실행 뒤 빠진
+     * 거래일 수. 실행 기록이 한 번도 없으면 이 프로세스가 뜬 뒤 기한이 지났는지로 본다(배포 직후 첫 실행 전엔 조용히 — 영원히는 아니다).
+     */
+    static DataAnomalyRules.CrosscheckDue crosscheckDue(LocalDateTime now, LocalDate latestRunDate, LocalDateTime bootedAt,
+                                                        MarketCalendarService calendar) {
+        LocalDate today = now.toLocalDate();
+        LocalDate expected = !calendar.isMarketClosed(today) && !now.isBefore(crosscheckDueAt(today, calendar))
+                ? today : calendar.minusTradingDays(today, 1);
+        int missed = latestRunDate == null ? 0 : tradingDaysAfter(latestRunDate, expected, calendar);
+        boolean firstRunDue = latestRunDate == null && bootedAt != null
+                && crosscheckDueAt(expected, calendar).isAfter(bootedAt);
+        return new DataAnomalyRules.CrosscheckDue(expected, missed, firstRunDue);
     }
 
     /** {@code from} 다음 날부터 {@code to} 까지(포함) 거래일 수. from 이 null 이면 큰 값(=모름 → 경고). */

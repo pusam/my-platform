@@ -164,6 +164,9 @@ services:
       # 시세 캐시 표(stock_price) 보존 잡(2026-11-10) — 기본 꺼짐, 꺼져 있으면 부팅 WARN. 켜기 전 옛 행 내보내기는 docs 참고.
       - STOCK_PRICE_RETENTION_ENABLED=${STOCK_PRICE_RETENTION_ENABLED:-false}
       - STOCK_PRICE_RETENTION_DAYS=${STOCK_PRICE_RETENTION_DAYS:-90}
+      # 외부 공개 수치 대조(2026-11-11, V76) — 평일 10:20:40 우리 종가를 네이버 '전일'과 견준다(측정 전용, 하루 최대 40회).
+      # 끄려면 .env 에 EXTERNAL_CROSSCHECK_ENABLED=false — 꺼져 있으면 부팅 WARN.
+      - EXTERNAL_CROSSCHECK_ENABLED=${EXTERNAL_CROSSCHECK_ENABLED:-true}
       # OOM 때 힙 덤프를 남긴다(2026-09-15). 9/11 16:37 OOM 이 Tomcat Acceptor 스레드만 죽이고 JVM 은
       # 살아남아 배치·텔레그램은 정상으로 보인 채 API 가 3.5일간 죽어 있었는데, 이미지에 jmap/jcmd 가
       # 없어 원인을 특정할 증거가 재시작과 함께 사라졌다. 다음 OOM 은 덤프로 잡는다.
