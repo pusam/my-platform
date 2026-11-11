@@ -256,6 +256,48 @@ export function recentMultipleTitle(financial, kind = 'per') {
 }
 
 /**
+ * 종목 상세 EPS·BPS 칸(2026-11-11). 결산(KIS 현재가 API) EPS·BPS 가 있으면 그 값, 0·없음(별도재무제표 회사 — 파세코·디씨엠)이면
+ * 같은 재무 행의 EPS·BPS(백엔드 epsRecent·bpsRecent — 최근 4분기 이익·최근 분기 자본, recentMultiples 와 같은 조건)를 보인다.
+ * 둘 다 없으면 '-'(예전 '-원'). 0 은 결측이다(KIS 가 모를 때 0 을 준다). 적자 EPS 는 음수 그대로.
+ */
+const perShareNumber = (v) => {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) && n !== 0 ? n : null
+}
+const perShareSource = (financial, kind) => {
+  if (!financial) return null
+  const isBps = kind === 'bps'
+  const annual = perShareNumber(isBps ? financial.bps : financial.eps)
+  if (annual !== null) return { value: annual, recent: false }
+  const recent = perShareNumber(isBps ? financial.bpsRecent : financial.epsRecent)
+  return recent !== null ? { value: recent, recent: true } : null
+}
+
+export function perShareText(financial, kind) {
+  const src = perShareSource(financial, kind)
+  return src ? `${src.value.toLocaleString('ko-KR')}원` : '-'
+}
+
+/** 결산 값이 없어 최근 실적 값을 보일 때만 그 기준 줄 — PER·PBR 줄과 같은 규칙(BPS 줄엔 순이익 기준 recentBasis 를 붙이지 않는다). */
+export function perShareRecentLine(financial, kind) {
+  const src = perShareSource(financial, kind)
+  if (!src || !src.recent) return null
+  if (kind === 'bps') return '최근 분기 BPS'
+  return `최근 4분기 EPS${financial.recentBasis === 'CONSOL' ? ' · 연결' : ''}`
+}
+
+export function perShareRecentTitle(financial, kind) {
+  if (perShareRecentLine(financial, kind) === null) return null
+  const asOf = financial.recentAsOf ? ` · ${financial.recentAsOf} 수집 재무` : ''
+  if (kind === 'bps') {
+    return `결산 BPS 가 없어 점수·목록이 쓰는 재무 행의 값을 보입니다: 최근 분기 자본 기준 — 지배지분 자본(DART)이 있으면 그것, 없으면 연결 자본총계(비지배지분 포함)${asOf}`
+  }
+  const basis = financial.recentBasis === 'CONSOL' ? 'KIS 연결 — 비지배지분 포함' : 'DART 지배주주'
+  return `결산 EPS 가 없어 점수·목록이 쓰는 재무 행의 값을 보입니다: 최근 4분기 이익(${basis}) 기준${asOf}`
+}
+
+/**
  * 해외 시세 숫자(가격·차액) — 크기에 맞춘 자릿수(2026-10-06). 10 미만(유로/달러 1.1218·구리 6.65)은 소수 넷째 자리까지,
  * 나머지는 둘째 자리. 예전엔 전부 둘째 자리로 잘라 유로/달러 등락 −0.0005 가 '0.00'이었다. 모르면 '-'.
  */

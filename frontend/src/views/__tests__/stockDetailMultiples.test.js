@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { multipleOrDash, recentMultipleLine, recentMultipleTitle } from '../../utils/marketDataLabels'
+import { multipleOrDash, recentMultipleLine, recentMultipleTitle, perShareText, perShareRecentLine, perShareRecentTitle } from '../../utils/marketDataLabels'
 
 /**
  * 종목 상세 '핵심 재무' PER·PBR(2026-10-03).
@@ -70,5 +70,55 @@ describe('recentMultipleLine', () => {
     expect(src).toContain("recentMultipleLine(financial, 'pbr')")
     expect(src).toContain("recentMultipleTitle(financial, 'pbr')")
     expect(src).not.toContain('PER·PBR 기준은 종목별로 DART 지배주주 TTM · KIS 연결 TTM · KIS 연간 중 하나입니다')
+  })
+})
+
+/**
+ * EPS·BPS 칸(2026-11-11). 재현(11/11 파세코 037070·디씨엠 024090): KIS 현재가 API 가 per·pbr·eps·bps 를 0 으로 주는 종목(별도재무제표 회사)은
+ * 'EPS -원'·'BPS -원'으로 비고 PER·PBR 아래 '최근 4분기 43.9배'·'최근 분기 1.66배' 줄만 있었다. 결산 값이 없으면 같은 재무 행의
+ * EPS·BPS(백엔드 epsRecent·bpsRecent)를 '최근 4분기 EPS'·'최근 분기 BPS'로 보인다. PBR·BPS 줄엔 PER 의 기준(recentBasis)을 붙이지 않는다.
+ */
+describe('perShareText / perShareRecentLine — EPS·BPS 칸', () => {
+  // /quick 의 financial 은 네 값 모두 0, /heavy 가 최근 실적 칸을 싣는다 — 실제 응답 필드 이름 그대로
+  const separateFiler = { per: 0, pbr: 0, eps: 0, bps: 0, perRecent: 43.9, pbrRecent: 1.66, epsRecent: 1366, bpsRecent: 36144, recentBasis: 'CONSOL', recentAsOf: '2026-11-11' }
+
+  it('재현: 결산 EPS·BPS 가 0 이면 최근 실적 행의 값을 보인다 — "-원" 이 아니다', () => {
+    expect(perShareText(separateFiler, 'eps')).toBe('1,366원')
+    expect(perShareText(separateFiler, 'bps')).toBe('36,144원')
+    expect(perShareRecentLine(separateFiler, 'eps')).toBe('최근 4분기 EPS · 연결')
+    expect(perShareRecentLine(separateFiler, 'bps')).toBe('최근 분기 BPS')   // PBR/BPS 줄엔 per_basis 를 붙이지 않는다
+    expect(perShareRecentTitle(separateFiler, 'eps')).toContain('비지배지분 포함')
+    expect(perShareRecentTitle(separateFiler, 'eps')).toContain('2026-11-11')
+    expect(perShareRecentTitle(separateFiler, 'bps')).toContain('최근 분기 자본')
+  })
+
+  it('지배주주 기준이면 연결 표시 없음 · 적자 EPS 는 음수 그대로', () => {
+    const f = { eps: null, bps: null, epsRecent: -820, bpsRecent: null, recentBasis: 'CTRL' }
+    expect(perShareText(f, 'eps')).toBe('-820원')
+    expect(perShareRecentLine(f, 'eps')).toBe('최근 4분기 EPS')
+  })
+
+  it('둘 다 없으면 "-" (단위 없이) 이고 줄도 없다', () => {
+    const f = { eps: 0, bps: 0, epsRecent: null, bpsRecent: null }
+    expect(perShareText(f, 'eps')).toBe('-')
+    expect(perShareText(f, 'bps')).toBe('-')
+    expect(perShareRecentLine(f, 'eps')).toBeNull()
+    expect(perShareRecentTitle(f, 'bps')).toBeNull()
+    expect(perShareText(null, 'eps')).toBe('-')
+  })
+
+  it('결산 값이 있으면 지금 그대로(삼성전자) — 최근 값 줄을 붙이지 않는다', () => {
+    const f = { eps: 6564, bps: 63997, epsRecent: 25601, bpsRecent: 96654, recentBasis: 'CTRL' }
+    expect(perShareText(f, 'eps')).toBe('6,564원')
+    expect(perShareText(f, 'bps')).toBe('63,997원')
+    expect(perShareRecentLine(f, 'eps')).toBeNull()
+    expect(perShareRecentLine(f, 'bps')).toBeNull()
+  })
+
+  it('화면은 이 함수로 그린다 — "|| '-' }}원" 패턴이 남지 않는다', () => {
+    const src = readFileSync(join(process.cwd(), 'src/views/StockDetailDashboard.vue'), 'utf8')
+    expect(src).not.toMatch(/formatPrice\(financial\?\.(eps|bps)\) \|\| '-' \}\}원/)
+    expect(src).toMatch(/perShareText\(financial, 'eps'\)/)
+    expect(src).toMatch(/perShareText\(financial, 'bps'\)/)
   })
 })

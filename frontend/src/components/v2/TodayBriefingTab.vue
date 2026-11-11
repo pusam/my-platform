@@ -339,6 +339,11 @@ const trustCaution = computed(() => {
 
 // 진행 중 요청 — 60초 폴링·탭 복귀·수동 재시도가 겹쳐도 한 번만 부른다.
 let candidatesInFlight = false;
+// 마지막으로 후보를 받은 시각 — 받은 직후 곧바로 오는 허브 갱신(화면 다시 보임·탭 복귀)은 같은 후보를 다시 읽지 않는다(2026-11-11).
+// 실측: 페이지를 연 직후 몇 초 안에 top5 3번·후보 재료 3바퀴. 진행 중 가드는 '동시에'만 막아 back-to-back 갱신은 그대로 나갔다.
+// 60초 갱신은 이 간격보다 길어 그대로 다시 읽고, 받지 못했으면(실패) 기록하지 않아 곧바로 다시 시도한다.
+const CANDIDATES_MIN_GAP_MS = 20_000;
+let candidatesReceivedAt = 0;
 const loadCandidates = async () => {
   if (candidatesInFlight) return;
   candidatesInFlight = true;
@@ -360,6 +365,7 @@ const loadCandidates = async () => {
     buyCandidates.value = items
       .filter(r => Number(r.totalScore) >= BUY_CUT)
       .slice(0, MAX_CANDIDATES);
+    candidatesReceivedAt = Date.now();
     loadCatalysts();
     loadYoutubeSummary();
   } catch (e) {
@@ -576,6 +582,7 @@ const signed = (v, grouping = false) => {
 // 60초 갱신 — 후보를 다시 읽고, 적중률을 못 받았으면 그것도 다시 시도한다(받은 뒤엔 마운트 1회 그대로)
 const refresh = () => {
   if (trustFailed.value) loadTrust();
+  if (candidatesReceivedAt && Date.now() - candidatesReceivedAt < CANDIDATES_MIN_GAP_MS) return Promise.resolve();
   return loadCandidates();
 };
 defineExpose({ refresh });

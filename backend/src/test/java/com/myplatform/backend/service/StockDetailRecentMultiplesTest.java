@@ -85,4 +85,41 @@ class StockDetailRecentMultiplesTest {
         assertThat(StockDetailService.recentMultiples(row("25601", "96654", "CTRL", 15755721L), null)).isNull();
         assertThat(StockDetailService.recentMultiples(null, new BigDecimal("272000"))).isNull();
     }
+
+    @Test
+    @DisplayName("재현(2026-11-11): KIS 결산 EPS·BPS 가 0 인 종목(파세코·디씨엠) — 같은 재무 행의 EPS·BPS 를 '최근 4분기 EPS'·'최근 분기 BPS'로 넘긴다")
+    void recentEpsBpsForSeparateFiler() {
+        // 화면엔 '최근 4분기 43.9배'·'최근 분기 1.66배'만 있고 EPS·BPS 칸은 '-원'이었다. 값은 그 배수를 만드는 예시(실측 아님).
+        StockDetailService.RecentMultiples m = StockDetailService.recentMultiples(
+                row("1366", "36144", "CTRL", 3000L), new BigDecimal("60000"));
+
+        assertThat(m).isNotNull();
+        assertThat(m.per()).isEqualByComparingTo("43.9");
+        assertThat(m.pbr()).isEqualByComparingTo("1.66");
+        assertThat(m.eps()).isEqualByComparingTo("1366");
+        assertThat(m.bps()).isEqualByComparingTo("36144");
+    }
+
+    @Test
+    @DisplayName("EPS·BPS 도 PER·PBR 과 같은 규칙 — 순이익이 연간(KIS)이면 EPS 는 없고, 적자 EPS 는 값 그대로(PER 만 비운다), 최근 분기 자본이 없으면 BPS 는 없다")
+    void recentEpsBpsFollowSameRules() {
+        StockDetailService.RecentMultiples annualEarnings = StockDetailService.recentMultiples(
+                row("6564", "96654", "KIS", 15755721L, "5793097"), new BigDecimal("272000"));
+        assertThat(annualEarnings.eps()).isNull();
+        assertThat(annualEarnings.bps()).isEqualByComparingTo("96654");
+
+        StockDetailService.RecentMultiples loss = StockDetailService.recentMultiples(
+                row("-8325", "272485", "CONSOL", 390000L), new BigDecimal("568000"));
+        assertThat(loss.per()).isNull();
+        assertThat(loss.eps()).isEqualByComparingTo("-8325");
+
+        StockDetailService.RecentMultiples noEquity = StockDetailService.recentMultiples(
+                row("25601", "96654", "CTRL", 15755721L, null), new BigDecimal("272000"));
+        assertThat(noEquity.bps()).isNull();
+        assertThat(noEquity.eps()).isEqualByComparingTo("25601");
+
+        StockDetailService.RecentMultiples zeroEps = StockDetailService.recentMultiples(
+                row("0", "0", "CTRL", 15755721L), new BigDecimal("272000"));
+        assertThat(zeroEps).as("EPS·BPS 0 은 결측 — 아무것도 없으면 null").isNull();
+    }
 }

@@ -48,6 +48,14 @@ function stubAll({ catalyst = catalystResponse, portfolio = { data: { success: t
   })
 }
 
+// 60초 갱신을 흉내 낸다 — 첫 로드 직후의 갱신은 같은 후보를 다시 읽지 않으므로(2026-11-11) 시계를 앞당긴다
+let clockOffset = 0
+const realNow = Date.now.bind(Date)
+function afterSixtySeconds() {
+  clockOffset += 61_000
+  vi.spyOn(Date, 'now').mockImplementation(() => realNow() + clockOffset)
+}
+
 async function mountTab(props = {}) {
   const wrapper = mount(TodayBriefingTab, { props })
   await flushPromises()
@@ -59,6 +67,7 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     stubAll()
     const w = await mountTab()
     recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: [] } })
+    afterSixtySeconds()
     await w.vm.refresh()
     await flushPromises()
     expect(w.findAll('.candidate-card')).toHaveLength(0)
@@ -70,6 +79,7 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(w.findAll('.candidate-card')).toHaveLength(2)
     let resolveNext
     recommendationAPI.getTop5.mockImplementation(() => new Promise(r => { resolveNext = r }))
+    afterSixtySeconds()
     const pending = w.vm.refresh()
     w.vm.refresh()                       // 진행 중 중복 호출은 무시
     await flushPromises()
@@ -757,5 +767,40 @@ describe('TodayBriefingTab — 거래대금 하한(2026-11-11)', () => {
       expect(w.find('.ts-liquidity-note').exists()).toBe(false)
       expect(w.text()).not.toContain('건 중 상위')
     }
+  })
+})
+
+describe('TodayBriefingTab — 첫 진입에 후보를 한 번만 읽는다(2026-11-11)', () => {
+  it('재현: 마운트 직후 허브 갱신(탭 복귀·화면 다시 보임)이 겹쳐도 top5 는 1번, 재료도 후보당 1번', async () => {
+    // 실측 11/11: 페이지를 연 직후 몇 초 안에 /recommendation/top5 3번, 후보 5종목 /catalyst 3바퀴.
+    // 진행 중 가드는 '동시에'만 막고, 첫 로드가 끝난 뒤 곧바로 오는 갱신은 같은 후보를 다시 읽었다.
+    stubAll()
+    const w = await mountTab()
+    await w.vm.refresh()
+    await flushPromises()
+    await w.vm.refresh()
+    await flushPromises()
+    expect(recommendationAPI.getTop5).toHaveBeenCalledTimes(1)
+    const catalystCalls = apiClient.get.mock.calls.filter(([u]) => u.includes('/catalyst')).length
+    expect(catalystCalls).toBe(2)   // 55점 이상 후보 2종목 × 1번
+  })
+
+  it('60초 갱신은 그대로 다시 읽는다', async () => {
+    stubAll()
+    const w = await mountTab()
+    afterSixtySeconds()
+    await w.vm.refresh()
+    await flushPromises()
+    expect(recommendationAPI.getTop5).toHaveBeenCalledTimes(2)
+  })
+
+  it('첫 조회가 실패했으면 곧바로 오는 갱신도 다시 읽는다', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockRejectedValueOnce(new Error('timeout'))
+    const w = await mountTab()
+    await w.vm.refresh()
+    await flushPromises()
+    expect(recommendationAPI.getTop5).toHaveBeenCalledTimes(2)
+    expect(w.findAll('.candidate-card')).toHaveLength(2)
   })
 })
