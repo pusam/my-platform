@@ -27,6 +27,7 @@
 | §4.11 | `CLAUDE.md` | 시장 국면(산식용 regime) |
 | §4.12 | `CLAUDE.md` | BULL 섹터 가산은 하나만 |
 | §4.13 | `docs/rules/4-scoring.md` | 신규 진입 감점 임계(applyNewEntryPenalty/newEntryPenaltyThreshold) |
+| §4.14 | `docs/rules/4-scoring.md` | 매수 후보 거래대금 하한(2026-11-11, 사용자 위임) |
 | §4b.1 | `CLAUDE.md` | 일캐시(종목·일자 1회) |
 | §4b.2 | `CLAUDE.md` | 신규 분류 시에만 |
 | §4b.3 | `docs/rules/4b-catalyst-gemini.md` | 상한 5종목 |

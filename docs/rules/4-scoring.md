@@ -39,3 +39,8 @@
 #### §4.13
 
 - **신규 진입 감점 임계(`applyNewEntryPenalty`/`newEntryPenaltyThreshold`)**: 어제 추천 풀 밖에서 갑자기 진입 + 5일 누적 급등 → technical −5(추격 방지). 임계 = **BULL 25% / 그 외 15%**(phase 38). BULL 은 5일 +15% 가 정상 추세에도 흔해(2026-05-14 46건 무차별 → STRONG_BUY 0) **완전 비활성(phase36)했다가, 극단(25%)만 잡도록 복원** — BULL 에서 다시 완전 비활성하거나 임계를 15%로 낮추지 말 것(정상 추세 풀 보존 vs 추격 방지 균형).
+
+#### §4.14
+덧붙임(2026-11-11): 옮긴 뒤(B 커밋 다음) 다른 브랜치가 더한 문단이다 — 옛 순서로는 이 절의 마지막 항목.
+
+- **매수 후보 거래대금 하한(2026-11-11, 사용자 위임)**: 컷(55) 통과 종목 중 최근 20봉 평균 거래대금(종가×거래량 — 거래량 NULL 봉은 빼고 0 은 0) 5억 원 미만은 **순위를 자르기 전에** 뺀다(`LiquidityFloor` 단일 출처, `RecommendationService.rankCandidates`). 봉 10개 미만·봉 노후는 판정 불가 = 통과(수만 센다). 무작위 대조군도 같은 하한(판정 불가는 안 뽑는다). DB 복원 목록·결론 카드도 `LiquidityFloorService` 로 다시 판정하고, 리스크·실시간 검증 대상에서도 뺀다. 끄기 `RECOMMENDATION_MIN_AVG_TRADED_VALUE_EOK=0`. 그날 후보 10건 중 5건이 5억 미만(0.23~3.22억, 한일화학 0.23억)이라 화면 가격·D+3 성적이 실제로 낼 수 없는 값이었다. **추천 산식 변경 — 11/11 장 마감 뒤 배포, 표본은 11/12 부터.** 하한을 없애거나 상위 10 을 고른 뒤 빼지 말 것. 회귀 `LiquidityFloorTest`·`RecommendationLiquidityFloorTest`·`ControlGroupLiquidityFloorTest`·프론트 `TodayBriefingTab`.

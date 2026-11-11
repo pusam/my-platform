@@ -94,6 +94,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **시장 국면(산식용 regime)**: 판정 입력은 `SectorRotationDto.rawAvgChangeRate`(전 종목 평균) — `avgChangeRate` 는 **상위 5개 평균(표시용, 상방편향)이라 판정에 쓰지 말 것**(2026-07-28). 섹터 데이터 미확보 시 regime=**UNKNOWN(가중 전부 ×1.0, 신규진입 임계 15%)** — SIDEWAYS(섹터 ×0.90)로 위장 금지(§4c).
 - **BULL 섹터 가산은 하나만**: `scoreSectorMomentum` 의 +4 floor(추천 풀 안정)만 유지하고 `applyRegimeWeights` BULL 섹터 승수는 **1.0**(phase 38, 이중가산 제거). ×1.20 재도입 금지(오른 종목 섹터 점수 부풀림).
 - **신규 진입 감점(`applyNewEntryPenalty`/`newEntryPenaltyThreshold`)**: 어제 추천 풀 밖에서 갑자기 진입 + 5일 누적 급등 → technical −5. 임계 = BULL 25% / 그 외 15% — BULL 에서 다시 끄거나 임계를 15% 로 낮추지 말 것. (§4.13)
+- **매수 후보 거래대금 하한 — 컷(55) 통과 종목 중 최근 20봉 평균 거래대금 5억 원 미만은 순위를 자르기 전에 뺀다(`LiquidityFloor` 단일 출처, `RecommendationService.rankCandidates`) — 하한을 없애거나 상위 10 을 고른 뒤 빼지 말 것.** 거래대금 = 종가×거래량(거래량 NULL 봉 제외, 0 은 0), 봉 10개 미만·노후는 판정 불가 = 통과. 무작위 대조군도 같은 하한(판정 불가는 안 뽑는다), DB 복원 목록·결론 카드도 `LiquidityFloorService` 로 다시 판정하고 리스크·실시간 검증 대상에서도 뺀다. 끄기 `RECOMMENDATION_MIN_AVG_TRADED_VALUE_EOK=0`. 추천 산식 변경 — 표본은 11/12 부터. 회귀 `LiquidityFloorTest`·`RecommendationLiquidityFloorTest`·`ControlGroupLiquidityFloorTest`·프론트 `TodayBriefingTab`. (§4.14)
 
 ### 4b. 재료(catalyst) 태그는 산식 미편입 (의도)
 - 네이버 뉴스 → Gemini 분류(`StockCatalystService`) → `stock_catalyst` **일캐시(종목·일자 1회)**. 용도는 **배지 표시 + 시그널 스냅샷(검증)뿐** — 재료별 적중률이 데이터로 검증되기 전엔 점수 산식에 넣지 말 것. 종합판단 보드도 이 캐시를 **read-only**(classify 호출 금지 — quota/스팸가드)로 소비.
