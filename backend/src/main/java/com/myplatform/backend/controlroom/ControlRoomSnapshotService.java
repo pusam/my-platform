@@ -655,22 +655,44 @@ public class ControlRoomSnapshotService {
                 "봇 성적 게이트를 집계하지 못했다. 거래가 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.");
     }
 
-    /** {@code from} 다음 날부터 {@code to} 까지(포함) 거래일 수. from 이 null 이면 큰 값(=모름 → 경고). */
-    /** 외부 대조 ⑯ — 최근 실행을 규칙 입력으로 옮긴다. 대조가 돌았어야 할 마지막 날은 거래일 10:30 뒤면 오늘, 아니면 직전 거래일. */
+    /** 외부 대조 ⑯ — 최근 실행을 규칙 입력으로 옮기고, 대조가 돌았어야 하는지(기한)를 달력·시계로 계산해 넘긴다. */
     private List<DataAnomalyRules.Anomaly> crosscheckAnomalies(
             com.myplatform.backend.crosscheck.ExternalCrosscheckService svc, LocalDateTime now) {
         List<DataAnomalyRules.CrosscheckRunStat> stats = svc.recentRuns().stream()
-                .map(r -> new DataAnomalyRules.CrosscheckRunStat(r.runDate(), r.targetBarDate(), r.status(),
-                        r.planned(), r.attempted(), r.matched(), r.mismatched(), r.notCompared(),
-                        r.notComparedReasons(), r.mismatchedCodes(), r.staleMixedWithMatch()))
+                .map(r -> new DataAnomalyRules.CrosscheckRunStat(r.runDate(), r.targetBarDate(), r.status(), r.planned(),
+                        r.closeStatusByCode(), r.diffPctByCode(), r.staleMixedWithMatch(), r.detailed()))
                 .toList();
-        LocalDate today = now.toLocalDate();
-        LocalDate expected = !marketCalendar.isMarketClosed(today) && !now.toLocalTime().isBefore(java.time.LocalTime.of(10, 30))
-                ? today : marketCalendar.minusTradingDays(today, 1);
-        int behind = stats.isEmpty() ? 0 : tradingDaysAfter(stats.get(0).runDate(), expected, marketCalendar);
-        return DataAnomalyRules.externalCloseCrosscheck(stats, behind, svc.isEnabled());
+        DataAnomalyRules.CrosscheckDue due = crosscheckDue(now, stats.isEmpty() ? null : stats.get(0).runDate(),
+                bootedAt, marketCalendar);
+        return DataAnomalyRules.externalCloseCrosscheck(stats, due, svc.isEnabled());
     }
 
+    /**
+     * 그 거래일의 외부 대조 기한 — 크론(10:20:40)이 끝났어야 할 시각. 평소 10:30, 늦게 여는 날은 장 시작 + 30분 중 늦은 쪽
+     * (2026-11-19 10:00 개장도 10:30 — 크론 창은 장 시작 10분 뒤부터라 10:20:40 은 창 안이다).
+     */
+    static LocalDateTime crosscheckDueAt(LocalDate day, MarketCalendarService calendar) {
+        java.time.LocalTime base = java.time.LocalTime.of(10, 30);
+        java.time.LocalTime fromOpen = calendar.marketOpenOf(day).plusMinutes(30);
+        return day.atTime(fromOpen.isAfter(base) ? fromOpen : base);
+    }
+
+    /**
+     * 대조가 돌았어야 하는가 — 실행이 있어야 할 마지막 거래일(오늘 기한이 지났으면 오늘, 아니면 직전 거래일)과, 마지막 실행 뒤 빠진
+     * 거래일 수. 실행 기록이 한 번도 없으면 이 프로세스가 뜬 뒤 기한이 지났는지로 본다(배포 직후 첫 실행 전엔 조용히 — 영원히는 아니다).
+     */
+    static DataAnomalyRules.CrosscheckDue crosscheckDue(LocalDateTime now, LocalDate latestRunDate, LocalDateTime bootedAt,
+                                                        MarketCalendarService calendar) {
+        LocalDate today = now.toLocalDate();
+        LocalDate expected = !calendar.isMarketClosed(today) && !now.isBefore(crosscheckDueAt(today, calendar))
+                ? today : calendar.minusTradingDays(today, 1);
+        int missed = latestRunDate == null ? 0 : tradingDaysAfter(latestRunDate, expected, calendar);
+        boolean firstRunDue = latestRunDate == null && bootedAt != null
+                && crosscheckDueAt(expected, calendar).isAfter(bootedAt);
+        return new DataAnomalyRules.CrosscheckDue(expected, missed, firstRunDue);
+    }
+
+    /** {@code from} 다음 날부터 {@code to} 까지(포함) 거래일 수. from 이 null 이면 큰 값(=모름 → 경고). */
     static int tradingDaysAfter(LocalDate from, LocalDate to, MarketCalendarService calendar) {
         if (from == null) return 99;
         if (to == null || !to.isAfter(from)) return 0;

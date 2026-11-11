@@ -19,7 +19,10 @@ public class ExternalCrosscheckController {
 
     private final ExternalCrosscheckService service;
 
-    /** 백그라운드로 한 번 돌린다(약 1분). 이미 도는 중이거나 대조 창(거래일 장 시작 10분 뒤 ~ 15:30) 밖이면 시작하지 않는다. */
+    /**
+     * 백그라운드로 한 번 돌린다(약 1분). 꺼져 있거나, 대조 창(거래일 장 시작 10분 뒤 ~ 장 마감 10분 전) 밖이거나, 오늘 3회를 다 썼거나,
+     * 이미 도는 중이면 시작하지 않고 이유를 돌려준다.
+     */
     @PostMapping("/api/admin/crosscheck/run")
     public ResponseEntity<Map<String, Object>> run() {
         String refused = service.startManualRun();

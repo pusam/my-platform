@@ -15,6 +15,14 @@ public interface ExternalCrosscheckRunRepository extends JpaRepository<ExternalC
     @Transactional(readOnly = true)
     List<ExternalCrosscheckRun> findTop10ByOrderByStartedAtDesc();
 
+    /** 수동 실행 하루 횟수 — DB 로 센다(재시작해도 줄지 않는다). */
+    @Transactional(readOnly = true)
+    long countByRunDateAndTriggerType(LocalDate runDate, String triggerType);
+
+    /** 끝나지 못하고 남은 실행 — 다음 실행이 시작할 때 INTERRUPTED 로 마감한다. */
+    @Transactional(readOnly = true)
+    List<ExternalCrosscheckRun> findByStatusAndStartedAtBefore(String status, java.time.LocalDateTime before);
+
     /** 보존 기간이 지난 실행의 종목 행부터 — FK CASCADE 가 없는 H2 에서도 같은 결과가 되게 직접 지운다. */
     @Modifying
     @Transactional

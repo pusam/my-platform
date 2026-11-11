@@ -35,6 +35,8 @@ public class ExternalCrosscheckRun {
     public static final String STATUS_COMPLETE = "COMPLETE";
     public static final String STATUS_ABORTED = "ABORTED";
     public static final String STATUS_ERROR = "ERROR";
+    /** 끝나지 못한 실행 — 중단 표시를 받았거나 30분 넘게 RUNNING 으로 남았다(집계는 종목 행에서 다시 센다). */
+    public static final String STATUS_INTERRUPTED = "INTERRUPTED";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

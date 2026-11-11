@@ -547,126 +547,225 @@ public final class DataAnomalyRules {
 
     // ==================== ⑯ 외부 공개 수치 대조(종가) ====================
 
-    /** 대조 실행 한 번의 요약 — {@code ExternalCrosscheckService.RunSummary} 를 관제실이 옮겨 담는다(이 클래스는 순수). */
-    public record CrosscheckRunStat(LocalDate runDate, LocalDate targetBarDate, String status,
-                                    int planned, int attempted, int matched, int mismatched, int notCompared,
-                                    java.util.Map<String, Integer> notComparedReasons, List<String> mismatchedCodes,
-                                    boolean staleMixedWithMatch) {}
+    /**
+     * 대조 실행 한 번 — {@code ExternalCrosscheckService.RunSummary} 를 관제실이 옮겨 담는다(이 클래스는 순수).
+     * {@code closeStatusByCode} 는 종목 행에서 다시 읽은 종목별 결과다(끝나지 못한 실행도 이것으로 센다 — 저장 집계가 0 이어도
+     * 이미 찾은 불일치가 사라지지 않게). {@code detailed=false} 면 종목별 결과를 읽지 않은 옛 실행이라 판정에 쓰지 않는다.
+     */
+    public record CrosscheckRunStat(LocalDate runDate, LocalDate targetBarDate, String status, int planned,
+                                    java.util.Map<String, String> closeStatusByCode,
+                                    java.util.Map<String, java.math.BigDecimal> diffPctByCode,
+                                    boolean staleMixedWithMatch, boolean detailed) {}
+
+    /**
+     * 대조가 돌았어야 하는가 — 관제실이 달력·시계로 계산해 넘긴다.
+     *
+     * @param expectedRunDate   실행이 있어야 할 마지막 거래일(그날 기한이 지났으면 오늘, 아니면 직전 거래일)
+     * @param missedTradingDays 마지막 실행 뒤 그 날까지 실행이 빠진 거래일 수(실행 기록이 없으면 0)
+     * @param firstRunDue       실행 기록이 한 번도 없는데, 이 프로세스가 뜬 뒤 돌았어야 할 기한이 지났는가
+     */
+    public record CrosscheckDue(LocalDate expectedRunDate, int missedTradingDays, boolean firstRunDue) {}
 
     /** 그날 대조한 종목 중 이 비율 이상 어긋나면 한꺼번에 틀린 것 — CRITICAL. */
     static final int CROSSCHECK_WIDE_MISMATCH_PCT = 30;
     /** 비율 판정에 필요한 최소 대조 종목 수. */
     static final int CROSSCHECK_WIDE_MIN_COMPARED = 10;
-    /** 이만큼 거래일이 밀리면 대조가 멈춘 것이다. */
-    static final int CROSSCHECK_STALE_TRADING_DAYS = 2;
+    /** 이 안의 차이면 저녁 값(KIS 일봉 그날 행) 의심, 넘으면 권리·액면 등 다른 사정 의심 — 단정하지 않는다. */
+    static final java.math.BigDecimal CROSSCHECK_EVENING_DIFF_PCT = new java.math.BigDecimal("2");
 
     private static final String CROSSCHECK_STALE_MIXED_DETAIL =
-            " ⚠ 이 실행엔 '하루 늦음'으로 분류한 종목이 이미 넘어간 종목(앞 봉과 값이 다른데 일치)과 섞여 있다 — 넘어가는 시각은 종목마다 "
-                    + "같을 것이므로 그 종목들은 하루 늦음이 아니라 진짜 불일치일 수 있다(분류는 '대조 못 함' 그대로).";
+            " ⚠ 이 봉의 실행엔 '하루 늦음'으로 분류한 종목이 이미 넘어간 종목(앞 봉과 값이 다른데 일치)과 섞여 있다 — 넘어가는 시각은 종목마다 "
+                    + "같을 것이므로 그 종목들은 하루 늦음이 아니라 진짜 불일치일 수 있다(넘어간 종목이 5건 이상이면 실행이 이미 불일치로 다시 분류한다).";
+
+    /** 같은 대상 봉의 실행들을 합친 결과. */
+    record CrosscheckMerged(LocalDate targetBarDate, java.util.Map<String, String> statusByCode,
+                            java.util.Map<String, java.math.BigDecimal> diffByCode, boolean staleMixed,
+                            String latestStatus) {
+        int matched() { return count("MATCH"); }
+        int mismatched() { return count("MISMATCH"); }
+        int total() { return statusByCode.size(); }
+        int notCompared() { return total() - matched() - mismatched(); }
+        List<String> mismatchedCodes() {
+            List<String> out = new ArrayList<>();
+            statusByCode.forEach((k, v) -> { if ("MISMATCH".equals(v)) out.add(k); });
+            java.util.Collections.sort(out);
+            return out;
+        }
+        java.util.Map<String, Integer> notComparedReasons() {
+            java.util.Map<String, Integer> out = new java.util.LinkedHashMap<>();
+            statusByCode.values().forEach(v -> { if (!"MATCH".equals(v) && !"MISMATCH".equals(v)) out.merge(v, 1, Integer::sum); });
+            return out;
+        }
+        private int count(String status) {
+            int n = 0;
+            for (String v : statusByCode.values()) if (status.equals(v)) n++;
+            return n;
+        }
+    }
+
+    /**
+     * 같은 대상 봉의 실행들을 오래된 것부터 합친다. 종목마다 마지막으로 <b>대조한</b> 결과(일치·불일치)가 이기고, 뒤 실행의
+     * '대조 못 함'은 앞 실행의 대조 결과를 지우지 않는다 — 뒤 실행이 막혀도(429·재배포) 앞 실행이 찾은 불일치는 그 종목을 다시
+     * 대조해 일치할 때만 사라진다.
+     */
+    static CrosscheckMerged mergeBar(List<CrosscheckRunStat> recentDesc, LocalDate bar) {
+        java.util.Map<String, String> status = new java.util.LinkedHashMap<>();
+        java.util.Map<String, java.math.BigDecimal> diff = new java.util.LinkedHashMap<>();
+        boolean mixed = false;
+        String latestStatus = null;
+        for (int i = recentDesc.size() - 1; i >= 0; i--) {
+            CrosscheckRunStat r = recentDesc.get(i);
+            if (!r.detailed() || !java.util.Objects.equals(r.targetBarDate(), bar)) continue;
+            latestStatus = r.status();
+            mixed |= r.staleMixedWithMatch();
+            if (r.closeStatusByCode() == null) continue;
+            for (var e : r.closeStatusByCode().entrySet()) {
+                String prev = status.get(e.getKey());
+                boolean compared = "MATCH".equals(e.getValue()) || "MISMATCH".equals(e.getValue());
+                boolean prevCompared = "MATCH".equals(prev) || "MISMATCH".equals(prev);
+                if (compared || !prevCompared) {
+                    status.put(e.getKey(), e.getValue());
+                    java.math.BigDecimal d = r.diffPctByCode() == null ? null : r.diffPctByCode().get(e.getKey());
+                    if (d != null) diff.put(e.getKey(), d); else diff.remove(e.getKey());
+                }
+            }
+        }
+        return new CrosscheckMerged(bar, status, diff, mixed, latestStatus);
+    }
 
     /**
      * 외부 공개 수치 대조 — 우리 마지막 확정 봉 종가 vs 네이버 '전일'(직전 거래일 KRX 종가). 2026년 가을 큰 데이터 오류(저녁 일봉이
      * KRX 종가가 아니었던 것 등)는 전부 사람이 외부 수치와 손으로 대조해 찾았다 — 그것을 매 거래일 10:20 에 자동으로 한다.
      *
-     * <p>종가는 정확히 같아야 하는 값이라 <b>한꺼번에 틀리면 하루 만에</b> 올린다(그날 11:30 채점에 들어간다). 종목 하나는 이틀 연속일
-     * 때 WARNING — 권리락처럼 하루짜리 사정을 거르려고. '대조 못 함'은 일치가 아니다(§4c) — 절반이 넘으면 따로 올린다.
-     *
-     * @param recentDesc        최근 실행(새 것부터)
-     * @param behindTradingDays 마지막 실행 뒤 돌았어야 할 거래일 수(실행이 없으면 무시)
-     * @param enabled           설정이 켜져 있는가
+     * <p>판정은 <b>같은 대상 봉의 실행들을 합친 결과</b>로 한다({@link #mergeBar}). 종가는 정확히 같아야 하는 값이라 한꺼번에 틀리면
+     * 하루 만에 CRITICAL(그날 11:30 채점에 들어간다). 종목 하나는 대상 봉이 다른 직전 실행에서도 어긋났으면 WARNING — 어긋난 종목은
+     * 다음 실행 표본에 다시 들어가므로 이 비교가 실제로 일어난다. '대조 못 함'은 일치가 아니다(§4c) — 절반이 넘으면 따로 올린다.
+     * 돌았어야 할 날 실행이 없으면 그날 바로 경고한다(기록이 한 번도 없을 때도).
      */
-    public static List<Anomaly> externalCloseCrosscheck(List<CrosscheckRunStat> recentDesc, int behindTradingDays,
-                                                        boolean enabled) {
+    public static List<Anomaly> externalCloseCrosscheck(List<CrosscheckRunStat> recentDesc, CrosscheckDue due, boolean enabled) {
         List<Anomaly> out = new ArrayList<>();
         if (!enabled) {
             out.add(new Anomaly(INFO, "external-crosscheck-off", "외부 공개 수치 대조가 꺼져 있다",
                     "우리 종가를 외부 공개 수치와 견주지 않는다. 켜려면 EXTERNAL_CROSSCHECK_ENABLED=true.", "enabled=false"));
             return out;
         }
-        if (recentDesc == null || recentDesc.isEmpty()) {
-            out.add(new Anomaly(INFO, "external-crosscheck-none", "외부 공개 수치 대조 기록이 아직 없다",
-                    "매 거래일 10:20 에 돈다. 배포 첫날이면 정상이다 — 다음 거래일 10:20 뒤에도 없으면 로그 grep '[외부 대조]'.",
-                    "실행 0건"));
+        List<CrosscheckRunStat> runs = recentDesc == null ? List.of() : recentDesc;
+        if (runs.isEmpty()) {
+            if (due != null && due.firstRunDue()) {
+                out.add(new Anomaly(WARNING, "external-crosscheck-none",
+                        "외부 공개 수치 대조가 한 번도 돌지 않았다 — 돌았어야 할 시각(" + due.expectedRunDate() + " 10:30)이 지났다",
+                        "평일 10:20:40 크론(ExternalCrosscheckService)이 기록을 남기지 않았다. 확인 — ① 로그 grep '[외부 대조]' "
+                                + "② 그 시각에 재시작이 있었는지(관제실 ⑨) ③ 수동 실행 POST /api/admin/crosscheck/run. 대조가 없는 동안 우리 종가가 맞는지 아무도 모른다.",
+                        "실행 0건 · 기한 " + due.expectedRunDate()));
+            } else {
+                out.add(new Anomaly(INFO, "external-crosscheck-none", "외부 공개 수치 대조 — 아직 첫 실행 전",
+                        "거래일 10:20:40 에 돈다. 그 시각(10:30)이 지나도 기록이 없으면 WARNING 으로 바뀐다.", "실행 0건"));
+            }
             return out;
         }
-        CrosscheckRunStat latest = recentDesc.get(0);
-        String mixed = latest.staleMixedWithMatch() ? CROSSCHECK_STALE_MIXED_DETAIL : "";
 
-        if (behindTradingDays >= CROSSCHECK_STALE_TRADING_DAYS) {
+        CrosscheckRunStat latest = runs.get(0);
+        if (due != null && due.missedTradingDays() >= 1) {
             out.add(new Anomaly(WARNING, "external-crosscheck-stale",
-                    "외부 공개 수치 대조가 멈췄다 — 마지막 실행 " + latest.runDate() + " · 거래일 " + behindTradingDays + "일 밀림",
-                    "평일 10:20:40 크론(ExternalCrosscheckService)이 돌지 않았다. 확인 — ① 로그 grep '[외부 대조]' ② 재시작이 그 시각에 걸렸는지 "
-                            + "③ 수동 실행 POST /api/admin/crosscheck/run. 대조가 없는 동안 우리 종가가 맞는지 아무도 모른다.",
-                    "마지막 " + latest.runDate() + " · 밀린 거래일 " + behindTradingDays));
+                    (due.missedTradingDays() == 1
+                            ? "외부 공개 수치 대조가 " + due.expectedRunDate() + " 에 돌지 않았다"
+                            : "외부 공개 수치 대조가 멈췄다 — 거래일 " + due.missedTradingDays() + "일 빠짐")
+                            + " (마지막 실행 " + latest.runDate() + ")",
+                    "평일 10:20:40 크론(ExternalCrosscheckService)이 기록을 남기지 않았다(늦게 여는 날은 장 시작 뒤 기한이 그만큼 밀린다). 확인 — "
+                            + "① 로그 grep '[외부 대조]' ② 그 시각에 재시작이 있었는지(관제실 ⑨) ③ 수동 실행 POST /api/admin/crosscheck/run "
+                            + "(대조 창 안에서만, 하루 3회). 대조가 없는 동안 우리 종가가 맞는지 아무도 모른다.",
+                    "마지막 " + latest.runDate() + " · 기한 " + due.expectedRunDate() + " · 빠진 거래일 " + due.missedTradingDays()));
         }
 
-        String reasons = reasonsText(latest.notComparedReasons());
-        boolean blind = !"COMPLETE".equals(latest.status())
-                || latest.attempted() == 0
-                || latest.notCompared() * 2 >= latest.attempted();
+        CrosscheckMerged bar = mergeBar(runs, latest.targetBarDate());
+        String mixed = bar.staleMixed() ? CROSSCHECK_STALE_MIXED_DETAIL : "";
+        String reasons = reasonsText(bar.notComparedReasons());
+        boolean blind = bar.total() == 0 || bar.notCompared() * 2 >= bar.total();
         if (blind) {
             out.add(new Anomaly(WARNING, "external-crosscheck-blind",
-                    "외부 대조를 하지 못했다(" + latest.runDate() + ") — '일치'가 아니다",
-                    "상태 " + latest.status() + " · 시도 " + latest.attempted() + "/" + latest.planned() + "종목 중 대조 못 함 "
-                            + latest.notCompared() + ". FETCH_FAILED 가 대부분이면 외부 주소가 막혔거나 바뀐 것 — 헤더를 붙여 우회하지 말 것. "
-                            + "NO_OUR_BAR 가 많으면 07:40 아침 봉 재수집이 그 종목 봉을 못 받은 것(로그 grep '[일봉갱신]'). "
-                            + "EXTERNAL_STALE 가 대부분이면 외부 값이 넘어가는 시각 가정(10:20 이면 넘어가 있다)이 틀린 것." + mixed,
-                    "사유: " + reasons));
+                    "외부 대조를 하지 못했다(" + bar.targetBarDate() + " 봉) — '일치'가 아니다",
+                    (bar.total() == 0
+                            ? "대조한 종목이 없다 — 표본이 비었거나(대상 봉을 가진 종목이 없다 → 07:40 아침 봉 재수집 확인) 첫 종목 전에 끝났다. "
+                            : "이 봉에 대해 시도한 " + bar.total() + "종목 중 대조 못 함 " + bar.notCompared() + ". ")
+                            + "마지막 실행 상태 " + bar.latestStatus() + ". FETCH_FAILED 가 대부분이면 외부 주소가 막혔거나 바뀐 것 — "
+                            + "브라우저를 흉내 내는 헤더를 붙여 우회하지 말 것. NO_EXTERNAL_VALUE·WRONG_ITEM 이면 응답 모양이 바뀐 것(칸 이름·종목코드). "
+                            + "NO_OUR_BAR 가 많으면 우리 대상 봉 종가 칸이 비었다. EXTERNAL_STALE 이 대부분이면 외부 값이 넘어가는 시각 가정"
+                            + "(10:20 이면 넘어가 있다)이 틀린 것." + mixed,
+                    "사유: " + reasons + " · 실행 " + latest.runDate() + " " + latest.status()));
         }
 
-        int compared = latest.matched() + latest.mismatched();
-        List<String> codes = latest.mismatchedCodes() == null ? List.of() : latest.mismatchedCodes();
-        String evidence = latest.targetBarDate() + " 봉 · 대조 " + compared + " · 불일치 " + latest.mismatched()
-                + (codes.isEmpty() ? "" : " · " + String.join(", ", codes.subList(0, Math.min(10, codes.size()))));
-        if (compared >= CROSSCHECK_WIDE_MIN_COMPARED
-                && latest.mismatched() * 100 >= CROSSCHECK_WIDE_MISMATCH_PCT * compared) {
+        int compared = bar.matched() + bar.mismatched();
+        List<String> codes = bar.mismatchedCodes();
+        String evidence = bar.targetBarDate() + " 봉 · 대조 " + compared + " · 불일치 " + bar.mismatched()
+                + (codes.isEmpty() ? "" : " · " + diffList(codes, bar.diffByCode()));
+        if (compared >= CROSSCHECK_WIDE_MIN_COMPARED && bar.mismatched() * 100 >= CROSSCHECK_WIDE_MISMATCH_PCT * compared) {
             out.add(new Anomaly(CRITICAL, "external-close-mismatch-wide",
-                    "외부 종가 대조 — " + compared + "종목 중 " + latest.mismatched() + "종목 종가 불일치(" + latest.targetBarDate() + " 봉)",
-                    "우리 " + latest.targetBarDate() + " 일봉 종가가 네이버 '전일'(KRX 종가)과 다르다. 여러 종목이 한꺼번에 다르면 07:40 아침 봉 "
+                    "외부 종가 대조 — " + compared + "종목 중 " + bar.mismatched() + "종목 종가 불일치(" + bar.targetBarDate() + " 봉)",
+                    "우리 " + bar.targetBarDate() + " 일봉 종가가 네이버 '전일'(KRX 종가)과 다르다. 여러 종목이 한꺼번에 다르면 07:40 아침 봉 "
                             + "재수집이 저녁 값을 KRX 종가로 바꾸지 못했을 가능성이 크다 — 이 값이 오늘 11:30 기술 채점·D+3 평가에 들어간다. "
-                            + "확인 — ① 로그 grep '[일봉갱신] 아침 갱신' 의 재수집 수·'값이 달라 고친 봉' ② 어긋난 종목의 차이가 저녁 값 수준(0.3~1.4%)인지 "
-                            + "(GET /api/control-room/crosscheck 의 diff_pct) ③ 다음 거래일 대조에서 풀리는지. 값은 고치지 않는다(§3)." + mixed,
+                            + "확인 — ① 로그 grep '[일봉갱신] 아침 갱신' 의 재수집 수·'값이 달라 고친 봉' ② 어긋난 종목의 차이가 저녁 값 수준(약 ±1~2%)인지 "
+                            + "(GET /api/control-room/crosscheck 의 diffPct) ③ 다음 거래일 대조에서 풀리는지. 값은 고치지 않는다(§3)." + mixed,
                     evidence));
         } else {
-            List<String> repeated = repeatedMismatches(recentDesc);
-            if (latest.mismatched() >= 2 || !repeated.isEmpty()) {
+            List<String> repeated = repeatedMismatches(runs, bar);
+            if (bar.mismatched() >= 2 || !repeated.isEmpty()) {
                 out.add(new Anomaly(WARNING, "external-close-mismatch",
-                        "외부 종가 대조 — 불일치 " + latest.mismatched() + "종목"
-                                + (repeated.isEmpty() ? "" : " · 이틀 연속 " + String.join(", ", repeated)),
-                        "종목별로 다르면 그 종목의 봉 수집 문제이거나 권리락·액면변경(그날 외부 '전일'은 기준가일 수 있다). 확인 — ① 종목 상세 차트의 "
+                        "외부 종가 대조 — 불일치 " + bar.mismatched() + "종목"
+                                + (repeated.isEmpty() ? "" : " · 대상 봉이 다른 직전 실행에서도 " + String.join(", ", repeated)),
+                        "종목별로 다르면 그 종목의 봉 수집 문제이거나 권리락·액면변경(그날 외부 '전일'은 기준가일 수 있다). 차이가 약 ±1~2% 면 "
+                                + "저녁 값(KIS 일봉의 그날 행) 의심, 그보다 크면 권리·액면 사정 의심 — 단정하지 않는다. 확인 — ① 종목 상세 차트의 "
                                 + "마지막 봉 ② 그 종목 공시(권리락·분할·병합) ③ 관제실 ⑭ 액면변경 규칙에 같은 종목이 있는지. 값은 고치지 않는다(§3)." + mixed,
                         evidence));
-            } else if (latest.mismatched() == 1) {
+            } else if (bar.mismatched() == 1) {
+                java.math.BigDecimal d = bar.diffByCode().get(codes.get(0));
                 out.add(new Anomaly(INFO, "external-close-mismatch-single",
-                        "외부 종가 대조 — 1종목 불일치(" + String.join(", ", codes) + ")",
-                        "하루짜리면 권리락·액면변경일 수 있다. 다음 거래일에도 어긋나면 WARNING 으로 올라간다." + mixed, evidence));
+                        "외부 종가 대조 — 1종목 불일치(" + codes.get(0) + (d == null ? "" : " " + d.stripTrailingZeros().toPlainString() + "%") + ")",
+                        diffHint(d) + " 이 종목은 다음 실행 표본에 다시 들어간다 — 대상 봉이 다른 다음 실행에서도 어긋나면 WARNING 으로 올라간다." + mixed,
+                        evidence));
             }
         }
 
-        if (!blind && latest.staleMixedWithMatch() && out.stream().noneMatch(a -> a.key().startsWith("external-close-mismatch"))) {
+        if (!blind && bar.staleMixed() && out.stream().noneMatch(a -> a.key().startsWith("external-close-mismatch"))) {
             out.add(new Anomaly(INFO, "external-close-stale-mixed",
-                    "외부 대조 — '하루 늦음' 분류가 넘어간 종목과 섞여 있다(" + latest.runDate() + ")",
+                    "외부 대조 — '하루 늦음' 분류가 넘어간 종목과 섞여 있다(" + bar.targetBarDate() + " 봉)",
                     CROSSCHECK_STALE_MIXED_DETAIL.trim() + " 확인 — GET /api/control-room/crosscheck 에서 EXTERNAL_STALE 행의 종목을 보고, "
-                            + "그 종목의 우리 " + latest.targetBarDate() + " 봉이 맞는지 본다.",
+                            + "그 종목의 우리 " + bar.targetBarDate() + " 봉이 맞는지 본다.",
                     "사유: " + reasons));
         }
         return out;
     }
 
-    /** 최근 두 실행에서 모두 어긋난 종목(같은 대조 날짜를 두 번 돌린 경우는 같은 사정이라 세지 않는다). */
-    private static List<String> repeatedMismatches(List<CrosscheckRunStat> recentDesc) {
-        if (recentDesc.size() < 2) return List.of();
-        CrosscheckRunStat a = recentDesc.get(0);
-        CrosscheckRunStat b = null;
-        for (int i = 1; i < recentDesc.size(); i++) {
-            if (!java.util.Objects.equals(recentDesc.get(i).targetBarDate(), a.targetBarDate())) {
-                b = recentDesc.get(i);
+    /** 차이 크기로 말하는 짐작 — 단정하지 않는다. */
+    static String diffHint(java.math.BigDecimal diffPct) {
+        if (diffPct == null) return "차이를 모른다.";
+        String v = diffPct.stripTrailingZeros().toPlainString() + "%";
+        return diffPct.abs().compareTo(CROSSCHECK_EVENING_DIFF_PCT) <= 0
+                ? "차이 " + v + " — 저녁 값(KIS 일봉의 그날 행)이 남은 것으로 의심된다(아침 재수집이 그 종목을 못 받았는지 확인)."
+                : "차이 " + v + " — 권리락·액면변경 같은 사정이 의심된다(그날 외부 '전일'은 기준가일 수 있다).";
+    }
+
+    private static String diffList(List<String> codes, java.util.Map<String, java.math.BigDecimal> diffs) {
+        List<String> parts = new ArrayList<>();
+        for (String c : codes.subList(0, Math.min(10, codes.size()))) {
+            java.math.BigDecimal d = diffs.get(c);
+            parts.add(d == null ? c : c + " " + d.stripTrailingZeros().toPlainString() + "%");
+        }
+        return String.join(", ", parts) + (codes.size() > 10 ? " 외 " + (codes.size() - 10) + "종목" : "");
+    }
+
+    /** 이 봉의 불일치 중 대상 봉이 다른 직전 실행(들을 합친 결과)에서도 불일치였던 종목. */
+    private static List<String> repeatedMismatches(List<CrosscheckRunStat> recentDesc, CrosscheckMerged current) {
+        LocalDate prevBar = null;
+        for (CrosscheckRunStat r : recentDesc) {
+            if (r.detailed() && r.targetBarDate() != null && !r.targetBarDate().equals(current.targetBarDate())) {
+                prevBar = r.targetBarDate();
                 break;
             }
         }
-        if (b == null || a.mismatchedCodes() == null || b.mismatchedCodes() == null) return List.of();
+        if (prevBar == null) return List.of();
+        List<String> previous = mergeBar(recentDesc, prevBar).mismatchedCodes();
         List<String> out = new ArrayList<>();
-        for (String code : a.mismatchedCodes()) if (b.mismatchedCodes().contains(code)) out.add(code);
+        for (String code : current.mismatchedCodes()) if (previous.contains(code)) out.add(code);
         return out;
     }
 

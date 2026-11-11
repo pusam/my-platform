@@ -68,12 +68,15 @@ public class ExternalCrosscheckRow {
     @Column(name = "external_basis", length = 20)
     private String externalBasis;
 
+    /** 같은 실행에서 '넘어갔음'이 증명되면 하루 늦음 → 불일치로 다시 쓴다(그때만 바뀐다). */
+    @lombok.Setter
     @Column(name = "status", nullable = false, length = 20)
     private String status;
 
     @Column(name = "diff_pct", precision = 10, scale = 4)
     private BigDecimal diffPct;
 
+    @lombok.Setter
     @Column(name = "reason", length = 200)
     private String reason;
 
