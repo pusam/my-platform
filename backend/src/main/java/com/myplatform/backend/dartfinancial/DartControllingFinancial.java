@@ -115,19 +115,20 @@ public class DartControllingFinancial {
     @Column(nullable = false)
     private boolean incomeParsed;
 
+    // 아래 세 칸은 칸 이름을 적는다 — 기본 이름 규칙은 끝의 대문자 앞에 밑줄을 넣지 않는다(operatingProfitQ → operating_profitq)
     /**
      * 이 보고서의 3개월 매출(억원) — 반기·3분기 보고서만(V77, 2026-11-12). 누적({@link #revenue}) − 이 값 = 이 보고서가 말하는 '그 앞 시점까지의
      * 누적'이고, 앞 보고서 값과 다르면 나중 보고서가 앞 분기를 다시 적은 것이다({@link DartQuarterly#latestBasisQuarters}).
      */
-    @Column(precision = 15, scale = 2)
+    @Column(name = "revenue_q", precision = 15, scale = 2)
     private BigDecimal revenueQ;
 
     /** 이 보고서의 3개월 영업이익(억원). */
-    @Column(precision = 15, scale = 2)
+    @Column(name = "operating_profit_q", precision = 15, scale = 2)
     private BigDecimal operatingProfitQ;
 
     /** 이 보고서의 3개월 당기순이익(억원, 비지배 포함). */
-    @Column(precision = 15, scale = 2)
+    @Column(name = "total_net_income_q", precision = 15, scale = 2)
     private BigDecimal totalNetIncomeQ;
 
     /** 3개월 칸을 읽으려 해 본 행인가 — V77 이전에 받은 반기·3분기 보고서만 한 번 다시 받는다(없어서 못 읽은 행도 true). */
