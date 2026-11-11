@@ -479,8 +479,8 @@ def main():
     ap.add_argument("--report", help="검토용 '금지 문장 속 식별자' 목록을 이 파일에 쓴다(실패시키지 않음)")
     ap.add_argument("--self-test", action="store_true", help="이 검사기가 잡아야 할 것을 잡는지")
     a = ap.parse_args()
-    if not (a.migration or a.structure or a.self_test or a.report):
-        ap.error("--migration / --structure / --self-test / --report 중 하나 이상")
+    if not (a.migration or a.structure or a.self_test or a.report or a.also):
+        ap.error("--migration / --also / --structure / --self-test / --report 중 하나 이상")
 
     failed = False
     if a.self_test:
@@ -489,6 +489,20 @@ def main():
         for x in f:
             print("  " + x)
         failed |= bool(f)
+    if a.also and not a.migration:
+        # 옮김 뒤 지침을 고친 다음(C 커밋 등)엔 옛 줄 전체 대조가 의미 없다 — 더한 줄만 본다
+        if not a.base:
+            ap.error("--also 에는 --base 가 필요하다")
+        old_lines = load_base(a.base, ROOT)
+        errs, notes = [], []
+        for ref in a.also:
+            e2, n2 = check_added(ROOT, old_lines, load_base(ref, ROOT))
+            errs += e2
+            notes += [f"{x} (--also {ref})" for x in n2]
+        print("더한 줄 대조:", "통과" if not errs else f"실패 {len(errs)}건")
+        for x in notes + errs:
+            print("  " + x)
+        failed |= bool(errs)
     if a.migration:
         if not a.base:
             ap.error("--migration 에는 --base 가 필요하다")
