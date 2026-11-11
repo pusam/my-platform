@@ -82,6 +82,8 @@ public class JudgmentBoardDto {
         // ③ 경고(역상관 의심)
         private int supplyDemand;
         private boolean supplyInverseSuspect;  // 고점=혼잡 의심(표본 작음, 확정 아님)
+        // 거래대금 하한 미달(2026-11-11) — 점수는 55를 넘어도 매수 후보가 아닌 발굴-only 행. 모르면·통과면 null(표시 안 함). 정렬 불변.
+        private Boolean belowLiquidityFloor;
 
         // ② 참고(미검증 — 점수 미편입)
         private Integer timingScore;           // null=신호없음/미산출

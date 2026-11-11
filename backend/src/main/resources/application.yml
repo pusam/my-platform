@@ -222,6 +222,9 @@ youtube-opinion:
 #   기본 10(활성). 20 이상 또는 -1 = 비활성(무캡) — 표본 축적 후 주간리포트 성과 비교로 캡값 재조정.
 recommendation:
   supply-demand-cap: ${RECOMMENDATION_SUPPLY_DEMAND_CAP:10}
+  # 거래대금 하한(2026-11-11) — 최근 20거래일 하루 평균 거래대금(억 원)이 이 값 미만이면 종합추천 매수 후보가 아니다.
+  # 무작위 대조군도 같은 하한을 통과한 종목에서만 뽑는다. 0 이하 = 끔(예전과 같다). 판정 LiquidityFloor.
+  min-avg-traded-value-eok: ${RECOMMENDATION_MIN_AVG_TRADED_VALUE_EOK:5}
   # 현재 산식 표본 시작일(SignalSampleBoundary, 2026-10-01) — 관제실 신뢰 게이트·오늘 탭·결론 카드·종합판단 이력·종목 신호 이력이
   # 이 날짜 이후 기록된 시그널만 "현재 산식 실측"으로 센다. 기본은 미정(빈 값) — 미정이면 화면은 옛 값으로 채우지 않고 '검증 중'.
   # 배포일이 아니라 추천 입력 수정이 재무 수집·추천 캐시·스냅샷까지 반영된 뒤 첫 온전한 거래일을 넣는다(잠정),

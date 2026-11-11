@@ -685,3 +685,77 @@ describe('TodayBriefingTab — 🌙 간밤 미국장', () => {
     expect(w.find('.today-overnight .ov-reason').exists()).toBe(false)
   })
 })
+
+describe('TodayBriefingTab — 거래대금 하한(2026-11-11)', () => {
+  const card = (code, score, avg) => ({ stockCode: code, stockName: code, totalScore: score, tags: [], avgTradedValueEok: avg })
+  // 백엔드 /recommendation/top5 응답 그대로 — minAvgTradedValueEok · belowLiquidityFloorCount · candidateCount, 후보별 avgTradedValueEok
+  const liquidResponse = {
+    data: { success: true, dataTime: '11:30 기준', realtime: true,
+      minAvgTradedValueEok: 5, belowLiquidityFloorCount: 5, candidateCount: 7,
+      data: [card('036710', 80, 19.7), card('010640', 78, 29.3), card('053800', 70, 536), card('030530', 66, 810.04),
+        card('043150', 60, 5.25), card('A00006', 58, null), card('A00007', 56, 6)] }
+  }
+
+  it('재현: 7건 중 5건만 보일 때 "매수 후보 7건 중 상위 5건"이라고 말한다', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue(liquidResponse)
+    const w = await mountTab()
+    expect(w.findAll('.candidate-card')).toHaveLength(5)
+    expect(w.text()).toContain('매수 후보 7건 중 상위 5건')
+  })
+
+  it('하한으로 뺀 종목이 있으면 그 수와 하한(응답 값)을 한 줄로 말한다', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { ...liquidResponse.data, minAvgTradedValueEok: 7 } })
+    const w = await mountTab()
+    expect(w.find('.ts-liquidity-note').text()).toContain('20일 평균 거래대금 7억 미만 5종목은 후보에서 뺐습니다')
+  })
+
+  it('재현: 컷은 넘었지만 하한으로 전부 빠진 날은 "컷을 넘은 후보가 없다"고 말하지 않는다', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: [],
+      minAvgTradedValueEok: 5, belowLiquidityFloorCount: 3, candidateCount: 0 } })
+    const w = await mountTab()
+    expect(w.find('.ts-state.empty').text())
+      .toBe('오늘은 매수 컷(55점)을 넘은 3종목이 모두 20일 평균 거래대금 5억 미만이라 후보가 없습니다 — 관망이 결론입니다.')
+    expect(w.text()).not.toContain('넘은 후보가 없습니다')
+    expect(w.text()).not.toContain('매수 후보 0건 중')
+  })
+
+  it('하한이 켜져 있는데 평균을 모르는 후보는 "거래대금 확인 불가"', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: [card('A00006', 58, null)],
+      minAvgTradedValueEok: 5, belowLiquidityFloorCount: 0, candidateCount: 1 } })
+    const w = await mountTab()
+    expect(w.find('.cc-liq').text()).toBe('거래대금 확인 불가')
+  })
+
+  it('후보 카드에 20일 평균 거래대금 — 모르면(null) 표시하지 않는다', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue(liquidResponse)
+    const w = await mountTab()
+    const liq = w.findAll('.candidate-card').map(c => c.find('.cc-liq'))
+    expect(liq[0].text()).toBe('거래대금 20일 평균 19.7억')
+    expect(liq[2].text()).toBe('거래대금 20일 평균 536억')
+    expect(liq[4].text()).toBe('거래대금 20일 평균 5.25억')
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: [card('A00006', 58, null)] } })
+    const w2 = await mountTab()
+    expect(w2.find('.cc-liq').exists()).toBe(false)
+  })
+
+  it('값이 없으면 숨긴다 — 뺀 수 0·하한 꺼짐·DB 스냅샷(모름)·후보 5건 이하', async () => {
+    for (const extra of [
+      { minAvgTradedValueEok: 5, belowLiquidityFloorCount: 0, candidateCount: 2 },
+      { minAvgTradedValueEok: null, belowLiquidityFloorCount: null, candidateCount: 2 },
+      { minAvgTradedValueEok: 5, belowLiquidityFloorCount: null, candidateCount: null },
+      {}
+    ]) {
+      stubAll()
+      recommendationAPI.getTop5.mockResolvedValue({ data: { ...top5Response.data, ...extra } })
+      const w = await mountTab()
+      expect(w.find('.ts-liquidity-note').exists()).toBe(false)
+      expect(w.text()).not.toContain('건 중 상위')
+    }
+  })
+})

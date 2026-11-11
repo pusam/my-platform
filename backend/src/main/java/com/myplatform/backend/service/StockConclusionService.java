@@ -63,6 +63,12 @@ public class StockConclusionService {
     private final java.time.Clock clock;
     /** 매매계획 MFE/MAE — 현재 산식 표본은 SignalOutcomeService 가 단일 출처. 미주입이면 '검증 중'(0건). */
     private final ObjectProvider<SignalOutcomeService> signalOutcomeServiceProvider;
+    /**
+     * 거래대금 하한 재판정(2026-11-11) — 스냅샷에 든 종목이라도 지금 20일 평균 거래대금이 하한 미달이면 현재 매수 권고가 아니다.
+     * 필드 주입(선택) — 없으면 판정하지 않는다(막지 않는다).
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private LiquidityFloorService liquidityFloorService;
 
     // 결론 임계값 — RecommendationService 상수와 동기화 필요.
     private static final int STRONG_BUY_THRESHOLD = 75;
@@ -150,6 +156,18 @@ public class StockConclusionService {
         return null;
     }
 
+    /**
+     * 거래대금 하한 미달 사유 — 미달이 아니면(통과·판정 불가·조회 실패·하한 꺼짐) null. 순수 함수(2026-11-11).
+     * 판정 불가는 막지 않는다(결측은 차단 근거가 아니다).
+     */
+    static String liquidityReason(LiquidityFloorService.Assessment a, Double floorEok) {
+        if (a == null || !a.below() || floorEok == null) return null;
+        String avg = a.avgEok() == null ? ""
+                : " " + a.avgEok().setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() + "억";
+        String floor = java.math.BigDecimal.valueOf(floorEok).stripTrailingZeros().toPlainString();
+        return "20일 평균 거래대금" + avg + "이 하한 " + floor + "억 미만 — 매수 후보가 아닙니다(화면 가격으로 사고팔기 어렵습니다).";
+    }
+
     private StockConclusionDto build(RecommendationSnapshot s) {
         int total = s.getTotalScore();
         // P3-3: valueStability NULL=NA — 강가치 판정은 산출된 값이 있을 때만 true(NA=미충족, 기존 -1 동작 동일).
@@ -210,8 +228,25 @@ public class StockConclusionService {
         }
         String staleReason = currentValidityReason(
                 sessionDate, status, lastSnapshotSessionDate(now, marketCalendar));
+        String liquidity = null;
+        if (staleReason == null && liquidityFloorService != null) {
+            try {
+                liquidity = liquidityReason(liquidityFloorService.assess(s.getStockCode()), liquidityFloorService.floorOrNull());
+            } catch (Exception e) {
+                log.debug("[결론] {} 거래대금 하한 판정 실패(막지 않음): {}", s.getStockCode(), e.getMessage());
+            }
+        }
+        if (liquidity != null) {
+            // 스냅샷은 최신이지만(하한 도입 전 저장분이거나 그 뒤 거래가 줄었다) 지금은 후보가 될 수 없는 종목 — 매수 권고·매매계획을 내지 않는다.
+            staleReason = liquidity;
+            String pastGrade = level.name();
+            level = Level.WAIT;
+            headline = "스냅샷(" + (sessionDate == null ? "시각 불명" : sessionDate + " 기준")
+                    + ")의 판단은 " + pastGrade + " 였지만 거래대금이 하한 미달이라 현재 매수 권고가 아닙니다.";
+            guidance = liquidity;
+        }
         boolean currentlyValid = staleReason == null;
-        if (!currentlyValid) {
+        if (!currentlyValid && liquidity == null) {
             String pastGrade = level.name();
             level = Level.WAIT;
             headline = "과거 스냅샷(" + (sessionDate == null ? "시각 불명" : sessionDate + " 기준")
