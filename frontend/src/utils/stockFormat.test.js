@@ -39,8 +39,18 @@ describe('netBuyText / netBuyClass — 결측은 방향이 없다', () => {
   })
 
   it('실측 0 은 결측과 구분된다 — 데이터가 있고 순매수가 정확히 0인 경우', () => {
-    expect(netBuyText(0)).toBe('+0억')
+    // 반올림해 0 이면 부호를 붙이지 않는다(2026-11-11 — '+0억'·'-0억'은 방향이 있는 것처럼 읽힌다)
+    expect(netBuyText(0)).toBe('0억')
     expect(netBuyClass(0)).toBe('positive')
+  })
+
+  it('반올림해 0 이 되는 값은 부호 없이 "0억" — 한일화학 프로그램 "-0억"(2026-11-11)', () => {
+    // 쓰는 곳: 종목 상세 '투자자별 수급 당일'(외국인·기관·프로그램) · 펀더멘털 진단 패널(외국인·기관 5일 누적)
+    expect(netBuyText(-0.3)).toBe('0억')
+    expect(netBuyText(-0.49)).toBe('0억')
+    expect(netBuyText(0.4)).toBe('0억')
+    expect(netBuyText(-0.5)).toBe('-1억')
+    expect(netBuyText(0.5)).toBe('+1억')
   })
 
   it('양수·음수는 부호와 색을 갖는다', () => {

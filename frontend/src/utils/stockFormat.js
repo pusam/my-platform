@@ -33,7 +33,10 @@ export function netBuyClass(v) {
 
 export function netBuyText(v) {
   if (v == null) return '-'
-  return (v >= 0 ? '+' : '') + Number(v).toFixed(0) + '억'
+  const rounded = Number(v).toFixed(0)
+  // 반올림해 0 이면 부호를 붙이지 않는다 — '-0억'·'+0억'은 방향이 있는 것처럼 읽힌다(2026-11-11, 한일화학 프로그램 '-0억')
+  if (Number(rounded) === 0) return '0억'
+  return (v >= 0 ? '+' : '') + rounded + '억'
 }
 
 /**
