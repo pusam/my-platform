@@ -706,12 +706,40 @@ describe('TodayBriefingTab — 거래대금 하한(2026-11-11)', () => {
         card('043150', 60, 5.25), card('A00006', 58, null), card('A00007', 56, 6)] }
   }
 
-  it('재현: 7건 중 5건만 보일 때 "매수 후보 7건 중 상위 5건"이라고 말한다', async () => {
+  it('7건 중 5건만 보일 때 "오늘 후보 7건 중 상위 5건 표시"라고 말한다', async () => {
     stubAll()
     recommendationAPI.getTop5.mockResolvedValue(liquidResponse)
     const w = await mountTab()
     expect(w.findAll('.candidate-card')).toHaveLength(5)
-    expect(w.text()).toContain('매수 후보 7건 중 상위 5건')
+    expect(w.find('.ts-total').text()).toBe('오늘 후보 7건 중 상위 5건 표시')
+  })
+
+  // 2026-11-11 저녁 운영: 컷 통과 237 → 하한 뒤 139, 목록(스냅샷·시그널 기록)은 점수 상위 10건.
+  // 화면이 '매수 후보 139건 중 상위 5건'이라 써서 후보가 139건처럼 읽혔다.
+  it('재현: 컷 통과 수(139)를 후보 수라고 말하지 않는다 — 후보는 목록 10건, 컷 통과 수는 따로', async () => {
+    stubAll()
+    const ten = Array.from({ length: 10 }, (_, i) => card(`A0001${i}`, 77 - i, 20 + i))
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, dataTime: '17:00 기준', realtime: true,
+      minAvgTradedValueEok: 5, belowLiquidityFloorCount: 98, candidateCount: 139, data: ten } })
+    const w = await mountTab()
+    expect(w.findAll('.candidate-card')).toHaveLength(5)
+    expect(w.find('.ts-total').text())
+      .toBe('오늘 후보 10건 중 상위 5건 표시 · 컷(55점)·거래대금 하한 통과 139종목 중 점수 상위 10건만 후보로 기록')
+    expect(w.text()).not.toContain('매수 후보 139건')
+    expect(w.text()).not.toContain('후보 139건')
+  })
+
+  it('하한이 꺼져 있으면 컷 통과 수만 말하고, 컷 통과 수를 모르면(DB 스냅샷) 목록 수만 말한다', async () => {
+    stubAll()
+    const ten = Array.from({ length: 10 }, (_, i) => card(`A0001${i}`, 77 - i, null))
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: ten,
+      minAvgTradedValueEok: null, belowLiquidityFloorCount: null, candidateCount: 237 } })
+    const w = await mountTab()
+    expect(w.find('.ts-total').text()).toBe('오늘 후보 10건 중 상위 5건 표시 · 컷(55점) 통과 237종목 중 점수 상위 10건만 후보로 기록')
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: ten } })
+    const w2 = await mountTab()
+    expect(w2.find('.ts-total').text()).toBe('오늘 후보 10건 중 상위 5건 표시')
   })
 
   it('하한으로 뺀 종목이 있으면 그 수와 하한(응답 값)을 한 줄로 말한다', async () => {

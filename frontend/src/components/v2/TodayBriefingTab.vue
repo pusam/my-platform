@@ -40,7 +40,8 @@
       <div class="ts-title-row">
         <h2>📌 오늘의 매수 후보</h2>
         <span class="ts-hint">종합추천 중 BUY 컷(55점) 이상만</span>
-        <!-- 10건까지 받아 5건만 보인다 — 몇 건 중 몇 건인지 말한다(2026-11-11) -->
+        <!-- 10건까지 받아 5건만 보인다 — 몇 건 중 몇 건인지 말한다(2026-11-11).
+             컷 통과 수(100건이 넘기도 한다)는 '후보 수'가 아니다 — 후보는 점수 상위 10건(목록)이고 컷 통과 수는 따로 말한다(2026-11-12) -->
         <span v-if="candidateTotalNote" class="ts-hint ts-total">{{ candidateTotalNote }}</span>
         <span v-if="recDataTime" class="ts-asof">{{ recDataTime }}</span>
         <span v-if="!recRealtime" class="ts-stale">실시간 아님 · 마지막 계산 스냅샷</span>
@@ -258,10 +259,20 @@ const recRealtime = ref(true);       // false = 마지막 계산 스냅샷(전�
 const candidateCount = ref(null);    // 컷·하한 통과 후보 수(10건으로 자르기 전)
 const liquidityFloor = ref(null);    // 하한(억 원) — 꺼져 있으면 null
 const belowFloorCount = ref(null);   // 하한 미달로 뺀 컷 통과 종목 수
+const listedCount = ref(0);          // 응답 목록 중 컷 이상 후보 수(최대 10건) — 화면은 이 중 5건만 보인다
+// 후보는 점수 상위 10건(응답 목록 = 스냅샷·시그널로 기록되는 것)이다. 컷 통과 수(candidateCount)를 '매수 후보 N건'이라 쓰면
+// 후보가 100건 넘게 있는 것처럼 읽힌다(2026-11-11 저녁 139) — 둘을 따로 말한다(2026-11-12). 컷(55)은 그대로다.
 const candidateTotalNote = computed(() => {
-  const total = Number.isFinite(candidateCount.value) ? candidateCount.value : buyCandidates.value.length;
-  if (buyCandidates.value.length === 0 || total <= MAX_CANDIDATES) return null;
-  return `매수 후보 ${total}건 중 상위 ${buyCandidates.value.length}건`;
+  const shown = buyCandidates.value.length;
+  if (shown === 0) return null;
+  const listed = Math.max(listedCount.value, shown);
+  const parts = [];
+  if (listed > shown) parts.push(`오늘 후보 ${listed}건 중 상위 ${shown}건 표시`);
+  if (Number.isFinite(candidateCount.value) && candidateCount.value > listed) {
+    const passed = liquidityFloor.value != null ? `컷(${BUY_CUT}점)·거래대금 하한` : `컷(${BUY_CUT}점)`;
+    parts.push(`${passed} 통과 ${candidateCount.value}종목 중 점수 상위 ${listed}건만 후보로 기록`);
+  }
+  return parts.length ? parts.join(' · ') : null;
 });
 const liquidityNote = computed(() => {
   if (liquidityFloor.value == null || !(belowFloorCount.value > 0)) return null;
@@ -362,9 +373,9 @@ const loadCandidates = async () => {
     candidateCount.value = Number.isFinite(data?.candidateCount) ? data.candidateCount : null;
     liquidityFloor.value = Number.isFinite(data?.minAvgTradedValueEok) ? data.minAvgTradedValueEok : null;
     belowFloorCount.value = Number.isFinite(data?.belowLiquidityFloorCount) ? data.belowLiquidityFloorCount : null;
-    buyCandidates.value = items
-      .filter(r => Number(r.totalScore) >= BUY_CUT)
-      .slice(0, MAX_CANDIDATES);
+    const aboveCut = items.filter(r => Number(r.totalScore) >= BUY_CUT);
+    listedCount.value = aboveCut.length;
+    buyCandidates.value = aboveCut.slice(0, MAX_CANDIDATES);
     candidatesReceivedAt = Date.now();
     loadCatalysts();
     loadYoutubeSummary();
@@ -375,6 +386,7 @@ const loadCandidates = async () => {
     recDataTime.value = null;
     recRealtime.value = false;
     candidateCount.value = null;
+    listedCount.value = 0;
     liquidityFloor.value = null;
     belowFloorCount.value = null;
     candidatesFailed.value = true;
