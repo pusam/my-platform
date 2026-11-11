@@ -70,7 +70,7 @@
       </div>
 
       <!-- 거래대금 하한(2026-11-11) — 화면 가격으로 사고팔 수 없는 저유동 종목은 점수가 높아도 후보에서 뺀다. 숫자는 응답 값. -->
-      <div v-if="liquidityNote && !candidatesLoading && !candidatesFailed" class="ts-liquidity-note">{{ liquidityNote }}</div>
+      <div v-if="liquidityNote && !candidatesLoading && !candidatesFailed && buyCandidates.length > 0" class="ts-liquidity-note">{{ liquidityNote }}</div>
 
       <div v-if="candidatesLoading" class="ts-state">후보 분석 중...</div>
       <div v-else-if="candidatesFailed" class="ts-state failed">
@@ -78,7 +78,9 @@
         <button class="retry-btn" @click="loadCandidates">다시 시도</button>
       </div>
       <div v-else-if="buyCandidates.length === 0" class="ts-state empty">
-        오늘은 매수 컷(55점)을 넘은 후보가 없습니다 — 관망이 결론입니다.
+        <!-- 컷은 넘었지만 거래대금 하한으로 전부 빠진 날은 그렇게 말한다(2026-11-11) — '넘은 종목이 없다'와 다르다 -->
+        <template v-if="allBelowFloorNote">{{ allBelowFloorNote }}</template>
+        <template v-else>오늘은 매수 컷(55점)을 넘은 후보가 없습니다 — 관망이 결론입니다.</template>
       </div>
       <div v-else class="candidate-list">
         <div v-for="(c, i) in buyCandidates" :key="c.stockCode" class="candidate-item">
@@ -265,9 +267,16 @@ const liquidityNote = computed(() => {
   if (liquidityFloor.value == null || !(belowFloorCount.value > 0)) return null;
   return `20일 평균 거래대금 ${Number(liquidityFloor.value).toLocaleString('ko-KR')}억 미만 ${belowFloorCount.value}종목은 후보에서 뺐습니다 — 화면 가격으로 사고팔기 어려운 종목입니다.`;
 });
+const allBelowFloorNote = computed(() => {
+  if (liquidityFloor.value == null || !(belowFloorCount.value > 0) || candidateCount.value !== 0) return null;
+  return `오늘은 매수 컷(55점)을 넘은 ${belowFloorCount.value}종목이 모두 20일 평균 거래대금 `
+    + `${Number(liquidityFloor.value).toLocaleString('ko-KR')}억 미만이라 후보가 없습니다 — 관망이 결론입니다.`;
+});
 const tradedValueLabel = (c) => {
   const v = c?.avgTradedValueEok;
-  if (v == null || !Number.isFinite(Number(v))) return null;
+  // 하한이 켜져 있는데 평균을 모르면(봉 부족·노후) 하한 판정 없이 통과한 후보다 — 그렇게 보인다(2026-11-11)
+  if (v == null) return liquidityFloor.value != null ? '거래대금 확인 불가' : null;
+  if (!Number.isFinite(Number(v))) return null;
   const n = Number(v);
   return `거래대금 20일 평균 ${n.toLocaleString('ko-KR', { maximumFractionDigits: n >= 10 ? 1 : 2 })}억`;
 };

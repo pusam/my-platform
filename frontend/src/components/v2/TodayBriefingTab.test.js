@@ -721,13 +721,23 @@ describe('TodayBriefingTab — 거래대금 하한(2026-11-11)', () => {
     expect(w.find('.ts-liquidity-note').text()).toContain('20일 평균 거래대금 7억 미만 5종목은 후보에서 뺐습니다')
   })
 
-  it('하한으로 전부 빠져 후보가 0건이어도 그 줄은 보인다', async () => {
+  it('재현: 컷은 넘었지만 하한으로 전부 빠진 날은 "컷을 넘은 후보가 없다"고 말하지 않는다', async () => {
     stubAll()
     recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: [],
       minAvgTradedValueEok: 5, belowLiquidityFloorCount: 3, candidateCount: 0 } })
     const w = await mountTab()
-    expect(w.text()).toContain('5억 미만 3종목은 후보에서 뺐습니다')
+    expect(w.find('.ts-state.empty').text())
+      .toBe('오늘은 매수 컷(55점)을 넘은 3종목이 모두 20일 평균 거래대금 5억 미만이라 후보가 없습니다 — 관망이 결론입니다.')
+    expect(w.text()).not.toContain('넘은 후보가 없습니다')
     expect(w.text()).not.toContain('매수 후보 0건 중')
+  })
+
+  it('하한이 켜져 있는데 평균을 모르는 후보는 "거래대금 확인 불가"', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: [card('A00006', 58, null)],
+      minAvgTradedValueEok: 5, belowLiquidityFloorCount: 0, candidateCount: 1 } })
+    const w = await mountTab()
+    expect(w.find('.cc-liq').text()).toBe('거래대금 확인 불가')
   })
 
   it('후보 카드에 20일 평균 거래대금 — 모르면(null) 표시하지 않는다', async () => {
