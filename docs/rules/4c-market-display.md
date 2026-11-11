@@ -1,0 +1,42 @@
+# §4c 시장 지표·출처·표시
+
+> 2026-11-11 에 옛 `CLAUDE.md` 에서 글자 그대로 옮긴 경위 원문이다. **지킬 규칙은 `CLAUDE.md` §4c 의 규칙 줄에 있다** — 이 문서는 '왜'를 위한 것이다.
+> 번호(예: `§4c.13`)는 옛 `CLAUDE.md` 의 절과 그 절 안 항목 순서다(하위 항목은 `§7.8-2`). 문단 안의 '위·아래 항목'은 이 순서를 가리킨다 — 전체 순서표는 `docs/rules/README.md`.
+> 번호 제목 바로 아래의 '정정(날짜): …' 줄은 옮긴 뒤 붙인 것이다(문단은 손대지 않았다).
+> 사실이 바뀌면 문단을 고치거나 정정 줄을 붙이고, `CLAUDE.md` 의 같은 번호 규칙 줄도 같이 고친다. `AGENTS.md` 는 `CLAUDE.md` 의 사본이고, 이 문서는 두 쪽이 같이 읽는다.
+
+#### §4c.4
+
+- **python-backend 재편 (2026-06-11)**: 가짜 데이터 점검(5건) 후 자바 중복 라우터(네이버 크롤/yfinance/Gemini/스크리너) **전부 삭제** — 재편 직후 역할은 `/api/v2/health` + `/api/v2/regime/current`(pykrx 시장 국면) 둘뿐이었고, 이후 차트기법(아래 항목, 2026-06-29)이 추가돼 **현재 등록 라우터는 4개**다: `health` · `regime` · `chart_patterns`(`POST /api/v2/chart/timing`·`/sector-strength`) · `chart_backtest`(`POST /api/v2/chart/backtest`). 새 기능은 "Java/KIS 로 비싼 일(히스토리·벌크)"일 때만 추가. 국면 규칙(v1): KOSPI 종가 vs MA60 + MA20 5거래일 슬로프 → BULL/BEAR/SIDEWAYS — 검증 데이터 쌓이기 전 임의 변경 금지. Java 는 `MarketRegimeClient`(1h 캐시, best-effort)로 소비, 미가용 시 regime_at_signal=NULL(미수집). **⚠ KOSPI 지수 데이터 소스(2026-06-30, P0-pykrx)**: pykrx 지수 엔드포인트(`get_index_ohlcv`)가 KRX 포맷 변경으로 전구간 빈값 → **regime/sector 는 `app/utils/index_source.fetch_kospi_daily`(Java `GET /api/market/index/kospi-daily`, KIS 일봉 진짜 종합지수 0001)로 소비**. classify 로직·국면 v1 불변. pykrx 종목 OHLCV(`get_market_ohlcv`)는 정상. pykrx 지수로 되돌리지 말 것(깨져 있음). ticker_list(reconstructed 백테스트)는 잔여 P3-4.
+
+#### §4c.5
+
+- **차트기법 신호 (2026-06-29)**: 펨코 추세추종 기법을 별도 모듈로 추가 — `/api/v2/chart/timing`(정배열·이격도·엔벨로프 눌림목·박스 타이밍)·`/api/v2/chart/sector-strength`(섹터 상대강도). 지표는 `app/indicators/*` 순수함수(pytest 有). ⚠ **산식 검증 완료 = 승격불가**(2026-06-30 P2-12 백테스트: 적중률 31%·Sharpe 0.08·**점수 역상관**) — 노출 위치(확정): **타이밍 = '오늘' 탭 '🪝 차트 타이밍 관찰' 별도 섹션**(`TodayBriefingTab.vue` — 화면 h2 문자열과 동일, momentum 55컷 후보와 분리·**매수후보 아님**·**접기 기본**·**timingScore 미표시**(역상관이라 '높을수록 좋음' 오해 방지)), **섹터강도 = '발굴' 탭 상단 상시 배지**(`StockTradingDashboardV2.vue`). 봇/종합추천/매수후보 랭킹 편입 금지(P2-12 검증 결과 부진 → 승격 보류, **관찰용 유지** — '검증 전'으로 되돌리거나 '매수후보'로 승격·점수 노출 금지). Java 소비 = `ChartPatternClient`(best-effort) → `ChartSignalController`(`/api/recommendation/trend-pullback-top10`·`/sector-strength`, 응답 `unverified=true`).
+
+#### §4c.10
+
+- **DART 위험 체크는 실패≠안전(2026-07-28)**: `quickDangerCheck` 는 조회 실패/corpCode 미해결(null)을 **캐시하지 않고** fail-open — 실패를 '안전(false)'으로 1시간 캐시하면 장애 동안 위험 종목이 무페널티 고정. `DartService.searchDisclosuresOrNull`(실패=null, 빈 목록=진짜 공시 없음) 경유. 키워드에 관리종목·상장적격성·의견거절/한정/부적정 포함(`DartDangerKeywordTest`). **상세화면 `analyzeRisk` 공시 조회도 stockCode 우선(2026-08-20 수정)** — 이름 단독 경로는 corpCode 이름 매칭 실패 시 KOSPI 한정(corp_cls=Y) 폴백이라 KOSDAQ 공시가 조용히 빈 결과("위험 없음" 위장)였음. 이름 단독으로 되돌리지 말 것(`RiskManagementServiceTest` 경로 가드).
+
+#### §4c.41
+
+- **시장 폭(상승·하락 종목 수)·ADR 은 KIS 국내업종 현재지수 — 실패는 0 이 아니라 '없는 날'(2026-10-02 화면 점검)**: 등락 수를 네이버 레거시 시세 페이지(`finance.naver.com/sise/sise_rise.naver` 등)로 긁었는데 그 페이지가 죽은 뒤(마지막 정상 9/10) 크롤 실패가 **0 으로 저장**됐다. ADR 은 '최근 20행' 합이라 0 행은 아무것도 안 더해 겉보기엔 멀쩡했고, 10/2 화면의 "ADR(20일) 85.0 · 정상 범위"는 실제로는 **9/3~9/10 6일치**였다 — 그 값이 모닝브리핑·AI 분석·시장 알림으로 3주간 매일 나갔다(배치 모니터는 '성공' — 0 을 저장하고 끝났으니까). 지금은 `MarketBreadth`(순수) 단일 출처: ① 출처 = KIS 국내업종 현재지수[국내주식-063] `FHPUP02100000`(`getIndexPrice` 0001/1001)의 `ascn/down/stnr/uplm/lslm_issu_cnt`(공식 샘플 `chk_inquire_index_price.py` COLUMN_MAPPING). ② **장 마감 확정치만**(15:40 이후) — 장중 부팅·수동 수집은 저장하지 않는다(수동은 예외로 이유를 알린다). ③ **못 받은 시장은 행을 만들지도 고치지도 않는다** — 엔티티 등락 칸이 NOT NULL 이라 '모름'은 행이 없는 것으로 표현한다. 옛 0/0/0 행은 지우지 않고 읽을 때 모름(`hasCounts`). ④ ADR 은 저장된 adr20 을 믿지 않고 매번 등락 수에서 다시 계산(화면·이력 차트 둘 다), 창(최근 20행) 안 등락 수가 있는 날이 **15일 미만이면 null = 판단 보류**이고 진단 문구가 그 이유(시장별 유효일)를 말한다 — 오늘 탭·시장 타이밍·모닝브리핑('ADR 판단 보류')·AI 분석(예전엔 null→100 으로 '정상'·공포탐욕 100 을 만들었다)이 같은 문장을 쓴다. 허브 변환도 `|| 0` 을 없앴다("ADR 0" 위장). ⑤ **과거 등락 수는 어떤 소스로도 못 받는다** — 일자별지수[065]의 날짜별 목록(output2)엔 등락 수가 없고 KRX 는 死 — 그래서 9/11~10/1 구멍은 메울 수 없고 창이 다시 차는 데 약 3주 걸린다(그동안 판단 보류가 정상). 기간 수집(Backfill)은 화면·API 헬퍼에 이어 백엔드(`/api/market/collect/period`·KRX 경로 `getKrxOtp`·결과 DTO)까지 같은 날 은퇴했다 — 받을 수 없는 과거를 '수집'하는 경로를 되살리지 말 것(`AdrBackfillRetiredTest`). 수동 '📥 시장 데이터 수집'은 장 마감 전이면 저장하지 않고 그 이유를 `success:false` 메시지로 돌려준다(화면 토스트가 그 문장을 보인다 — 처음엔 500 + ERROR 스택이라 '실패했습니다'만 보였다). ⑥ 16:30 수집 크론과 16:45 장 마감 알림(재시도 역할)은 KIS 를 부르므로 초 필드를 `:00` 에서 옮겼다(20·45초, §4b). ⑦ 관제실 규칙 ⑮ `marketBreadthStall` — 마지막 수집일이 거래일 2일 이상 밀리면 경고, 창이 모자라면 '판단 보류' INFO. 회귀 `MarketBreadthTest`·`MarketTimingBreadthCollectionTest`·`DataAnomalyRulesMarketBreadthTest`·`HolidayPhantomRowGateTest`·`AdrBackfillRetiredTest`.
+
+#### §4c.44
+
+- **화면의 USD/KRW 는 글로벌 시세 한 곳 — `GlobalFuturesService` 의 KRW(Yahoo `KRW=X`)(2026-10-02 화면 점검)**: 시장 타이밍 원자재 카드에서 USD/KRW 가 빠져 있었고 홈 위젯은 늘 '데이터 지연'이었다 — 둘 다 `/api/exchange-rate`(`ExchangeRateService`, 한국수출입은행)를 읽었는데 `KOREAEXIM_API_KEY` 가 설정된 적이 없어 수출입은행 경로는 늘 건너뛰었고, 유일하게 돌던 네이버 폴백은 `finance.naver.com/marketindex` 가 `stock.naver.com` SPA 로 302 되어 rate=null 을 "조회 완료"로 남겼다(9/23 레거시 크롤 은퇴와 같은 원인). 그런데 **같은 화면의 요약 문장 "원/달러 1357원"은 이미 KRW 시세(실시간)를 쓰고 있었다** — 키를 넣어 고치면 한 화면에 매매기준율(하루 한 번 고시)과 실시간 환율이 따로 뜬다. 그래서 원자재 카드(이미 받은 `getAllQuotes` 의 KRW)와 홈 위젯(`getQuote('KRW')`)을 그 시세로 모았다(`utils/marketDataLabels.krwFromFuturesQuote`, 프론트 `exchangeRateAPI` 삭제). **USD/KRW 를 새로 보일 때도 이 시세를 쓸 것** — 두 번째 출처를 만들지 말 것. `ExchangeRateService` 는 화면에서 안 쓰지만 엔드포인트가 남아 있어 정직하게만 고쳐 뒀다: 도메인 `oapi.koreaexim.go.kr`(구 `www` API 는 2026-04-30 종료, 무응답 실측) · 네이버 폴백 은퇴(`NaverLegacyCrawlRetiredTest`) · 키 없으면 첫 조회 WARN 1회 · 응답 원소 `result`≠1 은 실패(틀린 키에도 `[{"result":3, …null}]` 을 **200** 으로 준다 — 그 코드를 WARN) · 빈 배열(고시 전·비영업일)은 정상(DEBUG). 판정은 순수함수 `ExchangeRateService.parseUsdDealBasRate`(`ExchangeRateServiceTest`). **금·은(GoldAPI.io)도 같은 날 고쳤다**: KRW 응답에 등락률(`chp`)·시고저가가 오지 않는데 수집기가 0·현재가로 채워 2026-01 이후 저장 행 **100%(금 725·은 722)** 가 "0.00%"·평평한 봉이었다(가격 자체는 움직인다) — 지금은 null(화면 '-', 시고저가 행 숨김, `GoldSilverPriceMissingFieldsTest`). 과거 행의 0 은 그대로 남아 있다(최신 행만 화면에 나간다). ⚠ open/high/low 가 오게 되면 단위(트로이온스/그램)부터 확인할 것 — 기존 환산은 그램 가정이고 검증된 적이 없다. 표시 전용 — 산식·봇 미편입.
+
+#### §4c.45
+
+- **종목 마스터 코드는 영숫자 6자리 그대로 — 숫자만 남기지 말 것(2026-10-02 화면 점검)**: KIND 상장법인목록 시드(`KrxStockMasterSeeder.padCode`)가 숫자 아닌 글자를 지우고 zero-pad 해서 신규 상장 영숫자 코드("0039P0"·"0009K0")가 **기존 상장사 코드**("000390" 삼화페인트 등)가 됐다 — 마스터 upsert 가 같은 코드의 이름·시장을 덮어 운영 42행이 남의 회사 이름이 됐고, KIS 가 종목명을 빈 값으로 줘서 이름을 마스터로 보충하는 화면(§1 단일 경로)이 하이트진로 시세 옆에 다른 회사 이름을 띄웠다. 재무 일별 행 이름도 오염됐다(000150 두산 → "그린광학", 000720 현대건설 → "KB제33호스팩"). 지금은 숫자만이면 zero-pad, 영숫자 6자리는 대문자 그대로, 그 밖은 건너뛴다. 예전 정규화가 만든 유령 코드의 KRX 행은 **두 시장 목록이 다 받아진 회차에만**(KOSPI≥500·KOSDAQ≥1000) 지운다(`legacyMangledCodes` 순수 — 실제 상장사가 쓰는 코드는 지우지 않는다). 배포 뒤 첫 시드(월~토 06:20)가 이름·시장을 바로잡고, 재무 행 이름은 다음 수집부터 바뀐다. ⚠ 영숫자 코드는 `findActiveEquityCodes`(`^[0-9]{6}$`) 때문에 재무 수집 유니버스에 아직 안 들어간다(별도 판단). 이 시드는 이름·시장용이고 거래정지·상폐 게이트(KIS 종목마스터, §4)와 다른 목록이다. 회귀 `KrxStockMasterSeederTest`.
+
+#### §4c.47
+
+- **AI 전략 후보가 없으면 그 회차는 저장하지 않는다 — 대체 목록 금지(2026-10-02)**: 전략 스크리너가 비면 네이버 시총 상위 → 네이버 거래상위 HTML → 고정 대형주 5종목('시가총액 상위 대표주' 50점) 순으로 채웠다. AI 스캘핑은 30일 164회 **전부** 그것('시총 상위 대형주' 60~64점)이었고, 그 1~3위가 종합추천 'AI전략1~3위' 태그·테마 가산을 받았다 — 전략이 고른 적 없는 종목이다. 원인은 모멘텀 스크리너: 시가총액을 종목마다 주식기본조회(CTPF1002R)의 `hts_avls` 로 읽었는데 **그 응답엔 그 필드가 없다**(공식 샘플 `chk_search_stock_info.py`) → 늘 '모름' → 거래량 상위 30종목 전부 스킵 → 매 회차 0건. 지금은 거래량순위 응답의 `lstn_stcn × stck_prpr`(`QuantScreenerService.marketCapEokFromShares`, 종목별 추가 호출 없음, 공식 샘플 `chk_volume_rank.py`) + 거래정지·상폐 게이트. 대체 목록 코드는 지웠다 — 후보가 없으면 직전 스냅샷이 그 생성 시각과 함께 남는다(`AiStrategyFallbackRetiredTest` — 빈 화면을 피하려고 그럴듯한 종목을 채우지 말 것). ⚠ `fetchMarketCapFromKis`(주식기본조회)는 여전히 늘 null 이다 — 그 호출부(데이터 품질 보완)는 시가총액이 빈 행 = 네이버 분기 행에 저장하므로 **값을 채우게 고치지 말 것**(writer 구분자 `market_cap IS NULL` 파괴). **추천 입력 변경**(AI 스캘핑 시드·당시 테마 가산 — 10/6 제거) — 10/6 표본 시작 전에 배포했다. 회귀 `QuantScreenerMomentumMarketCapTest`·`AiStrategyFallbackRetiredTest`.
+
+#### §4c.53
+
+- **16:00 일일 리포트는 소수 자리를 줄일 때 반올림 방식을 준다(2026-11-04)**: 승률은 소수 둘째 자리로 계산되는데 리포트가 `setScale(1)` 만 불러 'Rounding necessary' 로 터졌고, 그 실패가 '포트폴리오 데이터 없음'으로 보여 승률·보유 종목이 텔레그램에서 빠졌다 — 크론이 켜진 9/4 부터 승률 끝자리가 0 이 아니면 매 거래일(11/3 16:00 운영 로그로 발견). 실패 문구는 '포트폴리오 조회 실패', 계좌 이름표는 '(모의투자)'. `BigDecimal.setScale(n)` 을 반올림 방식 없이 쓰지 말 것(`DailyReportRoundingTest`).
+
+#### §4c.60
+
+- **null 충돌 스캔(2026-11-04) — 지금은 없다**: 10월에 결측을 null 로 바꾼 뒤 프론트 `.toFixed`·`.toLocaleString` 직접 호출, 백엔드 nullable getter 역참조·래퍼 언박싱을 전수로 훑었고 실제로 터질 지점은 없었다(운영 DB 의 봉 OHLC·포트폴리오 현재가·장중 수급 금액 NULL 도 0건). 대신 같은 스캔에서 지어낸 값을 찾았다 — `getScreenerSummary` 는 세 목록 중 하나라도 비면 고정 대형주 8종목으로 채우고 성장률에 ROE, 순이익 증감률에 그날 주가 등락률을 넣었다 → 대체 목록 은퇴(`getScreenerFromNaver` 삭제, 빈 목록은 빈 목록, `AiStrategyFallbackRetiredTest`). **대체 목록으로 빈 화면을 메우지 말 것.**
