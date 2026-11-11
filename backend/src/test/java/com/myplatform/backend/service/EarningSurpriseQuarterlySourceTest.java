@@ -134,6 +134,7 @@ class EarningSurpriseQuarterlySourceTest {
     void refusesStaleQuarters() {
         // 5·6분기 전 = 15개월 이상 전 → 인접 쌍은 만들어지지만 노후로 탈락
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(
+                q(9, "9000", "800", "600", false),        // 전년 동기 — 노후 가드가 없으면 점수를 받게(이 테스트가 그 가드만 보게)
                 q(8, "10000", "900", "700", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(7, "10500", "950", "750", false),
                 q(6, "10000", "1000", "800", false),
@@ -208,6 +209,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("한 분기만 적자면 서프라이즈가 아니다 — 실측 209건 중 111건이 이 부류였다")
     void singleQuarterBlipIsNotASurprise() {
         List<EarningSurpriseDto> out = runWith(
+                q(4, "9000", "20", "10", false),       // 전년 동기 — 이보다 늘었다(연속 적자 조건만으로 빠지게)
                 q(3, "9500", "60", "45", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(2, "10000", "70", "55", false),      // prev2 흑자 ← 여기가 차이
                 q(1, "11000", "-20", "-15", false),    // prev 적자(한 분기 삐끗)
@@ -222,6 +224,7 @@ class EarningSurpriseQuarterlySourceTest {
         // 100억 적자 → 1억 흑자면 (1-(-100))/100 = +101% 라 POSITIVE cr>=100 으로 20점을 받는다.
         // TURNAROUND 만 막고 변화율 경로를 열어두면 효과가 없다.
         List<EarningSurpriseDto> out = runWith(
+                q(4, "9000", "0.5", "0.4", false),     // 전년 동기 — 이보다 늘었다(연속 적자 조건만으로 빠지게)
                 q(3, "9500", "60", "45", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(2, "10000", "70", "55", false),      // prev2 흑자 → 삐끗
                 q(1, "11000", "-100", "-80", false),
@@ -415,6 +418,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("재현: 누적 여부를 판정 못 한 신규 상장 종목(분기 3개)은 서프라이즈를 만들지 않는다 — 반기 누적 21 vs 1분기 10 = 가짜 +110%")
     void undecidedNewListingMakesNoSurprise() {
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(
+                q(4, "90", "9", "7", false),       // 전년 동기 — 판정 불가 규칙이 없으면 점수를 받게(인접 쌍은 여전히 2개라 판정 불가)
                 q(2, "400", "40", "30", false),    // 직전 사업연도 연간
                 q(1, "100", "10", "8", false),     // 1분기
                 q(0, "210", "21", "17", false)));  // 반기 누적 — 2분기 단독은 11
@@ -429,6 +433,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("재현: 순이익으로 판정할 때도 한 분기만 적자면 흑자전환이 아니다")
     void netIncomeTurnaroundNeedsConsecutiveLoss() {
         List<EarningSurpriseDto> out = runWith(
+                q(4, "9000", null, "5", false),        // 전년 동기 순이익 — 이보다 늘었다(연속 적자 조건만으로 빠지게)
                 q(3, "9500", null, "25", false),       // 개별 분기로 판정되게 채운다
                 q(2, "10000", null, "30", false),      // prev2 흑자
                 q(1, "11000", null, "-5", false),      // prev 적자(한 분기 삐끗)

@@ -170,9 +170,12 @@ public final class DartQuarterly {
                 || looksCumulative(next.netIncome(), nq, own == null ? null : own.netIncome())) {
             return null;
         }
+        // 앞 보고서가 다른 구분(연결/별도)이면 쓰지 않는다 — 연중에 연결을 시작한 회사의 앞 분기를 연결로 다시 읽으면 그 분기만 범위가 달라져
+        // 이웃 분기·전년 동기와 견줄 수 없다(종전대로 그 분기는 앞 보고서 값, 뒤 분기는 모른다)
+        if (own != null && !Objects.equals(own.fsDiv(), next.fsDiv())) return null;
         BigDecimal operating = minus(next.operatingProfit(), oq);
         BigDecimal net = minus(next.netIncome(), nq);
-        boolean sameBasis = own != null && Objects.equals(own.fsDiv(), next.fsDiv());
+        boolean sameBasis = own != null;
         if (sameBasis) {
             if (revenue == null) revenue = own.revenue();
             if (operating == null) operating = own.operatingProfit();
@@ -194,17 +197,14 @@ public final class DartQuarterly {
         return a.subtract(b).abs().compareTo(ROUNDING_TOLERANCE) <= 0;
     }
 
-    /** 그 시점까지의 누적 후보 — 나중 보고서가 다시 말한 값이 먼저, 그 보고서 자신의 값이 다음. */
-    private static List<Cumulative> cumulativeCandidates(Map<ReportKey, Statement> byKey, ReportKey key) {
-        List<Cumulative> out = new ArrayList<>(2);
-        Statement own = byKey.get(key);
+    /** 바로 다음 보고서가 다시 말한 '이 시점까지의 누적' — 다시 말하지 않았거나(같은 값) 쓸 수 없으면 null. */
+    private static Cumulative restatedCumulative(Map<ReportKey, Statement> byKey, ReportKey key) {
         ReportCode later = restatedBy(key.code());
-        if (later != null) {
-            Cumulative implied = impliedPrevious(byKey.get(new ReportKey(key.year(), later)), own);
-            if (implied != null) out.add(implied);
-        }
-        if (own != null) out.add(new Cumulative(own.fsDiv(), own.revenue(), own.operatingProfit(), own.netIncome()));
-        return out;
+        return later == null ? null : impliedPrevious(byKey.get(new ReportKey(key.year(), later)), byKey.get(key));
+    }
+
+    private static Cumulative ownCumulative(Statement own) {
+        return own == null ? null : new Cumulative(own.fsDiv(), own.revenue(), own.operatingProfit(), own.netIncome());
     }
 
     /**
@@ -217,6 +217,10 @@ public final class DartQuarterly {
      *
      * <p>두 값이 같으면(대부분) 결과는 {@link #individualQuarters(Collection)} 와 같다. 앞 보고서가 없어도 뒤 보고서가 말해 주면 그 분기를 안다
      * (2분기 = 반기보고서의 3개월, 1분기 = 반기 누적 − 3개월). 두 누적의 연결/별도가 다르면 빼지 않는 규칙·매출이 음수면 모르는 규칙은 그대로다.
+     *
+     * <p><b>한 분기는 한 보고서가 말한 두 누적의 차로만 만든다</b>(독립 검토 2026-11-12) — 서로 다른 보고서가 다시 적은 누적끼리 빼지 않는다.
+     * 3분기보고서가 반기 누적을 다시 적었으면(중단영업 재분류 등) 3분기는 그 보고서의 3개월이지만, <b>2분기는 모른다</b>: 다시 적은 반기에서
+     * 1분기 몫이 얼마인지 그 보고서는 말하지 않는다(반기보고서 기준 1분기를 빼면 기준이 섞인 값이 된다). 1분기는 반기보고서가 말한 대로 둔다.
      */
     public static List<Quarter> latestBasisQuarters(Collection<Statement> statements) {
         List<Quarter> out = new ArrayList<>();
@@ -226,30 +230,29 @@ public final class DartQuarterly {
 
         java.util.TreeSet<ReportKey> keys = new java.util.TreeSet<>(byKey.keySet());
         for (Statement s : byKey.values()) {
-            ReportCode previous = previousOf(s.key().code());
-            if (previous == null) continue;
-            ReportKey before = new ReportKey(s.key().year(), previous);
-            if (!byKey.containsKey(before) && impliedPrevious(s, null) != null) keys.add(before);
+            // 1분기 보고서가 없어도 반기보고서가 말해 주면 1분기를 안다. 반기보고서가 없을 때 3분기보고서로 2분기를 만들지는 않는다(아래 규칙)
+            if (s.key().code() == ReportCode.H1 && !byKey.containsKey(new ReportKey(s.key().year(), ReportCode.Q1))
+                    && impliedPrevious(s, null) != null) {
+                keys.add(new ReportKey(s.key().year(), ReportCode.Q1));
+            }
         }
         for (ReportKey key : keys) {
             ReportCode previous = previousOf(key.code());
-            Cumulative now = null;
+            Cumulative restated = restatedCumulative(byKey, key);
+            Cumulative now;
             Cumulative before = null;
-            List<Cumulative> current = cumulativeCandidates(byKey, key);
             if (previous == null) {
-                now = current.isEmpty() ? null : current.get(0);
+                // 1분기 — 반기보고서가 다시 말했으면 그 값, 아니면 1분기 보고서 값
+                now = restated != null ? restated : ownCumulative(byKey.get(key));
             } else {
-                List<Cumulative> earlier = cumulativeCandidates(byKey, new ReportKey(key.year(), previous));
-                pick:
-                for (Cumulative c : current) {
-                    for (Cumulative e : earlier) {
-                        if (Objects.equals(c.fsDiv(), e.fsDiv())) {
-                            now = c;
-                            before = e;
-                            break pick;
-                        }
-                    }
-                }
+                // 이 시점의 누적을 뒤 보고서가 다시 적었으면 이 분기(2분기)는 모른다 — 한 보고서가 말한 두 누적이 없다
+                if (restated != null) continue;
+                now = ownCumulative(byKey.get(key));
+                ReportKey earlier = new ReportKey(key.year(), previous);
+                // 앞 시점의 누적 — 이 보고서가 다시 말했으면 그 값(같은 보고서), 아니면 앞 보고서 값(두 보고서가 같은 값을 말한다)
+                before = restatedCumulative(byKey, earlier);
+                if (before == null) before = ownCumulative(byKey.get(earlier));
+                if (now == null || before == null || !Objects.equals(now.fsDiv(), before.fsDiv())) continue;
             }
             if (now == null) continue;
             BigDecimal revenue = before == null ? now.revenue() : minus(now.revenue(), before.revenue());

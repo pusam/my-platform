@@ -99,9 +99,9 @@
 | §4c.58 | `docs/rules/4c-sweeps/2026-11-09-screen8.md` | 화면 점검 8차(2026-11-09, 장 마감 뒤 로그인 화면 — 하락장·후보 0건) — 되돌리지 말 것 |
 | §4c.59 | `docs/rules/4c-sweeps/2026-11-10-morning.md` | 11/10 아침 점검(장 시작 전 로그인 화면, 사용자 '다 너가 추천하는 방향으로 알아서해줘') — 되돌리… |
 | §4c.60 | `docs/rules/4c-market-display.md` | null 충돌 스캔(2026-11-04) — 지금은 없다 |
-| §4c.61 | `docs/rules/4c-financial.md` | 전년 동기를 모르면 실적 점수를 주지 않는다(2026-11-12) |
-| §4c.62 | `docs/rules/4c-financial.md` | DART 분기 값은 가장 나중 보고서의 기준을 따른다 — 3개월 칸을 받아 두고, 실제 응답으로 확인한 뒤 켠다(2026-11-12, V77) |
 | §4c.61 | `CLAUDE.md` | 표시 계약 |
+| §4c.62 | `docs/rules/4c-financial.md` | 전년 동기를 모르면 실적 점수를 주지 않는다(2026-11-12) |
+| §4c.63 | `docs/rules/4c-financial.md` | DART 분기 값은 가장 나중 보고서의 기준을 따른다 — 3개월 칸을 받아 두고, 실제 응답으로 확인한 뒤 켠다(2026-11-12, V77) |
 | §4d.1 | `CLAUDE.md` | 재시작 reconciliation |
 | §4d.2 | `CLAUDE.md` | 매도 체결 확인 |
 | §4d.2-1 | `CLAUDE.md` | 불변식 |
