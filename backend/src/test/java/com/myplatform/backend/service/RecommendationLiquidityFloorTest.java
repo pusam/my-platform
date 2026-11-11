@@ -21,13 +21,14 @@ import static org.mockito.Mockito.mock;
 /**
  * 거래대금 하한(2026-11-11) — 컷(55) 통과 종목 중 20일 평균 거래대금 5억 미만은 순위를 자르기 전에 뺀다.
  *
- * <p>재현: 그날 장중 후보 10건 중 5건이 3억 이하였다(한일화학 0.23억·제이엔비 0.24억·디씨엠 1.47억·수산세보틱스 2.91억·파세코 3.22억).
+ * <p>재현: 그날 장중 후보 10건 중 5건이 5억 미만(0.23~3.22억)이었다(한일화학 0.23억·제이엔비 0.24억·디씨엠 1.47억·수산세보틱스 2.91억·파세코 3.22억).
  */
 class RecommendationLiquidityFloorTest {
 
     private static StockScore score(String code, int technical, Double eok) {
         StockScore s = new StockScore(code, code);
-        s.earnings = 20; s.technical = technical; s.sectorMomentum = 8;   // 수급 없음 — 세 항목 채점(그날 소형주 모양)
+        // 네 항목 채점 — 점수가 기술 점수만큼 서로 달라야 정렬이 실제로 검사된다(세 항목이면 74 상한에 다 붙는다)
+        s.earnings = 20; s.supplyDemand = 10; s.technical = technical; s.sectorMomentum = 8;
         s.avgTradedValueEok = eok == null ? null : BigDecimal.valueOf(eok);
         return s;
     }
@@ -42,13 +43,17 @@ class RecommendationLiquidityFloorTest {
         return (LiquidityStats) ReflectionTestUtils.getField(service, "lastLiquidityStats");
     }
 
-    /** 11개 — 앞 5개는 그날 미달 종목(점수 최상위), 뒤 6개는 하한 통과(점수 내림차순, 마지막 L11 이 11번째). */
+    /**
+     * 11개 — T0~T4 는 그날 미달 종목(점수 1~5위: 100·98·96·94·93), L6~L11 은 하한 통과(6~11위: 91·89·87·86·84·82).
+     * 입력은 거꾸로 넣는다 — 정렬을 지우면 순서 단언이 깨지게.
+     */
     private static List<StockScore> candidates() {
         List<StockScore> out = new ArrayList<>();
         double[] thin = {0.23, 0.24, 1.47, 2.91, 3.22};
-        for (int i = 0; i < thin.length; i++) out.add(score("T" + i, 20, thin[i]));
+        for (int i = 0; i < thin.length; i++) out.add(score("T" + i, 20 - i, thin[i]));
         double[] liquid = {5.25, 19.7, 29.3, 536, 810, 6.0};
-        for (int i = 0; i < liquid.length; i++) out.add(score("L" + (6 + i), 19 - i, liquid[i]));
+        for (int i = 0; i < liquid.length; i++) out.add(score("L" + (6 + i), 15 - i, liquid[i]));
+        java.util.Collections.reverse(out);
         return out;
     }
 
@@ -75,12 +80,11 @@ class RecommendationLiquidityFloorTest {
     void eleventhLiquidFillsTheSlot() {
         RecommendationService service = service(5);
         List<StockScore> cut = new ArrayList<>(candidates());
-        for (int i = 0; i < 5; i++) cut.add(score("M" + i, 10, 50.0));   // 통과지만 점수가 낮은 꼬리
+        for (int i = 0; i < 5; i++) cut.add(score("M" + i, 5 - i, 50.0));   // 통과지만 점수가 낮은 꼬리(74·72·70·68·67)
 
         List<RecommendationDto> r = service.rankCandidates(cut, Map.of());
 
-        assertThat(r).hasSize(10);
-        assertThat(codes(r)).doesNotContain("T0", "T1", "T2", "T3", "T4").contains("L11", "M0");
+        assertThat(codes(r)).containsExactly("L6", "L7", "L8", "L9", "L10", "L11", "M0", "M1", "M2", "M3");
         assertThat(stats(service).candidates()).isEqualTo(11);
     }
 

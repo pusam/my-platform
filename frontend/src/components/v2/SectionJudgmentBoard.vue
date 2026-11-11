@@ -101,6 +101,9 @@
               <span v-if="r.rvol != null" class="rvol-badge"
                     title="RVOL = 당일 거래대금 ÷ 직전 20일 평균 — 미검증 참고(② 계층, 점수 미편입). 캐시 스냅샷이라 장중엔 낮게 잡힘.">RVOL {{ fmtRvol(r.rvol) }}</span>
               <span v-for="s in (r.sources || [])" :key="s" class="src-tag">{{ sourceLabel(s) }}</span>
+              <!-- 점수는 55를 넘어도 20일 평균 거래대금이 하한 미달이라 매수 후보가 아니다(2026-11-11) — 정렬은 그대로 -->
+              <span v-if="r.belowLiquidityFloor === true" class="liq-badge"
+                    title="최근 20거래일 평균 거래대금이 하한 미달 — 화면 가격으로 사고팔기 어려워 매수 후보에서 뺍니다.">거래대금 하한 미달</span>
             </td>
             <td class="td-price">
               <span class="pp">{{ fmtPrice(r.currentPrice) }}</span>
@@ -426,6 +429,10 @@ onMounted(load);
 .src-tag {
   font-size: 11px; margin-left: 5px; padding: 1px 5px; border-radius: 3px;
   background: rgba(56, 189, 248, 0.14); color: #7dd3fc;
+}
+.liq-badge {
+  font-size: 11px; margin-left: 5px; padding: 1px 5px; border-radius: 3px;
+  background: rgba(245, 158, 11, 0.14); color: #fbbf24; white-space: nowrap;
 }
 /* 재료 배지(§4b 표시 전용) — 호재(주황)/악재(적색) */
 .cat-badge {

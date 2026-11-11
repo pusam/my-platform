@@ -431,3 +431,12 @@ describe('SectionJudgmentBoard — 간밤 미국장 머리줄', () => {
     expect(item.find('.jbm-ov-reason').exists()).toBe(false)
   })
 })
+
+describe('SectionJudgmentBoard — 거래대금 하한(2026-11-11)', () => {
+  it('하한 미달 행에 "거래대금 하한 미달" — 백엔드 키 belowLiquidityFloor, null 이면 표시 안 함', async () => {
+    const w = await mountBoard([row({ stockCode: '007770', belowLiquidityFloor: true }), row({ stockCode: '036710', belowLiquidityFloor: null })])
+    const badges = w.findAll('.liq-badge')
+    expect(badges).toHaveLength(1)
+    expect(badges[0].text()).toBe('거래대금 하한 미달')
+  })
+})

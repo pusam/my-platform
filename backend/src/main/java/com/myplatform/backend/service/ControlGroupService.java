@@ -37,8 +37,8 @@ import java.util.Set;
  *       <b>5분 신선 캐시</b>만 쓴다(신규 KIS 호출 금지 — AUDIT R2 대칭화, 2026-08-31). 추천이 볼 수 없던
  *       종목을 대조군에 넣으면 "점수의 기여"가 아니라 "유니버스 차이"를 재게 된다.
  *       <b>⚠ 측정 표본 경계 = 2026-09-01</b>: 그 전 대조군엔 저유동·수집중단 종목이 섞여 base rate 가
- *       낮다(edge 과대 방향) — 비교창을 섞지 말 것. 2026-11-11 부터는 추천 후보와 같은 거래대금 하한
- *       ({@link LiquidityFloor}, 20일 평균 5억)도 통과해야 한다 — 그날이 대조군 표본 경계다.</li>
+ *       낮다(edge 과대 방향) — 비교창을 섞지 말 것. 11/11 장 마감 뒤 배포부터는 추천 후보와 같은 거래대금
+ *       하한({@link LiquidityFloor}, 20일 평균 5억)도 통과해야 한다 — 대조군 표본도 11/12 부터다.</li>
  *   <li><b>같은 평가 경로</b> — signal_outcome 에 저장하므로 기존 평가 배치가 동일한 hit 정의로 채운다.</li>
  * </ul>
  *
@@ -103,6 +103,9 @@ public class ControlGroupService {
 
     /** 하한 판정에 읽는 봉의 달력일 — 20거래일 + 연휴 여유. */
     static final int LIQUIDITY_LOOKBACK_DAYS = 60;
+
+    /** 하한을 통과한 유니버스가 이보다 작으면 캐시하지 않는다 — 평소 수백 종목(11/10 봉 보유 775 중 약 380)이다. */
+    static final int MIN_CACHEABLE_LIQUID_UNIVERSE = 50;
 
     /** 유니버스 일캐시 — findStockCodesWithMinHistory 는 전체 GROUP BY 라 시그널마다 돌리면 안 된다. */
     private volatile LocalDate universeDate;
@@ -209,6 +212,13 @@ public class ControlGroupService {
                 return List.of();
             }
             log.info("[대조군] 거래대금 하한 {}억 — {}종목 중 {}종목 통과", minAvgTradedValueEok, before, codes.size());
+            if (codes.size() < MIN_CACHEABLE_LIQUID_UNIVERSE) {
+                // 첫 시그널 때 전날 봉이 아직 비어 있으면 거의 전부 '노후 = 판정 불가'로 빠진다 — 쪼그라든 유니버스를 하루 종일 쓰지 않게
+                // 캐시하지 않는다(다음 시그널이 다시 시도한다). 이번 시그널은 그 목록에서 뽑는다(전부 하한을 통과한 종목이다).
+                log.warn("[대조군] 하한 통과 {}종목 — {} 미만이라 유니버스를 캐시하지 않는다(봉 수집 지연 의심, 다음 시그널에서 다시 계산)",
+                        codes.size(), MIN_CACHEABLE_LIQUID_UNIVERSE);
+                return List.copyOf(codes);
+            }
         }
         List<String> snapshot = List.copyOf(codes);
         universeCache = snapshot;

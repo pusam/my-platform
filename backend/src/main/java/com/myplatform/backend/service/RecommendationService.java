@@ -66,6 +66,8 @@ public class RecommendationService {
     private final NotificationService notificationService;
     private final UserRepository userRepository;
     private final MarketCalendarService marketCalendar;
+    // 거래대금 하한 재판정(2026-11-11) — DB 에서 되살린 목록에도 하한을 다시 건다.
+    private final LiquidityFloorService liquidityFloorService;
     // 시그널 적중률 추적 — phase 12 통합. ObjectProvider 로 안전 주입 (순환/누락 방어).
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
     // 크론 dead-man switch — 08:00 발굴 리셋 성공 심박 기록(best-effort). null-safe(단위테스트 미주입 보존).
@@ -106,7 +108,7 @@ public class RecommendationService {
     double minAvgTradedValueEok = 5;
 
     /** 마지막 계산의 하한 적용 결과 — floorEok 은 꺼져 있으면 null. */
-    record LiquidityStats(Double floorEok, int candidates, int below, int unknown) {}
+    public record LiquidityStats(Double floorEok, int candidates, int below, int unknown) {}
     private volatile LiquidityStats lastLiquidityStats = null;
     // cachedTop5 와 짝 — 그 목록을 만든 계산의 결과. DB 스냅샷 복원 목록이면 null(모른다).
     private volatile LiquidityStats cachedLiquidityStats = null;
@@ -278,8 +280,8 @@ public class RecommendationService {
                 cachedTop5 = Collections.emptyList();
                 cacheTime = LocalDateTime.now();
                 cachedLiquidityStats = lastLiquidityStats;
-                log.info("[종합추천] 백그라운드 계산 완료 - 컷 통과 0건(관망) → 빈 결과 발행(scoreMap {}종목)",
-                        cachedScoreMap.size());
+                log.info("[종합추천] 백그라운드 계산 완료 - {} → 빈 결과 발행(scoreMap {}종목)",
+                        emptyResultNote(lastLiquidityStats), cachedScoreMap.size());
             } else if (cachedScoreMap != null && cachedScoreMap.size() >= 10) {
                 // 후보 대부분이 봉 노후로 기술 미채점 — 기술 없이는 최대 47점이라 컷을 못 넘는 게 당연하다. '관망'이 아니라
                 // '아직 모름'이므로 발행하지 않는다(2026-10-19). 예약한 수집이 끝난 뒤 다음 계산이 정상 결과를 낸다.
@@ -434,6 +436,37 @@ public class RecommendationService {
         Top5Response response = new Top5Response(items, dataTime, realtime, deltaMap);
         response.applyLiquidity(liquidityFloorOrNull(), liquidity);
         return response;
+    }
+
+    /**
+     * 마지막 계산에서 컷(55)은 넘었지만 전부 거래대금 하한 미달로 빠져 후보가 0건이었다면 그 수, 아니면 0(2026-11-11).
+     * '컷을 넘은 종목이 없다'와 '넘었지만 하한으로 빠졌다'를 가른다 — 관제실 후보 0건 사유가 쓴다.
+     */
+    public int lastCalculationAllBelowLiquidityFloor() {
+        return allBelowFloorCount(lastLiquidityStats);
+    }
+
+    static int allBelowFloorCount(LiquidityStats st) {
+        return st != null && st.candidates() == 0 && st.below() > 0 ? st.below() : 0;
+    }
+
+    /** 테스트용 공개 창구(다른 패키지 테스트) — {@link #emptyResultNote}. */
+    public static String emptyResultNoteForTest(LiquidityStats st) { return emptyResultNote(st); }
+
+    /** 빈 결과 로그 문구 — 하한으로 전부 빠졌으면 그렇게 말한다. */
+    static String emptyResultNote(LiquidityStats st) {
+        int n = allBelowFloorCount(st);
+        return n > 0 ? "컷 통과 " + n + "종목 모두 거래대금 하한 미달 → 후보 0건(관망)" : "컷 통과 0건(관망)";
+    }
+
+    /** 종합판단 보드 표시용 — 하한 미달이면 true, 그 밖(통과·판정 불가·끔)은 null(표시 안 함)(2026-11-11). */
+    public Boolean belowLiquidityFloorOrNull(StockScore s) {
+        return s != null && !notBelowLiquidityFloor(s) ? Boolean.TRUE : null;
+    }
+
+    /** 거래대금 하한 미달이 아닌가 — 통과·판정 불가·하한 꺼짐이면 true. 후보 선정 단계(리스크·실시간 검증 대상)가 같이 쓴다. */
+    boolean notBelowLiquidityFloor(StockScore s) {
+        return LiquidityFloor.judge(s.avgTradedValueEok, minAvgTradedValueEok) != LiquidityFloor.Verdict.BELOW;
     }
 
     /** 응답에 싣는 하한(억 원) — 꺼져 있으면 null. */
@@ -751,7 +784,7 @@ public class RecommendationService {
             int scoredCount = cachedScoreMap != null ? cachedScoreMap.size() : 0;
             if (shouldSkipSnapshotOnEmpty(result.isEmpty(), scoredCount)) {
                 if (shouldPublishEmptyResult(scoredCount)) {
-                    log.info("[종합추천] 스냅샷 — 컷 통과 0건(관망), 저장·record 생략(scoreMap {}종목)", scoredCount);
+                    log.info("[종합추천] 스냅샷 — {}, 저장·record 생략(scoreMap {}종목)", emptyResultNote(lastLiquidityStats), scoredCount);
                 } else {
                     log.warn("[종합추천] 스냅샷 — 입력 부족, 저장·record 생략. 과거 추천 재발행 금지(scoreMap {}종목)", scoredCount);
                 }
@@ -1066,6 +1099,27 @@ public class RecommendationService {
         items = activeRecommendations(items);
         refreshPrices(items);  // 가격은 실시간 — 가치 점수는 캐시
         return new Top5Response(items, dataTime, realtime, Collections.emptyMap());
+    }
+
+    /**
+     * DB 에서 되살린 목록에 거래대금 하한을 다시 건다(2026-11-11) — 하한 도입 전 스냅샷이나 그 뒤 거래가 줄어든 종목이 재시작·캐시 만료 때마다
+     * '오늘' 탭·가격 알림에 다시 나오지 않게. 미달은 빼고, 판정 불가는 남기며, 평균을 채운다. 봉 조회 실패면 그대로(막지 않는다).
+     */
+    List<RecommendationDto> applyLiquidityFloorToRestored(List<RecommendationDto> items) {
+        if (liquidityFloorService == null || items == null || items.isEmpty()) return items;
+        Map<String, LiquidityFloorService.Assessment> judged =
+                liquidityFloorService.assess(items.stream().map(RecommendationDto::getStockCode).toList());
+        if (judged == null) return items;
+        List<RecommendationDto> kept = new ArrayList<>(items.size());
+        int below = 0;
+        for (RecommendationDto d : items) {
+            LiquidityFloorService.Assessment a = judged.get(d.getStockCode());
+            if (a != null && a.below()) { below++; continue; }
+            if (a != null) d.setAvgTradedValueEok(LiquidityFloor.displayEok(a.avgEok()));
+            kept.add(d);
+        }
+        if (below > 0) log.info("[종합추천] DB복원 목록 — 거래대금 하한 미달 {}종목 제외", below);
+        return kept;
     }
 
     /** 캐시·DB 복원 뒤에도 현재 거래정지/상폐 게이트를 적용한다. 공유 캐시 자체는 변경하지 않는다. */
@@ -1671,42 +1725,7 @@ public class RecommendationService {
             log.debug("[종합추천] prev 스냅샷 조회 실패 (delta 0 으로 fallback): {}", e.getMessage());
         }
 
-        // 단계별 소요 시간 측정 — 백그라운드 calculate 가 30초+ 걸리던 병목 식별용.
-        // (calculate 자체가 백그라운드라 사용자 응답엔 영향 없지만 KIS rate limiter 큐 점유로
-        //  다른 워머/요청에 영향. 어디가 느린지 보이면 다음 라운드에서 핀포인트 fix 가능.)
-        long t0 = System.currentTimeMillis();
-        int aiCount = scoreAiStrategy(scoreMap);
-        long aiMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        scoreEarnings(scoreMap);
-        long erMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        scoreSupplyDemand(scoreMap);
-        long sdMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        // 섹터: AI 스냅샷 + 시장분위기 (모든 scoreMap 종목에 부여) + phase 34 regime 판정
-        MarketRegime regime = scoreSectorMomentum(scoreMap);
-        long scMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        // 기술: 마지막 (모든 종목 수집 후)
-        scoreTechnical(scoreMap);
-        long tcMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        // 가치/안정성: PBR·ROE·부채비율 (DB 만 — 빠름)
-        scoreValueStability(scoreMap);
-        // 성장성: 매출/이익 성장률 + PEG (DB 만 — 빠름). 가치와 분리된 별도 LONG 트랙.
-        scoreGrowth(scoreMap);
-        long vsMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        // 리스크 공시 페널티: DART API 호출 — 종목당 2~3초 소요 → 상위 후보(30개) 만 검사.
-        applyRiskPenalty(scoreMap);
-        long rkMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        // 실시간 교차검증: MA20 하회/수급 괴리 감지 → 점수 보정
-        applyRealtimeChecks(scoreMap);
-        long rtMs = System.currentTimeMillis() - t0;
-        // P2: 신규 진입 + 5일 가속 종목 감점 (어제 스냅샷 밖에서 갑자기 등장 + 이미 많이 오른 패턴)
-        // phase 36: BULL 강세장에서는 5일 +15% 가 정상 추세 종목에서도 흔하게 발생 → 무차별
-        // 페널티 부작용 차단 위해 regime 인자 추가, BULL 이면 스킵.
-        applyNewEntryPenalty(scoreMap, prevScoreMap, regime);
-        // phase 34: 시장 국면 적응형 가중치 — BULL/BEAR/SIDEWAYS 별 카테고리 multiplier
-        applyMarketRegimeWeighting(scoreMap, regime);
-        log.info("[종합추천] 단계별 소요 - AI:{}ms 실적:{}ms 수급:{}ms 섹터:{}ms 기술:{}ms 가치:{}ms 리스크:{}ms 실시간:{}ms (합 {}ms)",
-                aiMs, erMs, sdMs, scMs, tcMs, vsMs, rkMs, rtMs,
-                aiMs + erMs + sdMs + scMs + tcMs + vsMs + rkMs + rtMs);
+        int aiCount = scoreAllStages(scoreMap, prevScoreMap);
 
         // 디버그 로그
         for (StockScore s : scoreMap.values()) {
@@ -1744,6 +1763,50 @@ public class RecommendationService {
         }
         log.info("[종합추천] TOP 10 계산 완료 ({}건)", results.size());
         return results;
+    }
+
+    /**
+     * 채점 단계 전부(AI 시드 → 실적 → 수급 → 섹터·국면 → 기술 → 가치·성장 → 리스크 → 실시간 → 신규 진입 → 국면 가중) — {@link #calculate()}
+     * 에서 떼어 낸 것뿐이다(2026-11-11, 코드 이동만 — 거래대금 하한 배선 테스트가 이 단계를 대신 채운다). AI 시드 수를 돌려준다.
+     */
+    int scoreAllStages(Map<String, StockScore> scoreMap, Map<String, Integer> prevScoreMap) {
+        // 단계별 소요 시간 측정 — 백그라운드 calculate 가 30초+ 걸리던 병목 식별용.
+        // (calculate 자체가 백그라운드라 사용자 응답엔 영향 없지만 KIS rate limiter 큐 점유로
+        //  다른 워머/요청에 영향. 어디가 느린지 보이면 다음 라운드에서 핀포인트 fix 가능.)
+        long t0 = System.currentTimeMillis();
+        int aiCount = scoreAiStrategy(scoreMap);
+        long aiMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
+        scoreEarnings(scoreMap);
+        long erMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
+        scoreSupplyDemand(scoreMap);
+        long sdMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
+        // 섹터: AI 스냅샷 + 시장분위기 (모든 scoreMap 종목에 부여) + phase 34 regime 판정
+        MarketRegime regime = scoreSectorMomentum(scoreMap);
+        long scMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
+        // 기술: 마지막 (모든 종목 수집 후)
+        scoreTechnical(scoreMap);
+        long tcMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
+        // 가치/안정성: PBR·ROE·부채비율 (DB 만 — 빠름)
+        scoreValueStability(scoreMap);
+        // 성장성: 매출/이익 성장률 + PEG (DB 만 — 빠름). 가치와 분리된 별도 LONG 트랙.
+        scoreGrowth(scoreMap);
+        long vsMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
+        // 리스크 공시 페널티: DART API 호출 — 종목당 2~3초 소요 → 상위 후보(30개) 만 검사.
+        applyRiskPenalty(scoreMap);
+        long rkMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
+        // 실시간 교차검증: MA20 하회/수급 괴리 감지 → 점수 보정
+        applyRealtimeChecks(scoreMap);
+        long rtMs = System.currentTimeMillis() - t0;
+        // P2: 신규 진입 + 5일 가속 종목 감점 (어제 스냅샷 밖에서 갑자기 등장 + 이미 많이 오른 패턴)
+        // phase 36: BULL 강세장에서는 5일 +15% 가 정상 추세 종목에서도 흔하게 발생 → 무차별
+        // 페널티 부작용 차단 위해 regime 인자 추가, BULL 이면 스킵.
+        applyNewEntryPenalty(scoreMap, prevScoreMap, regime);
+        // phase 34: 시장 국면 적응형 가중치 — BULL/BEAR/SIDEWAYS 별 카테고리 multiplier
+        applyMarketRegimeWeighting(scoreMap, regime);
+        log.info("[종합추천] 단계별 소요 - AI:{}ms 실적:{}ms 수급:{}ms 섹터:{}ms 기술:{}ms 가치:{}ms 리스크:{}ms 실시간:{}ms (합 {}ms)",
+                aiMs, erMs, sdMs, scMs, tcMs, vsMs, rkMs, rtMs,
+                aiMs + erMs + sdMs + scMs + tcMs + vsMs + rkMs + rtMs);
+        return aiCount;
     }
 
     /**
@@ -2078,6 +2141,7 @@ public class RecommendationService {
     private void applyRiskPenalty(Map<String, StockScore> scoreMap) {
         List<StockScore> top = scoreMap.values().stream()
                 .filter(s -> countValidCategories(s) >= 3)
+                .filter(this::notBelowLiquidityFloor)   // 후보가 될 수 없는 종목이 상위 30 자리를 먹지 않게(2026-11-11)
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed())
                 .limit(30)
                 .collect(Collectors.toList());
@@ -2668,6 +2732,7 @@ public class RecommendationService {
         // vc=3 종목이 교차검증(MA20·낡은 태그 제거·수급 괴리) 없이 TOP10 에 노출된다.
         List<StockScore> topCandidates = scoreMap.values().stream()
                 .filter(s -> countValidCategories(s) >= 3)
+                .filter(this::notBelowLiquidityFloor)   // 하한 미달은 후보가 아니다 — 상위 20 검증 자리를 먹지 않게(2026-11-11)
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed())
                 .limit(20)
                 .collect(Collectors.toList());
@@ -3056,6 +3121,7 @@ public class RecommendationService {
                     // buildResponse 가 채운다(2026-10-19). 시각을 모르는 값을 '오늘' 등락률처럼 보이지 않게.
                     .changeRate(null).build();
             }).toList();
+            result = applyLiquidityFloorToRestored(result);
             cachedTop5 = result;
             cacheTime = snapshots.get(0).getSnapshotAt();
             cachedLiquidityStats = null;   // 저장된 목록 — 그때 하한으로 몇 종목을 뺐는지는 모른다
@@ -3278,7 +3344,7 @@ public class RecommendationService {
         private Integer belowLiquidityFloorCount;
         private Integer candidateCount;
 
-        void applyLiquidity(Double floorEok, LiquidityStats stats) {
+        public void applyLiquidity(Double floorEok, LiquidityStats stats) {
             this.minAvgTradedValueEok = floorEok;
             this.belowLiquidityFloorCount = stats != null && stats.floorEok() != null ? stats.below() : null;
             this.candidateCount = stats != null ? stats.candidates() : null;
