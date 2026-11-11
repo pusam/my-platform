@@ -148,6 +148,7 @@
 | §7.8-3 | `docs/rules/7-control-room.md` | "봇을 믿고 맡겨도 되나" 게이트(⑧ KPI, 2026-10-02) |
 | §7.8-4 | `docs/rules/7-control-room.md` | 장중 재시작 카드(⑨ KPI, 2026-11-10) |
 | §7.8-5 | `docs/rules/7-control-room.md` | 봇 모의매매는 이 게이트의 입력이 아니다(2026-09-16 실측) |
+| §7.8-6 | `docs/rules/7-control-room.md` | 외부 공개 수치 자동 대조(이상 점검 ⑯, 2026-11-11, V76) |
 | §7.9 | `CLAUDE.md` | 권한은 SecurityConfig URL 규칙이 담당 |
 | §7.10 | `docs/rules/7-control-room.md` | 관제실 화면 이동 바(2026-08-27) |
 | §7.11 | `CLAUDE.md` | 프론트 IA 규칙("새 주식 화면 금지 → 탭에 흡수")의 명시적 예외 |
