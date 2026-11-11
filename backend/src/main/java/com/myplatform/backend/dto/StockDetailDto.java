@@ -133,6 +133,8 @@ public class StockDetailDto {
         private BigDecimal pbrRecent;         // 최근 분기 자본 기준 PBR(그 행의 BPS) — 모름은 null
         private String recentBasis;           // CTRL(DART 지배주주) · CONSOL(KIS 연결, 비지배 포함)
         private LocalDate recentAsOf;         // 그 재무 행의 수집일
+        private BigDecimal epsRecent;         // 그 행의 EPS(최근 4분기 이익, per_basis CTRL·CONSOL 일 때만) — 적자는 음수 그대로, 모름은 null(2026-11-11)
+        private BigDecimal bpsRecent;         // 그 행의 BPS(최근 분기 자본) — pbrRecent 와 같은 조건, 모름은 null(2026-11-11)
 
         // ========== 수급 보조 지표 ==========
         private BigDecimal foreignOwnership;  // 외국인 지분율 (%)

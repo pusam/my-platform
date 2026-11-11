@@ -759,6 +759,8 @@ public class StockDetailService {
                     .pbrRecent(recent != null ? recent.pbr() : null)
                     .recentBasis(recent != null ? recent.basis() : null)
                     .recentAsOf(recent != null ? recent.asOf() : null)
+                    .epsRecent(recent != null ? recent.eps() : null)
+                    .bpsRecent(recent != null ? recent.bps() : null)
                     .foreignOwnership(foreignOwnership != null && foreignOwnership.compareTo(BigDecimal.ZERO) > 0
                             ? foreignOwnership : null)
                     .build();
@@ -770,7 +772,7 @@ public class StockDetailService {
     }
 
     /** 최근 실적 기준 PER·PBR — {@link #recentMultiples} 의 결과. */
-    record RecentMultiples(BigDecimal per, BigDecimal pbr, String basis, LocalDate asOf) {}
+    record RecentMultiples(BigDecimal per, BigDecimal pbr, String basis, LocalDate asOf, BigDecimal eps, BigDecimal bps) {}
 
     /**
      * 최근 실적 기준 PER·PBR — 순수 함수(2026-10-07, {@code StockDetailRecentMultiplesTest}).
@@ -792,8 +794,12 @@ public class StockDetailService {
                 ? currentPrice.divide(row.getEps(), 1, RoundingMode.HALF_UP) : null;
         BigDecimal pbr = recentEquity && row.getBps() != null && row.getBps().signum() > 0
                 ? currentPrice.divide(row.getBps(), 2, RoundingMode.HALF_UP) : null;
-        if (per == null && pbr == null) return null;
-        return new RecentMultiples(per, pbr, basis, row.getReportDate());
+        // EPS·BPS 자체도 같은 규칙(2026-11-11) — KIS 결산 EPS·BPS 가 0(결측)인 종목(별도재무제표 회사)의 상세 칸을 채운다.
+        // 적자 EPS 는 실재하는 값이라 그대로 넘기고(PER 만 비운다), 0 은 결측이다.
+        BigDecimal eps = ttmEarnings && row.getEps() != null && row.getEps().signum() != 0 ? row.getEps() : null;
+        BigDecimal bps = pbr != null ? row.getBps() : null;
+        if (per == null && pbr == null && eps == null) return null;
+        return new RecentMultiples(per, pbr, basis, row.getReportDate(), eps, bps);
     }
 
     /** 그 종목의 최신 KIS 일별 재무 행(시가총액이 있는 행) — 미래 날짜(추정치 잔여) 행은 거른다. 없으면 null. */

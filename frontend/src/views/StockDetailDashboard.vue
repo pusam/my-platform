@@ -269,16 +269,22 @@
             </div>
             <div class="fin-card">
               <span class="fin-label">EPS</span>
-              <span class="fin-value">
-                {{ formatPrice(financial?.eps) || '-' }}원
-                <span v-if="financial?.forwardEps" class="forward-badge">Fwd {{ formatPrice(financial.forwardEps) }}원</span>
+              <span class="fin-value-stack">
+                <span class="fin-value">
+                  {{ perShareText(financial, 'eps') }}
+                  <span v-if="financial?.forwardEps" class="forward-badge">Fwd {{ formatPrice(financial.forwardEps) }}원</span>
+                </span>
+                <span v-if="perShareRecentLine(financial, 'eps')" class="fin-sub" :title="perShareRecentTitle(financial, 'eps')">{{ perShareRecentLine(financial, 'eps') }}</span>
               </span>
             </div>
             <div class="fin-card">
               <span class="fin-label">BPS</span>
-              <span class="fin-value">
-                {{ formatPrice(financial?.bps) || '-' }}원
-                <span v-if="financial?.forwardBps" class="forward-badge">Fwd {{ formatPrice(financial.forwardBps) }}원</span>
+              <span class="fin-value-stack">
+                <span class="fin-value">
+                  {{ perShareText(financial, 'bps') }}
+                  <span v-if="financial?.forwardBps" class="forward-badge">Fwd {{ formatPrice(financial.forwardBps) }}원</span>
+                </span>
+                <span v-if="perShareRecentLine(financial, 'bps')" class="fin-sub" :title="perShareRecentTitle(financial, 'bps')">{{ perShareRecentLine(financial, 'bps') }}</span>
               </span>
             </div>
             <div class="fin-card">
@@ -606,7 +612,7 @@ import DataFreshness from '../components/DataFreshness.vue';
 import HtsChart from '../components/v2/HtsChart.vue';
 import apiClient, { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import { netBuyClass, netBuyText } from '../utils/stockFormat';
-import { multipleOrDash, recentMultipleLine, recentMultipleTitle } from '../utils/marketDataLabels';
+import { multipleOrDash, recentMultipleLine, recentMultipleTitle, perShareText, perShareRecentLine, perShareRecentTitle } from '../utils/marketDataLabels';
 import { toast } from '../utils/toast';
 import { useChartCalculations } from '../composables/useChartCalculations';
 import { channelComment, breakoutLabel } from '../utils/trendChannel';
