@@ -374,4 +374,32 @@ class ControllingEarningsTest {
             assertThat(new ReportKey(2025, ReportCode.FY).priorAnnual()).isNull();
         }
     }
+
+    @Test
+    @DisplayName("3개월 금액(V77) — 반기·3분기 보고서의 thstrm_amount, 누적 칸이 있을 때만. 1분기·사업보고서는 두지 않는다")
+    void threeMonthAmount() throws Exception {
+        // 다우기술 2026 반기 실제 값: 3개월 6,782억 · 누적 1조 1,653억
+        String row = "{\"sj_div\":\"CIS\",\"account_id\":\"ifrs-full_ProfitLoss\","
+                + "\"thstrm_amount\":\"678203792305\",\"thstrm_add_amount\":\"1165367503401\"}";
+        JsonNode node = M.readTree(row);
+        assertThat(ControllingEarnings.threeMonth(node, ReportCode.H1)).isEqualByComparingTo("6782.04");
+        assertThat(ControllingEarnings.threeMonth(node, ReportCode.Q3)).isEqualByComparingTo("6782.04");
+        assertThat(ControllingEarnings.cumulative(node, ReportCode.H1)).isEqualByComparingTo("11653.68");
+        assertThat(ControllingEarnings.threeMonth(node, ReportCode.Q1)).as("1분기는 3개월이 곧 누적").isNull();
+        assertThat(ControllingEarnings.threeMonth(node, ReportCode.FY)).as("사업보고서엔 3개월 칸이 없다").isNull();
+        assertThat(ControllingEarnings.threeMonth(null, ReportCode.H1)).isNull();
+
+        // 누적 칸이 비어 있으면 thstrm_amount 가 3개월인지 누적인지 모른다 — 쓰지 않는다
+        JsonNode noCumulative = M.readTree("{\"sj_div\":\"CIS\",\"account_id\":\"ifrs-full_ProfitLoss\",\"thstrm_amount\":\"678203792305\"}");
+        assertThat(ControllingEarnings.threeMonth(noCumulative, ReportCode.H1)).isNull();
+
+        String list = "[{\"rcept_no\":\"20260814000001\",\"sj_div\":\"IS\",\"account_id\":\"ifrs-full_Revenue\","
+                + "\"thstrm_amount\":\"7700000000\",\"thstrm_add_amount\":\"16757000000\"},"
+                + "{\"sj_div\":\"IS\",\"account_id\":\"dart_OperatingIncomeLoss\",\"thstrm_amount\":\"-11000000\",\"thstrm_add_amount\":\"376000000\"}]";
+        ControllingEarnings.Statement s = ControllingEarnings.parseStatement(M.readTree(list), ReportCode.H1);
+        assertThat(s.revenue()).isEqualByComparingTo("167.57");
+        assertThat(s.revenueQuarter()).isEqualByComparingTo("77.00");
+        assertThat(s.operatingProfitQuarter()).isEqualByComparingTo("-0.11");
+        assertThat(s.netIncomeQuarter()).as("계정이 없으면 모른다").isNull();
+    }
 }

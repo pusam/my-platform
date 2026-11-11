@@ -267,4 +267,142 @@ class DartQuarterlyTest {
         assertThat(DartQuarterly.latestBalance(List.of(oldReport), TODAY)).isNull();   // 219일 전 접수
         assertThat(new DartQuarterly.Balance(d("-10"), d("90"), d("100")).debtRatio()).isNull();
     }
+
+    // ------------------------------------------------------------------ 나중 보고서 기준 (2026-11-12, V77)
+    // 반기·3분기 보고서의 3개월 금액으로 '그 앞 시점까지의 누적'을 다시 읽는다. 앞 보고서와 같으면 결과는 종전과 같다.
+
+    private static Statement st(int year, ReportCode code, String fs, String revenue, String operating, String net,
+                                String revenueQ, String operatingQ, String netQ) {
+        return new Statement(new ReportKey(year, code), fs, d(revenue), d(operating), d(net), d(revenueQ), d(operatingQ), d(netQ));
+    }
+
+    @Test
+    @DisplayName("실측 앤로보틱스(138360) — 1분기 보고서 값(23.85억·−1.11억)이 아니라 반기보고서 기준(누적 − 3개월)이 1분기다")
+    void restatedFirstQuarterFollowsHalfYearReport() {
+        // 저장 값(2026-11-12 운영): 1분기 보고서 매출 23.85·영업 −1.11·순이익 56.32 / 반기 누적 167.57·3.76·43.84(둘 다 별도).
+        // 반기보고서의 3개월 칸은 아직 받지 않았다 — 공개 수치(2분기 매출 77억·영업이익 0억)를 넣어 재현한다. 순이익 3개월은 모르는 것으로 둔다.
+        Statement q1 = st(2026, ReportCode.Q1, "OFS", "23.85", "-1.11", "56.32");
+        Statement h1 = st(2026, ReportCode.H1, "OFS", "167.57", "3.76", "43.84", "77.00", "0.00", null);
+
+        List<Quarter> own = DartQuarterly.individualQuarters(List.of(q1, h1));
+        assertThat(q(own, "202603").operatingProfit()).as("종전: 1분기 적자").isEqualByComparingTo("-1.11");
+        assertThat(q(own, "202606").revenue()).isEqualByComparingTo("143.72");
+        assertThat(q(own, "202606").operatingProfit()).as("종전: 2분기 4.87억 흑자 — '흑자전환'으로 읽혔다").isEqualByComparingTo("4.87");
+
+        List<Quarter> latest = DartQuarterly.latestBasisQuarters(List.of(q1, h1));
+        assertThat(q(latest, "202603").revenue()).as("167.57 − 77.00").isEqualByComparingTo("90.57");
+        assertThat(q(latest, "202603").operatingProfit()).as("1분기가 이미 흑자").isEqualByComparingTo("3.76");
+        assertThat(q(latest, "202606").revenue()).isEqualByComparingTo("77.00");
+        assertThat(q(latest, "202606").operatingProfit()).isEqualByComparingTo("0.00");
+        // 3개월 칸이 없는 항목(순이익)은 앞 보고서 값 그대로
+        assertThat(q(latest, "202603").netIncome()).isEqualByComparingTo("56.32");
+        assertThat(q(latest, "202606").netIncome()).isEqualByComparingTo("-12.48");
+
+        DartQuarterly.BasisDiff diff = DartQuarterly.basisDiff(own, latest);
+        assertThat(diff.changed()).containsExactly("202603", "202606");
+        assertThat(diff.added()).isEmpty();
+        assertThat(diff.removed()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("3개월 칸이 앞 보고서와 맞으면(반올림 0.02억 안) 결과는 종전과 똑같다 — 대부분의 회사")
+    void consistentThreeMonthChangesNothing() {
+        List<Statement> reports = List.of(
+                st(2025, ReportCode.Q3, "OFS", "300", "30", "24", "100.01", "10", "8"),   // 300 − 100.01 = 199.99 ≈ 반기 200
+                st(2025, ReportCode.FY, "OFS", "420", "45", "36"),
+                st(2026, ReportCode.Q1, "OFS", "110", "12", "9"),
+                st(2026, ReportCode.H1, "OFS", "230", "26", "20", "120", "14.01", "11"),  // 26 − 14.01 = 11.99 ≈ 1분기 12
+                st(2025, ReportCode.H1, "OFS", "200", "20", "16", "105", "11", "9"),
+                st(2025, ReportCode.Q1, "OFS", "95", "9", "7"));
+
+        List<Quarter> own = DartQuarterly.individualQuarters(reports);
+        List<Quarter> latest = DartQuarterly.latestBasisQuarters(reports);
+
+        assertThat(latest).isEqualTo(own);
+        assertThat(DartQuarterly.basisDiff(own, latest).isEmpty()).isTrue();
+        assertThat(q(latest, "202512").revenue()).as("4분기 = 연간 − 3분기 누적(사업보고서엔 3개월 칸이 없다)").isEqualByComparingTo("120");
+    }
+
+    @Test
+    @DisplayName("3개월 칸이 누적과 같은 값이면(3개월 칸에 누적을 넣은 응답) 쓰지 않는다 — 앞 보고서가 0 이 아니라고 한다")
+    void threeMonthEqualToCumulativeIsIgnored() {
+        Statement q1 = st(2026, ReportCode.Q1, "OFS", "100", "10", "8");
+        Statement h1 = st(2026, ReportCode.H1, "OFS", "220", "25", "20", "220", "25", "20");
+
+        assertThat(DartQuarterly.latestBasisQuarters(List.of(q1, h1))).isEqualTo(DartQuarterly.individualQuarters(List.of(q1, h1)));
+        // 앞 보고서가 없을 때도 '1분기 0'이라고 지어내지 않는다 — 종전대로 둘 다 모른다
+        assertThat(DartQuarterly.latestBasisQuarters(List.of(h1))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("3개월 매출이 누적보다 크거나 음수면 두 칸의 기준이 다른 것 — 쓰지 않는다")
+    void inconsistentThreeMonthIsIgnored() {
+        Statement q1 = st(2026, ReportCode.Q1, "OFS", "100", "10", "8");
+        Statement bigger = st(2026, ReportCode.H1, "OFS", "220", "25", "20", "300", "15", "12");
+        Statement negative = st(2026, ReportCode.H1, "OFS", "220", "25", "20", "-5", "15", "12");
+
+        assertThat(DartQuarterly.latestBasisQuarters(List.of(q1, bigger))).isEqualTo(DartQuarterly.individualQuarters(List.of(q1, bigger)));
+        assertThat(DartQuarterly.latestBasisQuarters(List.of(q1, negative))).isEqualTo(DartQuarterly.individualQuarters(List.of(q1, negative)));
+    }
+
+    @Test
+    @DisplayName("1분기 보고서가 없어도 반기보고서가 말해 준다 — 2분기 = 3개월, 1분기 = 누적 − 3개월(종전엔 둘 다 몰랐다)")
+    void halfYearReportAloneGivesBothQuarters() {
+        Statement h1 = st(2026, ReportCode.H1, "CFS", "220", "25", "20", "120", "14", "11");
+
+        assertThat(DartQuarterly.individualQuarters(List.of(h1))).isEmpty();
+        List<Quarter> latest = DartQuarterly.latestBasisQuarters(List.of(h1));
+        assertThat(q(latest, "202603").revenue()).isEqualByComparingTo("100");
+        assertThat(q(latest, "202603").operatingProfit()).isEqualByComparingTo("11");
+        assertThat(q(latest, "202606").revenue()).isEqualByComparingTo("120");
+        assertThat(q(latest, "202606").netIncome()).isEqualByComparingTo("11");
+    }
+
+    @Test
+    @DisplayName("연중에 연결을 시작한 회사 — 3분기는 3분기보고서(연결)의 3개월, 2분기는 종전대로 별도끼리 뺀다(기준을 섞지 않는다)")
+    void basisChangeMidYearDoesNotMix() {
+        List<Statement> reports = List.of(
+                st(2026, ReportCode.Q1, "OFS", "100", "10", "8"),
+                st(2026, ReportCode.H1, "OFS", "220", "25", "20", "120", "15", "12"),
+                st(2026, ReportCode.Q3, "CFS", "500", "60", "45", "200", "22", "17"));    // 연결 반기 누적은 300 — 별도 220 과 다르다
+
+        assertThat(q(DartQuarterly.individualQuarters(reports), "202609")).as("종전: 연결 − 별도는 빼지 않아 3분기를 모른다").isNull();
+
+        List<Quarter> latest = DartQuarterly.latestBasisQuarters(reports);
+        assertThat(q(latest, "202609").revenue()).isEqualByComparingTo("200");
+        assertThat(q(latest, "202609").operatingProfit()).isEqualByComparingTo("22");
+        assertThat(q(latest, "202606").revenue()).as("별도 220 − 별도 100").isEqualByComparingTo("120");
+        assertThat(q(latest, "202603").revenue()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    @DisplayName("3분기보고서가 반기 누적을 다시 적으면 2분기도 그 기준 — 2분기 = (3분기 누적 − 3개월) − 1분기")
+    void thirdQuarterReportRestatesHalfYear() {
+        List<Statement> reports = List.of(
+                st(2026, ReportCode.Q1, "OFS", "100", "10", "8"),
+                st(2026, ReportCode.H1, "OFS", "220", "25", "20", "120", "15", "12"),
+                st(2026, ReportCode.Q3, "OFS", "330", "30", "24", "130", "12", "9"));     // 반기 누적 200·18·15 로 다시 적었다
+
+        List<Quarter> latest = DartQuarterly.latestBasisQuarters(reports);
+        assertThat(q(latest, "202609").revenue()).isEqualByComparingTo("130");
+        assertThat(q(latest, "202606").revenue()).as("200 − 100").isEqualByComparingTo("100");
+        assertThat(q(latest, "202606").operatingProfit()).as("18 − 10").isEqualByComparingTo("8");
+        assertThat(q(latest, "202603").revenue()).isEqualByComparingTo("100");
+        assertThat(DartQuarterly.basisDiff(DartQuarterly.individualQuarters(reports), latest).changed())
+                .containsExactly("202606", "202609");
+    }
+
+    @Test
+    @DisplayName("다시 적은 누적으로 빼서 분기 매출이 음수가 되면 그 분기는 모른다 — 종전 규칙 그대로")
+    void negativeQuarterAfterRestatementIsUnknown() {
+        List<Statement> reports = List.of(
+                st(2026, ReportCode.Q1, "OFS", "100", "10", "8"),
+                st(2026, ReportCode.H1, "OFS", "220", "25", "20", "150", "15", "12"),     // 1분기를 70 으로 다시 적었다
+                st(2026, ReportCode.Q3, "OFS", "200", "30", "24", "140", "12", "9"));     // 반기 누적을 60 으로 다시 적었다(중단영업 재분류)
+
+        List<Quarter> latest = DartQuarterly.latestBasisQuarters(reports);
+        assertThat(q(latest, "202606")).as("60 − 70 = −10 — 두 누적의 차이는 그 분기 실적이 아니다").isNull();
+        assertThat(q(latest, "202609").revenue()).isEqualByComparingTo("140");
+        assertThat(q(latest, "202603").revenue()).isEqualByComparingTo("70");
+    }
 }

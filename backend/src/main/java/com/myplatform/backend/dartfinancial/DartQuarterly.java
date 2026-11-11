@@ -55,8 +55,16 @@ public final class DartQuarterly {
      */
     static final BigDecimal MAX_EQUITY_TO_MARKET_CAP = BigDecimal.valueOf(200);
 
-    /** 보고서 한 건 — 누적(억원). */
-    public record Statement(ReportKey key, String fsDiv, BigDecimal revenue, BigDecimal operatingProfit, BigDecimal netIncome) {}
+    /**
+     * 보고서 한 건 — 누적(억원)과 그 보고서의 3개월 금액(억원, 반기·3분기 보고서만 — V77 이전에 받은 행·1분기·사업보고서는 null).
+     */
+    public record Statement(ReportKey key, String fsDiv, BigDecimal revenue, BigDecimal operatingProfit, BigDecimal netIncome,
+                            BigDecimal revenueQuarter, BigDecimal operatingProfitQuarter, BigDecimal netIncomeQuarter) {
+        /** 3개월 금액을 모르는 보고서. */
+        public Statement(ReportKey key, String fsDiv, BigDecimal revenue, BigDecimal operatingProfit, BigDecimal netIncome) {
+            this(key, fsDiv, revenue, operatingProfit, netIncome, null, null, null);
+        }
+    }
 
     /** 개별 분기(억원). */
     public record Quarter(String fiscalPeriod, LocalDate periodEnd, BigDecimal revenue, BigDecimal operatingProfit,
@@ -112,6 +120,180 @@ public final class DartQuarterly {
 
     private static BigDecimal minus(BigDecimal a, BigDecimal b) {
         return a == null || b == null ? null : a.subtract(b);
+    }
+
+    // ==================== 나중 보고서 기준(2026-11-12) ====================
+
+    /**
+     * 3개월 금액을 주는 보고서인가 — 반기·3분기. 1분기는 3개월이 곧 누적이고, 사업보고서에는 3개월 칸이 없다
+     * (OpenDART 개발가이드: {@code thstrm_amount} 는 "분/반기 보고서이면서 (포괄)손익계산서일 경우 [3개월] 금액").
+     */
+    public static boolean hasThreeMonthColumn(ReportCode code) {
+        return code == ReportCode.H1 || code == ReportCode.Q3;
+    }
+
+    /** 같은 회계연도에서 바로 다음 보고서 중 3개월 칸이 있는 것 — 그 보고서가 이 시점까지의 누적을 다시 말한다. */
+    private static ReportCode restatedBy(ReportCode code) {
+        return switch (code) {
+            case Q1 -> ReportCode.H1;
+            case H1 -> ReportCode.Q3;
+            case Q3, FY -> null;
+        };
+    }
+
+    /** 억원 소수 둘째 자리로 반올림한 두 값의 차 — 이 안이면 같은 값이다(누적·3개월을 따로 반올림해 0.01 씩 어긋난다). */
+    static final BigDecimal ROUNDING_TOLERANCE = new BigDecimal("0.02");
+
+    /** 어느 시점까지의 누적(억원) — 그 값을 말한 보고서의 연결/별도 구분과 함께. */
+    record Cumulative(String fsDiv, BigDecimal revenue, BigDecimal operatingProfit, BigDecimal netIncome) {}
+
+    /**
+     * 뒤 보고서가 말하는 '그 앞 시점까지의 누적' = 뒤 보고서의 누적 − 뒤 보고서의 3개월. 앞 보고서({@code own})와 같으면(반올림 차 안) null —
+     * 달라질 것이 없다. 쓸 수 없는 경우도 null:
+     * <ul>
+     *   <li>3개월 칸이 없다(V77 이전 행·1분기·사업보고서).</li>
+     *   <li>3개월 매출이나 그 앞 누적 매출이 음수다 — 두 칸의 기준이 다르다.</li>
+     *   <li>3개월 = 누적인데 앞 보고서가 '그 앞은 0'이라고 확인해 주지 않는다 — 3개월 칸에 누적을 넣은 응답으로 본다.</li>
+     * </ul>
+     * 3개월 칸이 비어 있는 항목은 앞 보고서 값(구분이 같을 때) 그대로다.
+     */
+    static Cumulative impliedPrevious(Statement next, Statement own) {
+        if (next == null || !hasThreeMonthColumn(next.key().code())) return null;
+        BigDecimal rq = next.revenueQuarter();
+        BigDecimal oq = next.operatingProfitQuarter();
+        BigDecimal nq = next.netIncomeQuarter();
+        if (rq == null && oq == null && nq == null) return null;
+        BigDecimal revenue = minus(next.revenue(), rq);
+        if ((rq != null && rq.signum() < 0) || (revenue != null && revenue.signum() < 0)) return null;
+        if (looksCumulative(next.revenue(), rq, own == null ? null : own.revenue())
+                || looksCumulative(next.operatingProfit(), oq, own == null ? null : own.operatingProfit())
+                || looksCumulative(next.netIncome(), nq, own == null ? null : own.netIncome())) {
+            return null;
+        }
+        BigDecimal operating = minus(next.operatingProfit(), oq);
+        BigDecimal net = minus(next.netIncome(), nq);
+        boolean sameBasis = own != null && Objects.equals(own.fsDiv(), next.fsDiv());
+        if (sameBasis) {
+            if (revenue == null) revenue = own.revenue();
+            if (operating == null) operating = own.operatingProfit();
+            if (net == null) net = own.netIncome();
+            if (near(revenue, own.revenue()) && near(operating, own.operatingProfit()) && near(net, own.netIncome())) return null;
+        }
+        return new Cumulative(next.fsDiv(), revenue, operating, net);
+    }
+
+    /** 3개월 = 누적(0 이 아닌 값)인데 앞 보고서가 '그 앞은 0'이라고 확인해 주지 않는다. */
+    private static boolean looksCumulative(BigDecimal cumulative, BigDecimal quarter, BigDecimal ownPrevious) {
+        if (cumulative == null || quarter == null || cumulative.signum() == 0) return false;
+        if (cumulative.compareTo(quarter) != 0) return false;
+        return ownPrevious == null || ownPrevious.signum() != 0;
+    }
+
+    private static boolean near(BigDecimal a, BigDecimal b) {
+        if (a == null || b == null) return a == null && b == null;
+        return a.subtract(b).abs().compareTo(ROUNDING_TOLERANCE) <= 0;
+    }
+
+    /** 그 시점까지의 누적 후보 — 나중 보고서가 다시 말한 값이 먼저, 그 보고서 자신의 값이 다음. */
+    private static List<Cumulative> cumulativeCandidates(Map<ReportKey, Statement> byKey, ReportKey key) {
+        List<Cumulative> out = new ArrayList<>(2);
+        Statement own = byKey.get(key);
+        ReportCode later = restatedBy(key.code());
+        if (later != null) {
+            Cumulative implied = impliedPrevious(byKey.get(new ReportKey(key.year(), later)), own);
+            if (implied != null) out.add(implied);
+        }
+        if (own != null) out.add(new Cumulative(own.fsDiv(), own.revenue(), own.operatingProfit(), own.netIncome()));
+        return out;
+    }
+
+    /**
+     * 보고서 → 개별 분기, <b>분기 값은 가장 나중 보고서의 기준을 따른다</b>(2026-11-12). {@link #individualQuarters(Collection)} 와 다른 점은
+     * 하나다 — 반기·3분기 보고서가 3개월 금액을 주면 '그 앞 시점까지의 누적'을 앞 보고서 값이 아니라 그 보고서의 누적 − 3개월로 읽는다.
+     *
+     * <p><b>왜</b>: 앤로보틱스(138360) 2026 1분기 보고서는 매출 23.85억·영업손실 1.11억인데, 공개 수치로는 1분기가 이미 흑자였다
+     * (1분기 매출 90억·영업이익 4억, 2분기 77억·0억 — 반기 누적 167.57억은 같다). 앞 보고서 값으로 빼면 2분기가 143.72억·4.87억이 되어
+     * '2분기 연속 적자 뒤 흑자전환'(실적 20점)으로 읽혔다.
+     *
+     * <p>두 값이 같으면(대부분) 결과는 {@link #individualQuarters(Collection)} 와 같다. 앞 보고서가 없어도 뒤 보고서가 말해 주면 그 분기를 안다
+     * (2분기 = 반기보고서의 3개월, 1분기 = 반기 누적 − 3개월). 두 누적의 연결/별도가 다르면 빼지 않는 규칙·매출이 음수면 모르는 규칙은 그대로다.
+     */
+    public static List<Quarter> latestBasisQuarters(Collection<Statement> statements) {
+        List<Quarter> out = new ArrayList<>();
+        if (statements == null) return out;
+        Map<ReportKey, Statement> byKey = new HashMap<>();
+        for (Statement s : statements) byKey.put(s.key(), s);
+
+        java.util.TreeSet<ReportKey> keys = new java.util.TreeSet<>(byKey.keySet());
+        for (Statement s : byKey.values()) {
+            ReportCode previous = previousOf(s.key().code());
+            if (previous == null) continue;
+            ReportKey before = new ReportKey(s.key().year(), previous);
+            if (!byKey.containsKey(before) && impliedPrevious(s, null) != null) keys.add(before);
+        }
+        for (ReportKey key : keys) {
+            ReportCode previous = previousOf(key.code());
+            Cumulative now = null;
+            Cumulative before = null;
+            List<Cumulative> current = cumulativeCandidates(byKey, key);
+            if (previous == null) {
+                now = current.isEmpty() ? null : current.get(0);
+            } else {
+                List<Cumulative> earlier = cumulativeCandidates(byKey, new ReportKey(key.year(), previous));
+                pick:
+                for (Cumulative c : current) {
+                    for (Cumulative e : earlier) {
+                        if (Objects.equals(c.fsDiv(), e.fsDiv())) {
+                            now = c;
+                            before = e;
+                            break pick;
+                        }
+                    }
+                }
+            }
+            if (now == null) continue;
+            BigDecimal revenue = before == null ? now.revenue() : minus(now.revenue(), before.revenue());
+            BigDecimal operating = before == null ? now.operatingProfit() : minus(now.operatingProfit(), before.operatingProfit());
+            BigDecimal net = before == null ? now.netIncome() : minus(now.netIncome(), before.netIncome());
+            if (revenue == null && operating == null && net == null) continue;
+            if (previous != null && revenue != null && revenue.signum() < 0) continue;
+            out.add(new Quarter(fiscalPeriod(key), periodEnd(key), revenue, operating, net));
+        }
+        return out;
+    }
+
+    /** 두 기준의 차이(분기) — 값이 다른 분기·나중 보고서 기준에서만 생기는 분기·없어지는 분기. 측정과 로그용. */
+    public record BasisDiff(List<String> changed, List<String> added, List<String> removed) {
+        public boolean isEmpty() {
+            return changed.isEmpty() && added.isEmpty() && removed.isEmpty();
+        }
+    }
+
+    public static BasisDiff basisDiff(List<Quarter> ownBasis, List<Quarter> latestBasis) {
+        Map<String, Quarter> own = new HashMap<>();
+        for (Quarter q : ownBasis) own.put(q.fiscalPeriod(), q);
+        List<String> changed = new ArrayList<>();
+        List<String> added = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Quarter q : latestBasis) {
+            seen.add(q.fiscalPeriod());
+            Quarter o = own.get(q.fiscalPeriod());
+            if (o == null) {
+                added.add(q.fiscalPeriod());
+            } else if (!sameValue(o.revenue(), q.revenue()) || !sameValue(o.operatingProfit(), q.operatingProfit())
+                    || !sameValue(o.netIncome(), q.netIncome())) {
+                changed.add(q.fiscalPeriod());
+            }
+        }
+        List<String> removed = new ArrayList<>();
+        for (Quarter q : ownBasis) {
+            if (!seen.contains(q.fiscalPeriod())) removed.add(q.fiscalPeriod());
+        }
+        return new BasisDiff(changed, added, removed);
+    }
+
+    private static boolean sameValue(BigDecimal a, BigDecimal b) {
+        return a == null || b == null ? a == null && b == null : a.compareTo(b) == 0;
     }
 
     /**

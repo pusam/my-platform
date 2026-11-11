@@ -654,4 +654,133 @@ class DartControllingFinancialServiceTest {
         assertThat(saved).hasSize(2);
         assertThat(companies).hasSize(1);
     }
+
+    // ------------------------------------------------------------------ 3개월 칸(V77, 2026-11-12)
+
+    /** 손익 행의 3개월 금액과 누적을 따로 주는 응답 — 실제 분·반기 응답의 모양(thstrm_amount = 3개월, thstrm_add_amount = 누적). */
+    private static String statementQ(String rcept, String revenue, String revenueQ, String operating, String operatingQ,
+                                     String net, String netQ) {
+        String income = "\"thstrm_amount\":\"%2$s\",\"thstrm_add_amount\":\"%1$s\",\"frmtrm_amount\":\"0\",\"frmtrm_add_amount\":\"0\"";
+        return "{\"status\":\"000\",\"message\":\"정상\",\"list\":["
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"CIS\",\"account_id\":\"ifrs-full_Revenue\",\"account_nm\":\"매출액\"," + income.formatted(revenue, revenueQ) + "},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"CIS\",\"account_id\":\"dart_OperatingIncomeLoss\",\"account_nm\":\"영업이익\"," + income.formatted(operating, operatingQ) + "},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"CIS\",\"account_id\":\"ifrs-full_ProfitLoss\",\"account_nm\":\"당기순이익\"," + income.formatted(net, netQ) + "},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Equity\",\"thstrm_amount\":\"5000000000000\"},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Assets\",\"thstrm_amount\":\"6000000000000\"},"
+                + "{\"rcept_no\":\"" + rcept + "\",\"sj_div\":\"BS\",\"account_id\":\"ifrs-full_Liabilities\",\"thstrm_amount\":\"1000000000000\"}]}";
+    }
+
+    private static String eokToWon(String eok) {
+        return eok + "00000000";
+    }
+
+    /** 보고서 9건을 받아 둔 종목을 V77 이전 상태로 되돌린다 — 3개월 칸이 없고 읽어 본 적도 없다. */
+    private void filledBeforeV77() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        service.collect();
+        for (DartControllingFinancial row : saved) {
+            row.setRevenueQ(null);
+            row.setOperatingProfitQ(null);
+            row.setTotalNetIncomeQ(null);
+            row.setQuarterParsed(false);
+        }
+        calls.clear();
+    }
+
+    /** 2026 반기보고서가 1분기를 다시 적었다 — 누적 22,000·7,000·5,000 은 그대로, 3개월 9,000·2,500·2,000(1분기는 13,000·4,500·3,000 이 된다). */
+    private void halfYearRestatesFirstQuarter() {
+        responses.put("00123456/2026/11012/OFS", statementQ("20260814000001", eokToWon("22000"), eokToWon("9000"),
+                eokToWon("7000"), eokToWon("2500"), eokToWon("5000"), eokToWon("2000")));
+    }
+
+    @Test
+    @DisplayName("V77 이전에 받은 반기·3분기 보고서만 한 번 다시 받아 3개월 칸을 채운다 — 누적·분기 행은 그대로(기본: 측정만)")
+    void threeMonthColumnsFilledOnceWithoutChangingQuarters() {
+        filledBeforeV77();
+        halfYearRestatesFirstQuarter();
+
+        service.collect();
+
+        assertThat(calls).as("반기·3분기 5건만, 저장된 구분(별도)으로 한 번씩 — 1분기·사업보고서는 3개월 칸이 없다")
+                .containsExactlyInAnyOrder("00123456/2026/11012/OFS", "00123456/2025/11014/OFS", "00123456/2025/11012/OFS",
+                        "00123456/2024/11014/OFS", "00123456/2024/11012/OFS");
+        DartControllingFinancial h1 = savedRow(2026, "11012");
+        assertThat(h1.isQuarterParsed()).isTrue();
+        assertThat(h1.getRevenueQ()).isEqualByComparingTo("9000");
+        assertThat(h1.getOperatingProfitQ()).isEqualByComparingTo("2500");
+        assertThat(h1.getTotalNetIncomeQ()).isEqualByComparingTo("2000");
+        assertThat(h1.getRevenue()).as("누적은 건드리지 않는다").isEqualByComparingTo("22000");
+        assertThat(savedRow(2026, "11013").isQuarterParsed()).as("1분기 보고서는 대상이 아니다").isFalse();
+
+        assertThat(service.latestReportBasis).isFalse();
+        assertThat(quarter("202606").getRevenue()).as("꺼져 있으면 분기 값은 종전대로 22,000 − 10,000").isEqualByComparingTo("12000");
+        assertThat(quarter("202603").getOperatingProfit()).isEqualByComparingTo("3000");
+        // 재기는 한다: 다시 받은 5건 · 값 있음 5건 · 누적 바뀜 0 · 값이 다른 분기 2(202603·202606) · 새 분기 0 · 없어지는 분기 0 · 종목 1
+        assertThat(service.lastBasisTally).containsExactly(5, 5, 0, 2, 0, 0, 1);
+
+        calls.clear();
+        service.collect();
+        assertThat(calls).as("한 번 읽은 보고서는 다시 받지 않는다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("나중 보고서 기준을 켜면 분기 행이 반기보고서 기준으로 바뀐다 — 1분기 = 누적 − 3개월, 2분기 = 3개월")
+    void latestReportBasisRewritesQuarters() {
+        filledBeforeV77();
+        halfYearRestatesFirstQuarter();
+        service.latestReportBasis = true;
+
+        service.collect();
+
+        assertThat(quarter("202603").getRevenue()).as("22,000 − 9,000").isEqualByComparingTo("13000");
+        assertThat(quarter("202603").getOperatingProfit()).isEqualByComparingTo("4500");
+        assertThat(quarter("202606").getRevenue()).isEqualByComparingTo("9000");
+        assertThat(quarter("202606").getNetIncome()).isEqualByComparingTo("2000");
+        assertThat(quarter("202512").getRevenue()).as("다른 분기는 그대로").isEqualByComparingTo("10000");
+    }
+
+    @Test
+    @DisplayName("다시 받은 응답의 누적이 저장된 값과 다르면(그사이 정정) 3개월 칸을 붙이지 않는다 — 있던 금액도 그대로")
+    void amendedReportDoesNotGetThreeMonth() {
+        filledBeforeV77();
+        responses.put("00123456/2026/11012/OFS", statementQ("20261001000001", eokToWon("25000"), eokToWon("9000"),
+                eokToWon("7000"), eokToWon("2500"), eokToWon("5000"), eokToWon("2000")));
+
+        service.collect();
+
+        DartControllingFinancial h1 = savedRow(2026, "11012");
+        assertThat(h1.getRevenue()).isEqualByComparingTo("22000");
+        assertThat(h1.getRevenueQ()).isNull();
+        assertThat(h1.isQuarterParsed()).as("매 회차 다시 묻지 않는다").isTrue();
+        assertThat(service.lastBasisTally[2]).as("누적이 바뀐 보고서 1건").isEqualTo(1);
+        assertThat(quarter("202606").getRevenue()).isEqualByComparingTo("12000");
+    }
+
+    @Test
+    @DisplayName("3개월 칸을 다시 받다 실패하면 그 행을 건드리지 않고 다음 회차에 — 없다고 하면(013) 표시만 하고 금액은 남긴다")
+    void threeMonthRefetchFailureKeepsStoredFigures() {
+        filledBeforeV77();
+        responses.put("00123456/2026/11012/OFS", "THROW");
+
+        service.collect();
+
+        DartControllingFinancial h1 = savedRow(2026, "11012");
+        assertThat(h1.getStatus()).isEqualTo(DartControllingFinancial.STATUS_OK);
+        assertThat(h1.getRevenue()).isEqualByComparingTo("22000");
+        assertThat(h1.isQuarterParsed()).as("실패는 '읽어 봤다'가 아니다").isFalse();
+        assertThat(calls).as("이 종목은 거기서 멈춘다").containsExactly("00123456/2026/11012/OFS");
+        assertThat(quarter("202606").getRevenue()).isEqualByComparingTo("12000");
+
+        calls.clear();
+        responses.put("00123456/2026/11012/OFS", NO_DATA);
+        service.collect();
+
+        assertThat(h1.getStatus()).as("있던 보고서를 '데이터 없음'으로 지우지 않는다").isEqualTo(DartControllingFinancial.STATUS_OK);
+        assertThat(h1.getRevenue()).isEqualByComparingTo("22000");
+        assertThat(h1.isQuarterParsed()).isTrue();
+        assertThat(calls).hasSize(5);
+    }
 }

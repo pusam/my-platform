@@ -115,6 +115,25 @@ public class DartControllingFinancial {
     @Column(nullable = false)
     private boolean incomeParsed;
 
+    /**
+     * 이 보고서의 3개월 매출(억원) — 반기·3분기 보고서만(V77, 2026-11-12). 누적({@link #revenue}) − 이 값 = 이 보고서가 말하는 '그 앞 시점까지의
+     * 누적'이고, 앞 보고서 값과 다르면 나중 보고서가 앞 분기를 다시 적은 것이다({@link DartQuarterly#latestBasisQuarters}).
+     */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal revenueQ;
+
+    /** 이 보고서의 3개월 영업이익(억원). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal operatingProfitQ;
+
+    /** 이 보고서의 3개월 당기순이익(억원, 비지배 포함). */
+    @Column(precision = 15, scale = 2)
+    private BigDecimal totalNetIncomeQ;
+
+    /** 3개월 칸을 읽으려 해 본 행인가 — V77 이전에 받은 반기·3분기 보고서만 한 번 다시 받는다(없어서 못 읽은 행도 true). */
+    @Column(nullable = false)
+    private boolean quarterParsed;
+
     @Column(nullable = false)
     private LocalDateTime collectedAt;
 
@@ -129,6 +148,7 @@ public class DartControllingFinancial {
 
     /** 개별 분기 환산 입력으로 — 순이익은 비지배 포함(KIS 분기 원본의 thtr_ntin 과 같은 정의). */
     DartQuarterly.Statement toStatement() {
-        return new DartQuarterly.Statement(key(), fsDiv, revenue, operatingProfit, totalNetIncome);
+        return new DartQuarterly.Statement(key(), fsDiv, revenue, operatingProfit, totalNetIncome,
+                revenueQ, operatingProfitQ, totalNetIncomeQ);
     }
 }

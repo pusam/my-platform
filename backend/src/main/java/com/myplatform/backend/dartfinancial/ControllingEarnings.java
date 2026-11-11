@@ -107,9 +107,13 @@ public final class ControllingEarnings {
     public record Figures(BigDecimal ctrlNetIncome, BigDecimal ctrlNetIncomePrev, BigDecimal totalNetIncome,
                           BigDecimal ctrlEquity, BigDecimal totalEquity, LocalDate filedOn) {}
 
-    /** 보고서 한 건의 매출·영업이익(누적, 억원)·자산·부채(시점, 억원)·전년 동기 누적(비교 칸, 억원) — 계정이 없으면 null. */
+    /**
+     * 보고서 한 건의 매출·영업이익(누적, 억원)·자산·부채(시점, 억원)·전년 동기 누적(비교 칸, 억원)·그 보고서의 3개월 금액(억원, 반기·3분기
+     * 보고서만 — V77) — 계정이 없으면 null.
+     */
     public record Statement(BigDecimal revenue, BigDecimal operatingProfit, BigDecimal totalAssets, BigDecimal totalLiabilities,
-                            BigDecimal revenuePrev, BigDecimal operatingProfitPrev, BigDecimal netIncomePrev) {}
+                            BigDecimal revenuePrev, BigDecimal operatingProfitPrev, BigDecimal netIncomePrev,
+                            BigDecimal revenueQuarter, BigDecimal operatingProfitQuarter, BigDecimal netIncomeQuarter) {}
 
     /** 저장된 보고서 한 건 — TTM 계산의 입력. */
     public record Report(ReportKey key, String fsDiv, BigDecimal ctrlNetIncome, BigDecimal ctrlNetIncomePrev,
@@ -145,18 +149,22 @@ public final class ControllingEarnings {
      * 손익 행은 {@link #parse} 와 같이 IS 먼저, 없으면 CIS — 작은 회사는 포괄손익계산서 하나로 낸다.
      */
     public static Statement parseStatement(JsonNode list, ReportCode code) {
-        if (list == null || !list.isArray() || list.isEmpty()) return new Statement(null, null, null, null, null, null, null);
+        if (list == null || !list.isArray() || list.isEmpty()) {
+            return new Statement(null, null, null, null, null, null, null, null, null, null);
+        }
         JsonNode revenue = incomeRow(list, ID_REVENUE);
         if (revenue == null) revenue = incomeRowByName(list, REVENUE_NAMES);
         JsonNode operating = incomeRow(list, ID_OPERATING_PROFIT);
         if (operating == null) operating = incomeRowByName(list, OPERATING_PROFIT_NAMES);
+        JsonNode netIncome = incomeRow(list, ID_NET_INCOME);
         JsonNode assets = balanceRow(list, ID_ASSETS);
         JsonNode liabilities = balanceRow(list, ID_LIABILITIES);
         return new Statement(cumulative(revenue, code), cumulative(operating, code),
                 assets == null ? null : eok(assets.path("thstrm_amount").asText(null)),
                 liabilities == null ? null : eok(liabilities.path("thstrm_amount").asText(null)),
                 previousCumulative(revenue, code), previousCumulative(operating, code),
-                previousCumulative(incomeRow(list, ID_NET_INCOME), code));
+                previousCumulative(netIncome, code),
+                threeMonth(revenue, code), threeMonth(operating, code), threeMonth(netIncome, code));
     }
 
     /** 표준 계정 대신 이름으로 찾은 값이 있는 보고서인가 — 회차 요약의 '이름으로 찾음'. */
@@ -239,6 +247,17 @@ public final class ControllingEarnings {
         if (code.annual()) return eok(row.path("thstrm_amount").asText(null));
         BigDecimal add = eok(row.path("thstrm_add_amount").asText(null));
         if (add != null || code != ReportCode.Q1) return add;
+        return eok(row.path("thstrm_amount").asText(null));
+    }
+
+    /**
+     * 그 보고서의 3개월 금액(2026-11-12, V77) — 반기·3분기 보고서의 손익 행에서만. OpenDART 개발가이드: {@code thstrm_amount} 는
+     * "분/반기 보고서이면서 (포괄)손익계산서일 경우 [3개월] 금액", {@code thstrm_add_amount} 가 누적이다. 누적 칸이 비어 있으면
+     * {@code thstrm_amount} 가 3개월인지 누적인지 알 수 없어 쓰지 않는다(null). 1분기는 3개월이 곧 누적이라 따로 두지 않는다.
+     */
+    static BigDecimal threeMonth(JsonNode row, ReportCode code) {
+        if (row == null || !DartQuarterly.hasThreeMonthColumn(code)) return null;
+        if (eok(row.path("thstrm_add_amount").asText(null)) == null) return null;
         return eok(row.path("thstrm_amount").asText(null));
     }
 
