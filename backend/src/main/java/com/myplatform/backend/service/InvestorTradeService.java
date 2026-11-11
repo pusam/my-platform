@@ -46,6 +46,9 @@ public class InvestorTradeService {
     /** 종목별 수급 확정치 — 있으면 종목 상세 일별 값이 이 표를 읽는다. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.myplatform.backend.repository.InvestorStockDailyRepository investorStockDailyRepository;
+    /** 일봉 — 수급 표의 저녁 종가 대신 그 날짜의 KRX 종가 봉을 보인다(2026-11-11). 없으면 저장 값 그대로. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.myplatform.backend.repository.StockPriceHistoryRepository stockPriceHistoryRepository;
     /** 자기 자신(프록시) — @Transactional/@CacheEvict 가 붙은 메서드를 내부에서 호출할 때 사용.
      *  같은 클래스 내부 직접 호출은 프록시를 안 거쳐 어노테이션이 통째로 무시된다. */
     private final org.springframework.beans.factory.ObjectProvider<InvestorTradeService> selfProvider;
@@ -220,7 +223,68 @@ public class InvestorTradeService {
         result.put("PENSION", getTopTradesByInvestor("PENSION", tradeType, limit));  // 연기금 추가
         result.put("INDIVIDUAL", getTopTradesByInvestor("INDIVIDUAL", tradeType, limit));
 
+        overlayBarCloses(result.values().stream().flatMap(List::stream).collect(Collectors.toList()));
         return result;
+    }
+
+    /** 응답 행의 종가·등락률을 그 날짜의 일봉으로 — 봉을 한 번에 읽는다. 조회 실패면 저장 값 그대로(2026-11-11). */
+    private void overlayBarCloses(List<InvestorTradeDto> rows) {
+        if (stockPriceHistoryRepository == null || rows.isEmpty()) return;
+        List<String> codes = rows.stream().map(InvestorTradeDto::getStockCode).filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        LocalDate from = rows.stream().map(InvestorTradeDto::getTradeDate).filter(Objects::nonNull)
+                .min(LocalDate::compareTo).orElse(null);
+        if (codes.isEmpty() || from == null) return;
+        try {
+            overlayBarCloses(rows, stockPriceHistoryRepository.findByStockCodesSince(codes, from.minusDays(BAR_LOOKBACK_DAYS)),
+                    marketCalendarService::isMarketClosed);
+        } catch (Exception e) {
+            log.warn("[매매 동향] 일봉 조회 실패 — 수급 표의 종가 그대로 보인다: {}", e.getMessage());
+        }
+    }
+
+    /** 앞 거래일 봉을 찾을 창 — 긴 연휴를 덮는다. */
+    private static final int BAR_LOOKBACK_DAYS = 14;
+
+    /**
+     * 수급 표의 종가·등락률은 그날 저녁 받은 값이라 다음 날 16:15 회차 전까지 KRX 종가와 다르다(2026-11-11 실측 — SK하이닉스 표
+     * 1,208,000 vs KRX 1,212,000). 그 날짜 봉이 있으면(아침 07:40 재수집 뒤 KRX 종가) 응답의 종가를 봉 종가로, 등락률을 바로 앞
+     * 거래일 봉 대비로 바꾼다 — 앞 봉이 없거나 그 사이에 거래일이 비면(봉 결측) 등락률은 원래 값. 봉이 없으면 그대로. 순수 함수(행을 고친다).
+     */
+    static void overlayBarCloses(List<InvestorTradeDto> rows, List<com.myplatform.backend.entity.StockPriceHistory> bars,
+                                 java.util.function.Predicate<LocalDate> marketClosed) {
+        Map<String, java.util.TreeMap<LocalDate, BigDecimal>> closes = barCloses(bars);
+        for (InvestorTradeDto r : rows) {
+            if (r == null || r.getTradeDate() == null) continue;
+            java.util.TreeMap<LocalDate, BigDecimal> byDate = closes.get(r.getStockCode());
+            BigDecimal close = byDate == null ? null : byDate.get(r.getTradeDate());
+            if (close == null) continue;
+            r.setCurrentPrice(close);
+            Map.Entry<LocalDate, BigDecimal> prev = byDate.lowerEntry(r.getTradeDate());
+            if (prev != null && adjacentTradingDays(prev.getKey(), r.getTradeDate(), marketClosed)) {
+                r.setChangeRate(close.divide(prev.getValue(), 6, java.math.RoundingMode.HALF_UP)
+                        .subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100)).setScale(2, java.math.RoundingMode.HALF_UP));
+            }
+        }
+    }
+
+    /** 종목별 날짜 → 종가(0 이하·결측 봉은 뺀다). */
+    private static Map<String, java.util.TreeMap<LocalDate, BigDecimal>> barCloses(List<com.myplatform.backend.entity.StockPriceHistory> bars) {
+        Map<String, java.util.TreeMap<LocalDate, BigDecimal>> closes = new HashMap<>();
+        if (bars == null) return closes;
+        for (com.myplatform.backend.entity.StockPriceHistory b : bars) {
+            if (b == null || b.getStockCode() == null || b.getTradeDate() == null
+                    || b.getClosePrice() == null || b.getClosePrice().signum() <= 0) continue;
+            closes.computeIfAbsent(b.getStockCode(), k -> new java.util.TreeMap<>()).put(b.getTradeDate(), b.getClosePrice());
+        }
+        return closes;
+    }
+
+    /** prev 와 date 사이에 거래일이 없다(prev 가 바로 앞 거래일). */
+    private static boolean adjacentTradingDays(LocalDate prev, LocalDate date, java.util.function.Predicate<LocalDate> marketClosed) {
+        for (LocalDate d = prev.plusDays(1); d.isBefore(date); d = d.plusDays(1)) {
+            if (!marketClosed.test(d)) return false;
+        }
+        return true;
     }
 
     /**
@@ -281,10 +345,28 @@ public class InvestorTradeService {
         return StockInvestorDetailDto.builder()
                 .stockCode(stockCode)
                 .stockName(stockName)
-                .dailyTrades(overlayConfirmed(dailyTrades, confirmed))
+                .dailyTrades(overlayDetailBarCloses(overlayConfirmed(dailyTrades, confirmed), stockCode, startDate, endDate))
                 .confirmedFrom(confirmed.stream().map(com.myplatform.backend.entity.InvestorStockDaily::getTradeDate)
                         .min(LocalDate::compareTo).orElse(null))
                 .build();
+    }
+
+    /** 일별 종가를 그 날짜의 일봉 종가로(2026-11-11 — 매매 동향 표와 같은 이유). 봉이 없거나 조회가 실패하면 그대로. */
+    private List<StockInvestorDetailDto.DailyInvestorTrade> overlayDetailBarCloses(
+            List<StockInvestorDetailDto.DailyInvestorTrade> days, String stockCode, LocalDate from, LocalDate to) {
+        if (stockPriceHistoryRepository == null || days.isEmpty()) return days;
+        try {
+            Map<String, java.util.TreeMap<LocalDate, BigDecimal>> closes =
+                    barCloses(stockPriceHistoryRepository.findByStockCodeAndDateRange(stockCode, from, to));
+            java.util.TreeMap<LocalDate, BigDecimal> byDate = closes.getOrDefault(stockCode, new java.util.TreeMap<>());
+            for (StockInvestorDetailDto.DailyInvestorTrade d : days) {
+                BigDecimal close = d.getTradeDate() == null ? null : byDate.get(d.getTradeDate());
+                if (close != null) d.setClosePrice(close);
+            }
+        } catch (Exception e) {
+            log.warn("[투자자 상세] {} 일봉 조회 실패 — 수급 표의 종가 그대로 보인다: {}", stockCode, e.getMessage());
+        }
+        return days;
     }
 
     /** 종목별 확정치 — 조회가 실패하면 순위 행만으로 간다. */
