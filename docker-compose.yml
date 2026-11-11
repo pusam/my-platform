@@ -159,6 +159,8 @@ services:
       # 재무 수집·추천 캐시·스냅샷까지 반영된 뒤 첫 온전한 거래일을 넣고(잠정), 그날 첫 추천 반영을 확인하면 CONFIRMED=true.
       - RECOMMENDATION_SAMPLE_SINCE=${RECOMMENDATION_SAMPLE_SINCE:-}
       - RECOMMENDATION_SAMPLE_CONFIRMED=${RECOMMENDATION_SAMPLE_CONFIRMED:-false}
+      # 매수 후보 거래대금 하한(2026-11-11) — 20일 평균 거래대금(억 원) 미만은 후보·대조군에서 뺀다. 0 이하 = 끔.
+      - RECOMMENDATION_MIN_AVG_TRADED_VALUE_EOK=${RECOMMENDATION_MIN_AVG_TRADED_VALUE_EOK:-5}
       # 시세 캐시 표(stock_price) 보존 잡(2026-11-10) — 기본 꺼짐, 꺼져 있으면 부팅 WARN. 켜기 전 옛 행 내보내기는 docs 참고.
       - STOCK_PRICE_RETENTION_ENABLED=${STOCK_PRICE_RETENTION_ENABLED:-false}
       - STOCK_PRICE_RETENTION_DAYS=${STOCK_PRICE_RETENTION_DAYS:-90}

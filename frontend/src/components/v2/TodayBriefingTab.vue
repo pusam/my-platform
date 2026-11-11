@@ -40,6 +40,8 @@
       <div class="ts-title-row">
         <h2>📌 오늘의 매수 후보</h2>
         <span class="ts-hint">종합추천 중 BUY 컷(55점) 이상만</span>
+        <!-- 10건까지 받아 5건만 보인다 — 몇 건 중 몇 건인지 말한다(2026-11-11) -->
+        <span v-if="candidateTotalNote" class="ts-hint ts-total">{{ candidateTotalNote }}</span>
         <span v-if="recDataTime" class="ts-asof">{{ recDataTime }}</span>
         <span v-if="!recRealtime" class="ts-stale">실시간 아님 · 마지막 계산 스냅샷</span>
       </div>
@@ -67,13 +69,18 @@
         <div v-if="trustCaution" class="tt-caution">⚠ {{ trustCaution }}</div>
       </div>
 
+      <!-- 거래대금 하한(2026-11-11) — 화면 가격으로 사고팔 수 없는 저유동 종목은 점수가 높아도 후보에서 뺀다. 숫자는 응답 값. -->
+      <div v-if="liquidityNote && !candidatesLoading && !candidatesFailed && buyCandidates.length > 0" class="ts-liquidity-note">{{ liquidityNote }}</div>
+
       <div v-if="candidatesLoading" class="ts-state">후보 분석 중...</div>
       <div v-else-if="candidatesFailed" class="ts-state failed">
         후보 데이터를 불러오지 못했습니다 — 오늘 판단을 내릴 수 없습니다.
         <button class="retry-btn" @click="loadCandidates">다시 시도</button>
       </div>
       <div v-else-if="buyCandidates.length === 0" class="ts-state empty">
-        오늘은 매수 컷(55점)을 넘은 후보가 없습니다 — 관망이 결론입니다.
+        <!-- 컷은 넘었지만 거래대금 하한으로 전부 빠진 날은 그렇게 말한다(2026-11-11) — '넘은 종목이 없다'와 다르다 -->
+        <template v-if="allBelowFloorNote">{{ allBelowFloorNote }}</template>
+        <template v-else>오늘은 매수 컷(55점)을 넘은 후보가 없습니다 — 관망이 결론입니다.</template>
       </div>
       <div v-else class="candidate-list">
         <div v-for="(c, i) in buyCandidates" :key="c.stockCode" class="candidate-item">
@@ -105,6 +112,7 @@
               </span>
               <!-- 마지막 확정 봉 기준이면 그 날짜(실시간 시세가 없을 때) — 다른 날 등락률을 '오늘'처럼 보이지 않게(2026-10-19) -->
               <span v-if="c.changeRate != null && c.changeRateBasisDate" class="cc-basis">{{ closeBasisLabel(c.changeRateBasisDate) }}</span>
+              <span v-if="tradedValueLabel(c)" class="cc-liq">{{ tradedValueLabel(c) }}</span>
             </div>
           </div>
           <!-- 📺 유튜브 참고 의견 — 카드(추천 근거·종목 열기) 밖에 따로 둔다: 점수·순위와 무관한 외부 참고라
@@ -246,6 +254,32 @@ const bandAccuracy = ref(null);      // accuracy-by-band(보드 격리 + phase-3
 const trustFailed = ref(false);      // 적중률 조회 실패 — '아직 성적 없음(검증 중)'과 다르다(§4c)
 const recDataTime = ref(null);       // 후보 계산 기준 시각(백엔드 dataTime) — as-of 정직 표시
 const recRealtime = ref(true);       // false = 마지막 계산 스냅샷(전일 마감 등)
+// 거래대금 하한(2026-11-11) — 응답 그대로. 모르면 null(DB 스냅샷 목록은 뺀 수·후보 수를 모른다).
+const candidateCount = ref(null);    // 컷·하한 통과 후보 수(10건으로 자르기 전)
+const liquidityFloor = ref(null);    // 하한(억 원) — 꺼져 있으면 null
+const belowFloorCount = ref(null);   // 하한 미달로 뺀 컷 통과 종목 수
+const candidateTotalNote = computed(() => {
+  const total = Number.isFinite(candidateCount.value) ? candidateCount.value : buyCandidates.value.length;
+  if (buyCandidates.value.length === 0 || total <= MAX_CANDIDATES) return null;
+  return `매수 후보 ${total}건 중 상위 ${buyCandidates.value.length}건`;
+});
+const liquidityNote = computed(() => {
+  if (liquidityFloor.value == null || !(belowFloorCount.value > 0)) return null;
+  return `20일 평균 거래대금 ${Number(liquidityFloor.value).toLocaleString('ko-KR')}억 미만 ${belowFloorCount.value}종목은 후보에서 뺐습니다 — 화면 가격으로 사고팔기 어려운 종목입니다.`;
+});
+const allBelowFloorNote = computed(() => {
+  if (liquidityFloor.value == null || !(belowFloorCount.value > 0) || candidateCount.value !== 0) return null;
+  return `오늘은 매수 컷(55점)을 넘은 ${belowFloorCount.value}종목이 모두 20일 평균 거래대금 `
+    + `${Number(liquidityFloor.value).toLocaleString('ko-KR')}억 미만이라 후보가 없습니다 — 관망이 결론입니다.`;
+});
+const tradedValueLabel = (c) => {
+  const v = c?.avgTradedValueEok;
+  // 하한이 켜져 있는데 평균을 모르면(봉 부족·노후) 하한 판정 없이 통과한 후보다 — 그렇게 보인다(2026-11-11)
+  if (v == null) return liquidityFloor.value != null ? '거래대금 확인 불가' : null;
+  if (!Number.isFinite(Number(v))) return null;
+  const n = Number(v);
+  return `거래대금 20일 평균 ${n.toLocaleString('ko-KR', { maximumFractionDigits: n >= 10 ? 1 : 2 })}억`;
+};
 const portfolio = ref([]);
 const portfolioError = ref(false);
 // 평가손익의 시세 기준 시각 = 행 갱신 시각 중 가장 최근(서버가 현재가로 갱신할 때 같이 바뀐다). 모르면 생략.
@@ -320,6 +354,9 @@ const loadCandidates = async () => {
     const items = data.data;
     recDataTime.value = data?.dataTime || null;
     recRealtime.value = data?.realtime !== false;
+    candidateCount.value = Number.isFinite(data?.candidateCount) ? data.candidateCount : null;
+    liquidityFloor.value = Number.isFinite(data?.minAvgTradedValueEok) ? data.minAvgTradedValueEok : null;
+    belowFloorCount.value = Number.isFinite(data?.belowLiquidityFloorCount) ? data.belowLiquidityFloorCount : null;
     buyCandidates.value = items
       .filter(r => Number(r.totalScore) >= BUY_CUT)
       .slice(0, MAX_CANDIDATES);
@@ -331,6 +368,9 @@ const loadCandidates = async () => {
     buyCandidates.value = [];
     recDataTime.value = null;
     recRealtime.value = false;
+    candidateCount.value = null;
+    liquidityFloor.value = null;
+    belowFloorCount.value = null;
     candidatesFailed.value = true;
   } finally {
     candidatesLoading.value = false;
@@ -606,6 +646,8 @@ onMounted(() => {
 .ts-title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .ts-title-row h2 { margin: 0; font-size: 16px; }
 .ts-hint { font-size: 11px; opacity: 0.5; }
+.ts-total { opacity: 0.75; }
+.ts-liquidity-note { margin: 6px 0 2px; font-size: 12px; color: var(--text-muted); }
 .ts-asof { margin-left: auto; font-size: 11px; opacity: 0.55; }
 .ts-stale {
   font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px;
@@ -739,6 +781,7 @@ onMounted(() => {
 .cc-price-num { display: block; font-size: 13px; font-weight: 600; }
 .cc-change { font-size: 12px; }
 .cc-basis { display: block; font-size: 11px; color: var(--text-muted); }
+.cc-liq { display: block; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 
 /* 신뢰도(실측) — 매수 후보 섹션 상단, 후보를 보기 전에 "얼마나 믿을 수 있나"부터 */
 .today-trust {

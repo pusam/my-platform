@@ -19,14 +19,18 @@ public class RecommendationController {
     @GetMapping("/top5")
     public ResponseEntity<?> getTop5() {
         var response = recommendationService.getTop5();
-        return ResponseEntity.ok(Map.of(
-                "success", response.isDataAvailable(),
-                "dataAvailable", response.isDataAvailable(),
-                "data", response.getItems(),
-                "dataTime", response.getDataTime(),
-                "realtime", response.isRealtime(),
-                "delta", response.getDelta()
-        ));
+        // LinkedHashMap — 거래대금 하한 칸은 모르면 null 이다(Map.of 는 null 을 못 담는다)(2026-11-11).
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("success", response.isDataAvailable());
+        body.put("dataAvailable", response.isDataAvailable());
+        body.put("data", response.getItems());
+        body.put("dataTime", response.getDataTime());
+        body.put("realtime", response.isRealtime());
+        body.put("delta", response.getDelta());
+        body.put("minAvgTradedValueEok", response.getMinAvgTradedValueEok());
+        body.put("belowLiquidityFloorCount", response.getBelowLiquidityFloorCount());
+        body.put("candidateCount", response.getCandidateCount());
+        return ResponseEntity.ok(body);
     }
 
     /**

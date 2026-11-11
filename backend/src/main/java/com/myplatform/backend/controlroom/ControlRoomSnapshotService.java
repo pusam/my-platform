@@ -742,11 +742,12 @@ public class ControlRoomSnapshotService {
             boolean empty = rows.isEmpty();
             // 컷 통과 0건이면 스냅샷을 저장하지 않아 날짜가 밀린다 — 채점이 정상이었으면 입력 노후가 아니다(2026-11-04)
             boolean scored = recommendationService.lastCalculationScoredNormally();
+            int liquidityExcluded = scored ? recommendationService.lastCalculationAllBelowLiquidityFloor() : 0;
             Origin origin = candidatesOrigin();
             return new ControlRoomSnapshotDto.Candidates(true, rows.size(), strongBuy, buy, watch,
                     latestSnapshotAt, stale, origin.asOf(), origin.realtime(),
-                    emptyReasonShort(empty, stale, latestSnapshotAt, scored),
-                    emptyReason(empty, latestSnapshotAt, stale, scored));
+                    emptyReasonShort(empty, stale, latestSnapshotAt, scored, liquidityExcluded),
+                    emptyReason(empty, latestSnapshotAt, stale, scored, liquidityExcluded));
         } catch (Exception e) {
             log.warn("[관제실] 종합판단 보드 조회 실패: {}", e.getMessage());
             return new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null, null, null,
@@ -760,6 +761,13 @@ public class ControlRoomSnapshotService {
      * <p>1/5 폭 KPI 카드에 §4c 설명 문단을 그대로 넣었더니 텍스트 벽돌이 됐다(2026-08-25 실측).
      * 표면은 "무슨 일이 일어났는지"만, 근거는 툴팁으로 미룬다 — 짧게 줄이되 근거를 없애지는 않는다.
      */
+    /** 컷은 넘었지만 거래대금 하한으로 전부 빠진 경우를 따로 말한다(2026-11-11) — liquidityExcluded = 그렇게 빠진 수(0 이면 아님). */
+    static String emptyReasonShort(boolean empty, Boolean stale, LocalDateTime latestSnapshotAt, boolean scored,
+                                   int liquidityExcluded) {
+        if (empty && scored && liquidityExcluded > 0) return "컷 통과 " + liquidityExcluded + "건 모두 거래대금 하한 미달";
+        return emptyReasonShort(empty, stale, latestSnapshotAt, scored);
+    }
+
     static String emptyReasonShort(boolean empty, Boolean stale, LocalDateTime latestSnapshotAt, boolean scored) {
         if (!empty) return null;
         if (scored) return "컷 통과 0건(관망)";
@@ -791,6 +799,16 @@ public class ControlRoomSnapshotService {
     }
 
     /** 후보가 0 건일 때의 전체 설명(툴팁·크루 컨텍스트). 0 건이 아니면 null. */
+    static String emptyReason(boolean empty, LocalDateTime latestSnapshotAt, Boolean stale, boolean scored,
+                              int liquidityExcluded) {
+        if (empty && scored && liquidityExcluded > 0) {
+            return "후보 0건 — 채점은 정상으로 돌았고 컷(55점)을 넘은 " + liquidityExcluded + "종목이 모두 거래대금 하한(20일 평균) "
+                    + "미달로 빠졌다(2026-11-11 도입 — 화면 가격으로 사고팔기 어려운 종목). 입력 노후가 아니다. 컷 통과 0건이면 "
+                    + "스냅샷을 저장하지 않아 스냅샷 날짜는 밀려 있을 수 있다.";
+        }
+        return emptyReason(empty, latestSnapshotAt, stale, scored);
+    }
+
     static String emptyReason(boolean empty, LocalDateTime latestSnapshotAt, Boolean stale, boolean scored) {
         if (!empty) return null;
         if (scored) {

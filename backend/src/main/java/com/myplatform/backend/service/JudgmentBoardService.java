@@ -154,6 +154,7 @@ public class JudgmentBoardService {
                         .sectorMomentum(scored ? sc.sectorMomentum : 0)
                         .supplyDemand(supply)
                         .supplyInverseSuspect(supply >= SUPPLY_INVERSE_SUSPECT_MIN)
+                        .belowLiquidityFloor(scored ? recommendationService.belowLiquidityFloorOrNull(sc) : null)
                         .timingScore(timingMap.get(code))
                         .sector(sector)
                         .sectorStrengthRel(sector == null ? null : sectorRel.get(sector))

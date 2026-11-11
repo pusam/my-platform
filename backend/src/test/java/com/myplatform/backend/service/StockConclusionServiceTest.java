@@ -666,4 +666,47 @@ class StockConclusionServiceTest {
         assertThat(note).doesNotContain("INFLOW").doesNotContain("거래대금 유입");
         assertThat(note).contains("마지막 확정 봉 등락률").contains("강세장 +4").contains("최대 8점");
     }
+
+    // ==================== 거래대금 하한(2026-11-11) ====================
+
+    @Test
+    @DisplayName("재현: 스냅샷이 최신이어도 지금 20일 평균 거래대금이 하한 미달이면 매수 권고·매매계획을 내지 않는다")
+    void belowLiquidityFloorIsNotCurrentBuy() {
+        LiquidityFloorService floor = org.mockito.Mockito.mock(LiquidityFloorService.class);
+        when(floor.assess("005930")).thenReturn(
+                new LiquidityFloorService.Assessment(new BigDecimal("0.2311"), LiquidityFloor.Verdict.BELOW));
+        when(floor.floorOrNull()).thenReturn(5.0);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "liquidityFloorService", floor);
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 16, 15, 14, 10)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.isCurrentlyValid()).isFalse();
+        assertThat(result.getLevel()).isEqualTo(Level.WAIT);
+        assertThat(result.getTradePlan()).isNull();
+        assertThat(result.getEntryPosition()).isNull();
+        assertThat(result.getStaleReason()).isEqualTo(
+                "20일 평균 거래대금 0.23억이 하한 5억 미만 — 매수 후보가 아닙니다(화면 가격으로 사고팔기 어렵습니다).");
+        assertThat(result.getHeadline()).contains("STRONG_BUY").contains("거래대금이 하한 미달");
+    }
+
+    @Test
+    @DisplayName("하한 판정 불가·조회 실패·통과면 막지 않는다")
+    void unknownOrPassLiquidityDoesNotBlock() {
+        LiquidityFloorService floor = org.mockito.Mockito.mock(LiquidityFloorService.class);
+        lenient().when(floor.floorOrNull()).thenReturn(5.0);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "liquidityFloorService", floor);
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 16, 15, 14, 10)));
+        for (LiquidityFloorService.Assessment a : java.util.Arrays.asList(
+                new LiquidityFloorService.Assessment(null, LiquidityFloor.Verdict.UNKNOWN),
+                new LiquidityFloorService.Assessment(new BigDecimal("19.7"), LiquidityFloor.Verdict.PASS),
+                null)) {
+            when(floor.assess("005930")).thenReturn(a);
+            StockConclusionDto result = service.getConclusion("005930");
+            assertThat(result.isCurrentlyValid()).as("%s", a).isTrue();
+            assertThat(result.getLevel()).isEqualTo(Level.STRONG_BUY);
+        }
+    }
 }
