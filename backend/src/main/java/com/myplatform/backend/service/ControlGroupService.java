@@ -37,7 +37,8 @@ import java.util.Set;
  *       <b>5분 신선 캐시</b>만 쓴다(신규 KIS 호출 금지 — AUDIT R2 대칭화, 2026-08-31). 추천이 볼 수 없던
  *       종목을 대조군에 넣으면 "점수의 기여"가 아니라 "유니버스 차이"를 재게 된다.
  *       <b>⚠ 측정 표본 경계 = 2026-09-01</b>: 그 전 대조군엔 저유동·수집중단 종목이 섞여 base rate 가
- *       낮다(edge 과대 방향) — 비교창을 섞지 말 것.</li>
+ *       낮다(edge 과대 방향) — 비교창을 섞지 말 것. 2026-11-11 부터는 추천 후보와 같은 거래대금 하한
+ *       ({@link LiquidityFloor}, 20일 평균 5억)도 통과해야 한다 — 그날이 대조군 표본 경계다.</li>
  *   <li><b>같은 평가 경로</b> — signal_outcome 에 저장하므로 기존 평가 배치가 동일한 hit 정의로 채운다.</li>
  * </ul>
  *
@@ -88,9 +89,20 @@ public class ControlGroupService {
     private final ObjectProvider<StockPriceService> priceProvider;
     private final ObjectProvider<StockStatusService> statusProvider;
     private final ObjectProvider<ControlGroupService> selfProvider;
+    private final ObjectProvider<MarketCalendarService> calendarProvider;
 
     @Value("${signal-outcome.control-group.enabled:true}")
     private boolean enabled;
+
+    /**
+     * 거래대금 하한(억 원) — 추천과 같은 설정·같은 판정({@link LiquidityFloor})(2026-11-11). 추천은 20일 평균 거래대금이 이 값
+     * 미만인 종목을 후보에서 빼므로, 대조군도 같은 유니버스에서 뽑는다. 판정 불가(봉 부족·노후) 종목은 뽑지 않는다.
+     */
+    @Value("${recommendation.min-avg-traded-value-eok:5}")
+    double minAvgTradedValueEok = 5;
+
+    /** 하한 판정에 읽는 봉의 달력일 — 20거래일 + 연휴 여유. */
+    static final int LIQUIDITY_LOOKBACK_DAYS = 60;
 
     /** 유니버스 일캐시 — findStockCodesWithMinHistory 는 전체 GROUP BY 라 시그널마다 돌리면 안 된다. */
     private volatile LocalDate universeDate;
@@ -182,11 +194,55 @@ public class ControlGroupService {
                 log.debug("[대조군] 활성 필터 실패(전체 사용): {}", e.getMessage());
             }
         }
+        // 거래대금 하한(2026-11-11) — 추천 후보와 같은 유니버스. 봉 조회가 실패하면 판정할 수 없어 그날 유니버스를 캐시하지 않고
+        // 빈 목록(대조군 없음) — 하한을 모르는 채로 저유동 종목을 대조군에 넣지 않는다(다음 시그널이 다시 시도한다).
+        if (!LiquidityFloor.isOff(minAvgTradedValueEok) && !codes.isEmpty()) {
+            int before = codes.size();
+            try {
+                java.util.Map<String, List<com.myplatform.backend.entity.StockPriceHistory>> bars =
+                        priceHistoryRepository.findByStockCodesSince(codes, date.minusDays(LIQUIDITY_LOOKBACK_DAYS))
+                                .stream().collect(java.util.stream.Collectors.groupingBy(
+                                        com.myplatform.backend.entity.StockPriceHistory::getStockCode));
+                codes = liquidUniverse(codes, bars, staleCutoff(date), minAvgTradedValueEok);
+            } catch (Exception e) {
+                log.warn("[대조군] 거래대금 하한용 봉 조회 실패 — 이번엔 대조군을 뽑지 않는다: {}", e.getMessage());
+                return List.of();
+            }
+            log.info("[대조군] 거래대금 하한 {}억 — {}종목 중 {}종목 통과", minAvgTradedValueEok, before, codes.size());
+        }
         List<String> snapshot = List.copyOf(codes);
         universeCache = snapshot;
         universeDate = date;
         log.info("[대조군] 유니버스 갱신 {}종목 ({})", snapshot.size(), date);
         return snapshot;
+    }
+
+    /** 직전 거래일 — 추천 기술 채점의 봉 노후 기준과 같다. 달력을 모르면 null(노후 판정 없음). */
+    private LocalDate staleCutoff(LocalDate date) {
+        MarketCalendarService cal = calendarProvider.getIfAvailable();
+        if (cal == null) return null;
+        try {
+            return cal.minusTradingDays(date, 1);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 거래대금 하한을 통과한 종목만 — 순수 함수(2026-11-11). 추천과 같은 판정({@link LiquidityFloor})이되 <b>판정 불가는 뺀다</b>
+     * (추천은 결측을 차단 근거로 쓰지 않지만, 대조군은 일봉이 충분한 종목에서만 뽑는다 — 유니버스 조건이 이미 일봉 수를 요구한다).
+     * 하한이 꺼져 있으면 그대로.
+     */
+    static List<String> liquidUniverse(List<String> codes,
+                                       java.util.Map<String, List<com.myplatform.backend.entity.StockPriceHistory>> barsByCode,
+                                       LocalDate staleCutoff, double floorEok) {
+        if (LiquidityFloor.isOff(floorEok)) return codes;
+        List<String> out = new ArrayList<>(codes.size());
+        for (String c : codes) {
+            BigDecimal avg = LiquidityFloor.avgTradedValueEok(barsByCode.get(c), staleCutoff);
+            if (LiquidityFloor.judge(avg, floorEok) == LiquidityFloor.Verdict.PASS) out.add(c);
+        }
+        return out;
     }
 
     /**

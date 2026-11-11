@@ -100,6 +100,17 @@ public class RecommendationService {
                 active ? "활성(min 적용)" : "비활성(무캡)");
     }
 
+    // ── 거래대금 하한(2026-11-11) — 20거래일 평균 거래대금이 이 값(억 원) 미만이면 매수 후보가 아니다. 0 이하 = 끔.
+    // 판정은 LiquidityFloor 단일 출처(대조군 ControlGroupService 와 같이 쓴다). 순위를 자르기 전에 빼고, 판정 불가는 통과시킨다.
+    @org.springframework.beans.factory.annotation.Value("${recommendation.min-avg-traded-value-eok:5}")
+    double minAvgTradedValueEok = 5;
+
+    /** 마지막 계산의 하한 적용 결과 — floorEok 은 꺼져 있으면 null. */
+    record LiquidityStats(Double floorEok, int candidates, int below, int unknown) {}
+    private volatile LiquidityStats lastLiquidityStats = null;
+    // cachedTop5 와 짝 — 그 목록을 만든 계산의 결과. DB 스냅샷 복원 목록이면 null(모른다).
+    private volatile LiquidityStats cachedLiquidityStats = null;
+
     private volatile java.time.LocalDate lastAlertDate = null;
 
     // 가격 도달 알림 — 임계점 (오를 때 / 내릴 때)
@@ -169,7 +180,7 @@ public class RecommendationService {
         // 1) in-memory 캐시 hit → 즉시
         if (cachedTop5 != null && cacheTime != null
                 && cacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
-            return buildResponse(cachedTop5, cacheTime.format(TIME_FMT) + " 기준", trading);
+            return buildResponse(cachedTop5, cacheTime.format(TIME_FMT) + " 기준", trading, cachedLiquidityStats);
         }
 
         // 2) 캐시 콜드 — DB 스냅샷 즉시 반환 (장중·장외 모두).
@@ -180,7 +191,7 @@ public class RecommendationService {
         List<RecommendationDto> fromDb = loadFromDb();
         if (!fromDb.isEmpty()) {
             if (trading) triggerBackgroundCalculate();
-            return buildResponse(fromDb, getSnapshotTimeLabel(), false);
+            return buildResponse(fromDb, getSnapshotTimeLabel(), false, null);
         }
 
         // 3) DB 도 비어있으면(콜드 스타트) 동기 calculate — 어쩔 수 없이 대기
@@ -191,7 +202,8 @@ public class RecommendationService {
                         cachedScoreMap != null ? cachedScoreMap.size() : 0, lastTechnicalStale)) {
                     cachedTop5 = result;
                     cacheTime = now;
-                    return buildResponse(result, now.format(TIME_FMT) + " 기준", true);
+                    cachedLiquidityStats = lastLiquidityStats;
+                    return buildResponse(result, now.format(TIME_FMT) + " 기준", true, lastLiquidityStats);
                 }
             } catch (Exception e) {
                 log.error("[종합추천] 실시간 계산 실패: {}", e.getMessage());
@@ -257,6 +269,7 @@ public class RecommendationService {
             if (!result.isEmpty()) {
                 cachedTop5 = result;
                 cacheTime = LocalDateTime.now();
+                cachedLiquidityStats = lastLiquidityStats;
                 log.info("[종합추천] 백그라운드 계산 완료 - {}건", result.size());
             } else if (shouldPublishEmptyResult(cachedScoreMap != null ? cachedScoreMap.size() : 0, lastTechnicalStale)) {
                 // 정상 계산인데 55컷 통과 0건 = 유효한 '관망' 결론(급락일 등) — 어제 스냅샷을
@@ -264,6 +277,7 @@ public class RecommendationService {
                 // scoreMap 이 빈약하면(입력 데이터 몰락 의심) 발행하지 않고 기존 스냅샷 유지(안전).
                 cachedTop5 = Collections.emptyList();
                 cacheTime = LocalDateTime.now();
+                cachedLiquidityStats = lastLiquidityStats;
                 log.info("[종합추천] 백그라운드 계산 완료 - 컷 통과 0건(관망) → 빈 결과 발행(scoreMap {}종목)",
                         cachedScoreMap.size());
             } else if (cachedScoreMap != null && cachedScoreMap.size() >= 10) {
@@ -396,7 +410,8 @@ public class RecommendationService {
         }
     }
 
-    private Top5Response buildResponse(List<RecommendationDto> items, String dataTime, boolean realtime) {
+    private Top5Response buildResponse(List<RecommendationDto> items, String dataTime, boolean realtime,
+                                       LiquidityStats liquidity) {
         items = activeRecommendations(items);
         // 실시간 시세로 changeRate/currentPrice 갱신
         refreshPrices(items);
@@ -416,7 +431,14 @@ public class RecommendationService {
         } catch (Exception e) {
             log.debug("[종합추천] delta 실패: {}", e.getMessage());
         }
-        return new Top5Response(items, dataTime, realtime, deltaMap);
+        Top5Response response = new Top5Response(items, dataTime, realtime, deltaMap);
+        response.applyLiquidity(liquidityFloorOrNull(), liquidity);
+        return response;
+    }
+
+    /** 응답에 싣는 하한(억 원) — 꺼져 있으면 null. */
+    Double liquidityFloorOrNull() {
+        return LiquidityFloor.isOff(minAvgTradedValueEok) ? null : minAvgTradedValueEok;
     }
 
     /**
@@ -770,6 +792,7 @@ public class RecommendationService {
             snapshotRepository.saveAll(entities);
             cachedTop5 = result;
             cacheTime = snapTime;
+            cachedLiquidityStats = lastLiquidityStats;
 
             // 시그널 적중률 추적 — STRONG_BUY (75+) / BUY (55~74) 종목 발생 기록.
             // 3일 후 batch 가 평가. record() 실패해도 스냅샷 저장은 영향 없음 (try/catch 격리).
@@ -1693,7 +1716,7 @@ public class RecommendationService {
         }
         log.info("[종합추천] scoreMap {}종목 (AI시드 {}개)", scoreMap.size(), aiCount);
 
-        List<RecommendationDto> results = scoreMap.values().stream()
+        List<StockScore> cutPassed = scoreMap.values().stream()
                 // 거래정지/상폐 종목 제외 — 봇(isActive)과 동일 게이트를 추천에도 적용(2026-07-28).
                 // KRX 동기화 전(빈 셋)에는 통과(fail-open) — 기존 semantics 유지.
                 .filter(s -> stockStatusService.isActive(s.stockCode))
@@ -1708,10 +1731,8 @@ public class RecommendationService {
                         Math.max(0, s.earnings + cappedSupply(s.supplyDemand, SUPPLY_DEMAND_CAP)
                                 + s.technical + s.sectorMomentum - s.riskPenalty),
                         countValidCategories(s)) >= 55) // 관망 컷 — 60→55 완화 (TOP10 자리 채우기, 데이터 부족시 5건만 노출되던 문제)
-                .sorted(recommendationComparator(prevScoreMap))
-                .limit(10)
-                .map(this::toDto)
                 .toList();
+        List<RecommendationDto> results = rankCandidates(cutPassed, prevScoreMap);
 
         this.cachedScoreMap = scoreMap;   // union 보드 4-cat lookup용 보존(재점수 방지)
 
@@ -1723,6 +1744,36 @@ public class RecommendationService {
         }
         log.info("[종합추천] TOP 10 계산 완료 ({}건)", results.size());
         return results;
+    }
+
+    /**
+     * 컷(55) 통과 종목 → 거래대금 하한 → 순위 → 상위 10(2026-11-11). 하한 미달은 <b>순위를 자르기 전에</b> 뺀다 — 상위 10 을
+     * 고른 뒤 빼면 그 자리를 채울 유동성 있는 종목이 밀려난다. 판정 불가(봉 10개 미만·봉 노후)는 통과시키고 센다(결측은 차단 근거가
+     * 아니다). 점수·컷·가중은 건드리지 않는다. 결과의 하한 통계는 {@link #lastLiquidityStats} 에 남는다.
+     */
+    List<RecommendationDto> rankCandidates(List<StockScore> cutPassed, Map<String, Integer> prevScoreMap) {
+        double floor = minAvgTradedValueEok;
+        List<StockScore> kept = new ArrayList<>(cutPassed.size());
+        int below = 0, unknown = 0;
+        for (StockScore s : cutPassed) {
+            LiquidityFloor.Verdict v = LiquidityFloor.judge(s.avgTradedValueEok, floor);
+            if (v == LiquidityFloor.Verdict.BELOW) { below++; continue; }
+            if (v == LiquidityFloor.Verdict.UNKNOWN) unknown++;
+            kept.add(s);
+        }
+        Double floorOrNull = liquidityFloorOrNull();
+        this.lastLiquidityStats = new LiquidityStats(floorOrNull, kept.size(), below, unknown);
+        if (floorOrNull == null) {
+            log.info("[종합추천] 거래대금 하한 꺼짐 — 컷 통과 {}종목 그대로", cutPassed.size());
+        } else {
+            log.info("[종합추천] 거래대금 하한 {}억(20일 평균) — 컷 통과 {}종목 중 미달 제외 {} · 판정 불가 {}(통과) → 후보 {}",
+                    floorOrNull, cutPassed.size(), below, unknown, kept.size());
+        }
+        return kept.stream()
+                .sorted(recommendationComparator(prevScoreMap))
+                .limit(10)
+                .map(this::toDto)
+                .toList();
     }
 
     // ==================== ⑥ 가치/안정성 (/20) ====================
@@ -2428,6 +2479,8 @@ public class RecommendationService {
                 List<StockPriceHistory> history = historyMap.getOrDefault(stock.stockCode, java.util.Collections.emptyList());
                 // 60건 초과는 컷 — 기존 PageRequest.of(0, 60) 동등 의미 (이미 tradeDate DESC 정렬됨)
                 if (history.size() > 60) history = history.subList(0, 60);
+                // 거래대금 하한용 20일 평균(2026-11-11) — 이미 읽은 봉으로, 추가 조회 없음. 봉 노후면 판정 불가(null).
+                stock.avgTradedValueEok = LiquidityFloor.avgTradedValueEok(history, staleCutoff);
 
                 // 노후 가드(2026-08-05 감사) — 수급 채점엔 있던 가드가 기술엔 없어서, 수집이 끊긴
                 // 종목의 두 달 전 봉으로 RSI·MA·5일누적·과열 페널티가 전부 과거 시점 기준으로
@@ -3005,6 +3058,7 @@ public class RecommendationService {
             }).toList();
             cachedTop5 = result;
             cacheTime = snapshots.get(0).getSnapshotAt();
+            cachedLiquidityStats = null;   // 저장된 목록 — 그때 하한으로 몇 종목을 뺐는지는 모른다
             log.info("[종합추천] DB복원 {}건 (시점: {})", result.size(), cacheTime);
             return result;
         } catch (Exception e) {
@@ -3110,7 +3164,8 @@ public class RecommendationService {
                 .tags(new ArrayList<>(s.tags))
                 // 표시 등락률 = 마지막 확정 봉 등락률 + 그 날짜(2026-10-19) — 실시간 시세가 있으면 buildResponse 가 덮는다
                 .changeRate(s.settledChangeRate)
-                .changeRateBasisDate(s.settledChangeRate != null ? s.settledChangeDate : null).build();
+                .changeRateBasisDate(s.settledChangeRate != null ? s.settledChangeDate : null)
+                .avgTradedValueEok(LiquidityFloor.displayEok(s.avgTradedValueEok)).build();
     }
 
     // ==================== Inner Classes ====================
@@ -3138,6 +3193,8 @@ public class RecommendationService {
         // 리스크 공시 페널티(0 또는 5) — applyRiskPenalty 에서 설정. composite raw 합산
         // 3지점(필터/toDto/getNormalizedTotal)에서만 차감, 카테고리 표시값은 불변(수급 캡 A안과 동일 패턴).
         int riskPenalty = 0;
+        // 20거래일 평균 거래대금(억 원) — scoreTechnical 이 채운다. 모르면 null(하한 판정 불가 = 통과)(2026-11-11).
+        BigDecimal avgTradedValueEok;
         StockScore(String code, String name) { stockCode = code; stockName = name; }
 
         int getNormalizedTotal() {
@@ -3168,6 +3225,8 @@ public class RecommendationService {
         private BigDecimal changeRate;
         private java.time.LocalDate changeRateBasisDate;
         private BigDecimal currentPrice;
+        // 종합추천 전용 — 20거래일 평균 거래대금(억 원, 소수 둘째 자리). 모르면 null(DB 스냅샷 복원 목록도 null)(2026-11-11).
+        private BigDecimal avgTradedValueEok;
         // 저평가 TOP 10 전용 — 4 항목 점수 분해 (UI 막대 그래프용). 종합 추천은 모두 null.
         private Integer valuePbrScore;             // 0~8
         private Integer valueRoeCombinedScore;     // 0~5
@@ -3187,7 +3246,7 @@ public class RecommendationService {
         private Integer oversoldReboundScore;      // 0~5 (반등 조짐: 양봉+거래량)
     }
 
-    @Getter @AllArgsConstructor
+    @Getter
     public static class Top5Response {
         private final List<RecommendationDto> items;
         private final String dataTime;
@@ -3196,12 +3255,33 @@ public class RecommendationService {
         private final boolean dataAvailable;
 
         public Top5Response(List<RecommendationDto> items, String dataTime, boolean realtime,
+                            Map<String, Integer> delta, boolean dataAvailable) {
+            this.items = items;
+            this.dataTime = dataTime;
+            this.realtime = realtime;
+            this.delta = delta;
+            this.dataAvailable = dataAvailable;
+        }
+
+        public Top5Response(List<RecommendationDto> items, String dataTime, boolean realtime,
                             Map<String, Integer> delta) {
             this(items, dataTime, realtime, delta, true);
         }
 
         static Top5Response unavailable() {
             return new Top5Response(Collections.emptyList(), "", false, Collections.emptyMap(), false);
+        }
+
+        // 거래대금 하한(2026-11-11) — 하한(억 원, 꺼져 있으면 null) · 하한으로 뺀 컷 통과 종목 수 · 하한까지 통과한 후보 수.
+        // 뒤의 둘은 이 목록을 만든 계산을 알 때만(DB 스냅샷 복원 목록이면 null — 모른다).
+        private Double minAvgTradedValueEok;
+        private Integer belowLiquidityFloorCount;
+        private Integer candidateCount;
+
+        void applyLiquidity(Double floorEok, LiquidityStats stats) {
+            this.minAvgTradedValueEok = floorEok;
+            this.belowLiquidityFloorCount = stats != null && stats.floorEok() != null ? stats.below() : null;
+            this.candidateCount = stats != null ? stats.candidates() : null;
         }
     }
 }
