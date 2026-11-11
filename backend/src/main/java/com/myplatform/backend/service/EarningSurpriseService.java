@@ -153,20 +153,33 @@ public class EarningSurpriseService {
                     prev2Op, prev2Net);
             if (dto == null) continue;
 
-            // 점수를 주는 판정은 전년 동기보다도 좋아졌을 때만(2026-09-29) — 직전 분기 대비 급증이 계절성 착시일 수 있다
+            // 점수를 주는 판정은 전년 동기보다 좋아진 것이 확인될 때만(2026-09-29 · 2026-11-12) — 직전 분기 대비 급증이 계절성 착시일 수 있다.
+            // 전년 동기를 모르면 점수를 주지 않는다(판정 없음 = 실적 미채점). 9/29 엔 모르면 통과였는데, 모르는 채로 최고 20점이 나갔다.
             if (awardsPoints(dto)) {
                 Boolean improved = improvedYearOverYear(pair[0],
                         QuarterlyFinancials.sameQuarterYearAgo(individuals, pair[0]));
                 if (Boolean.FALSE.equals(improved)) { seasonal++; continue; }
-                if (improved == null) noYearAgo++;
+                if (!confirmedYearOverYear(improved)) { noYearAgo++; continue; }
             }
             surprises.add(dto);
         }
 
-        log.info("[어닝서프라이즈] 분기원본 - 종목 {}개 중 판정 {}건 (인접2분기 미확보 {}, 노후 {}, "
-                        + "전년 동기보다 나빠 제외 {}, 전년 동기 자료 없어 종전대로 {})",
-                byStock.size(), surprises.size(), notEnough, stale, seasonal, noYearAgo);
+        log.info("[어닝서프라이즈] 분기원본 - 종목 {}개 중 판정 {}건 (점수 받는 판정 {}, 인접2분기 미확보 {}, 노후 {}, "
+                        + "전년 동기보다 나빠 제외 {}, 전년 동기를 몰라 미채점 {})",
+                byStock.size(), surprises.size(), countScoring(surprises), notEnough, stale, seasonal, noYearAgo);
         return surprises;
+    }
+
+    /**
+     * 점수를 주는 판정(POSITIVE·TURNAROUND)을 남겨도 되는가 — 전년 동기보다 늘었다는 것이 <b>확인됐을 때만</b>(2026-11-12).
+     *
+     * <p>{@link #improvedYearOverYear} 의 null(전년 동기 분기·지표를 모름)을 9/29 에는 통과시켰다("결측은 차단 근거가 아니다").
+     * 그런데 기술·수급 축은 모르면 미채점인데 실적만 모르는 채로 최고 20점을 줬다 — 2026-11-11 운영 11종목(거래대금 하한 안 5).
+     * 티엠씨(217590)는 2025-03 분기 행이 빠져 전년 동기를 못 구했고 '개선 12점'을 받았지만 공개 수치로는 전년 동기보다 나빴다.
+     * 모르면 판정을 만들지 않는다 — 그 종목의 실적 축은 다른 '판정 없음'과 똑같이 미채점이다(0 점으로 적지 않는다).
+     */
+    static boolean confirmedYearOverYear(Boolean improved) {
+        return Boolean.TRUE.equals(improved);
     }
 
     /** composite 실적 점수를 받는 판정인가 — 전년 동기 확인은 이 둘에만 건다(NEGATIVE 는 점수와 무관). */
@@ -188,7 +201,7 @@ public class EarningSurpriseService {
      * 비교 대상은 판정과 같은 지표(영업이익, 둘 다 없으면 순이익).
      *
      * @return TRUE 개선(적자→흑자 포함) · FALSE 같거나 악화 · null 판정 불가(전년 동기 분기·지표 결측) —
-     *         null 은 <b>종전대로 둔다</b>: 결측은 차단 근거가 아니다(상장 1년 미만 등, 실측 16종목)
+     *         null 도 점수를 받지 못한다({@link #confirmedYearOverYear}, 2026-11-12 정정 — 9/29 엔 종전대로 통과시켰다)
      */
     static Boolean improvedYearOverYear(QuarterlyFinancials.Figures latest, QuarterlyFinancials.Figures yearAgo) {
         if (latest == null || yearAgo == null) return null;

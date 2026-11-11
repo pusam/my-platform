@@ -65,6 +65,13 @@ class EarningSurpriseQuarterlySourceTest {
                 .build();
     }
 
+    /** DART 로 채운 개별 분기 행(누적 아님, source=DART_FNLTT). */
+    private static StockQuarterlyFinancial dart(int quartersAgo, String rev, String op, String net) {
+        StockQuarterlyFinancial row = q(quartersAgo, rev, op, net, false);
+        row.setSource(StockQuarterlyFinancial.SOURCE_DART);
+        return row;
+    }
+
     /** 오늘 이전의 가장 가까운 분기말(3/6/9/12월). */
     private static YearMonth quarterEndBefore(LocalDate today) {
         YearMonth ym = YearMonth.from(today).minusMonths(1);
@@ -76,6 +83,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("인접 2분기 영업이익 +20% 이상이면 POSITIVE — 레거시 경로에선 나올 수 없던 판정")
     void detectsPositiveFromAdjacentQuarters() {
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(
+                q(4, "9000", "800", "600", false),      // 전년 동기 — 이보다 늘어야 점수를 받는다(모르면 미채점, 2026-11-12)
                 q(3, "10000", "900", "700", false),     // 개별 분기로 판정되게 앞 분기를 채운다(연속 4분기)
                 q(2, "10500", "950", "750", false),
                 q(1, "10000", "1000", "800", false),
@@ -139,7 +147,12 @@ class EarningSurpriseQuarterlySourceTest {
     void decumulatesBeforeComparing() {
         // 누적: 1분기 10000 / 반기 21000 / 3분기 33000 → 개별 Q2 11000, Q3 12000 (+9.1%)
         // 영업이익 누적 1000 / 2100 / 3600 → 개별 Q2 1100, Q3 1500 (+36.4% = POSITIVE)
+        // 전년 동기(작년 3분기)도 누적에서 환산한다: 30000 − 19000 = 11000, 3200 − 1900 = 1300 (< 1500 — 전년 동기보다 늘었다)
         when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(
+                q(6, "9000", "900", "700", true),
+                q(5, "19000", "1900", "1500", true),
+                q(4, "30000", "3200", "2500", true),
+                q(3, "42000", "4500", "3500", true),
                 q(2, "10000", "1000", "800", true),
                 q(1, "21000", "2100", "1700", true),
                 q(0, "33000", "3600", "2900", true)));
@@ -181,6 +194,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("2분기 연속 적자 후 흑자 = 진짜 TURNAROUND")
     void consecutiveLossThenProfitIsTurnaround() {
         List<EarningSurpriseDto> out = runWith(
+                q(4, "9000", "20", "10", false),       // 전년 동기 — 이보다 늘었다
                 q(3, "9500", "30", "20", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(2, "10000", "-50", "-40", false),    // prev2 적자
                 q(1, "11000", "-20", "-15", false),    // prev 적자
@@ -220,6 +234,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("적자와 무관한 POSITIVE 는 그대로 — 연속성 조건이 정상 경로를 건드리지 않는다")
     void normalPositiveIsUntouched() {
         List<EarningSurpriseDto> out = runWith(
+                q(4, "9000", "50", "40", false),       // 전년 동기 — 이보다 늘었다
                 q(3, "9500", "55", "45", false),       // 개별 분기로 판정되게 앞 분기를 채운다
                 q(2, "10000", "60", "50", false),
                 q(1, "11000", "100", "80", false),
@@ -303,17 +318,77 @@ class EarningSurpriseQuarterlySourceTest {
         assertThat(out).isEmpty();
     }
 
+    // ------------------------------------------------------------------ 전년 동기 모름 = 미채점 (2026-11-12)
+    // 9/29 엔 '전년 동기 자료가 없으면 종전대로 통과'였다. 기술·수급 축은 모르면 미채점인데 실적만 모르는 채로 최고 20점을 줬다.
+
     @Test
-    @DisplayName("전년 동기 자료가 없으면 판정 보류 = 종전대로(결측은 차단 근거가 아니다) — 상장 1년 미만 등")
-    void missingYearAgoBaseKeepsCurrentBehavior() {
+    @DisplayName("전년 동기 자료가 없으면 점수를 주는 판정을 만들지 않는다 — 모르면 미채점(상장 1년 미만·분기 누락)")
+    void missingYearAgoBaseMakesNoAward() {
         List<EarningSurpriseDto> out = runWith(
                 q(3, "10000", "80", "60", false),       // 개별 분기로 판정되게 채운다(전년 동기 q(4)는 일부러 없다)
                 q(2, "10500", "90", "70", false),
                 q(1, "11000", "100", "80", false),
-                q(0, "12000", "150", "120", false));
+                q(0, "12000", "150", "120", false));    // 직전 대비 +50% — 전년 동기는 모른다
+
+        assertThat(out).as("전년 동기를 모르면 실적 점수를 받는 판정이 없다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("실측 티엠씨(217590) — 2025-03 분기 행이 없어 전년 동기를 못 구하면 '개선 +37.6%'(12점)를 주지 않는다")
+    void realTmcMissingQuarterMakesNoAward() {
+        // 운영 저장 값(2026-11-12): KIS 누적 202406·202409·202412·202506·202509(202503 없음) + DART 개별 202512·202603·202606.
+        // 202506 누적은 앞 분기(202503)가 없어 개별로 환산되지 않는다 → 전년 동기(202506) 모름.
+        // 공개 수치로는 전년 동기 영업이익이 더 컸다(나중 보고서의 비교 칸: 2025 반기 누적 71.20 − 1분기 48.55 = 22.65억 > 13.42억).
+        List<EarningSurpriseDto> out = runWith(
+                q(8, "1979.00", "106.00", "64.00", true),
+                q(7, "2840.00", "132.00", "54.00", true),
+                q(6, "3757.00", "109.00", "92.00", true),
+                q(4, "1852.00", "71.00", "13.00", true),
+                q(3, "2650.00", "85.00", "25.00", true),
+                dart(2, "758.90", "-21.04", "-30.65"),
+                dart(1, "939.49", "9.75", "18.36"),
+                dart(0, "1063.51", "13.42", "17.73"));
+
+        assertThat(out).as("9.75억 → 13.42억(+37.6%)이지만 전년 동기를 모른다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("재현 계산 앤로보틱스(138360) — 저장된 분기 값으로는 '흑자전환', 반기보고서 기준 1·2분기로는 점수를 받는 판정이 아니다")
+    void realNRoboticsTurnaroundDependsOnWhichReportSaysFirstQuarter() {
+        // 운영 저장 값(2026-11-12, DART 로 채운 개별 분기). 1분기는 1분기 보고서 값, 2분기 = 반기 누적 − 그 값.
+        StockQuarterlyFinancial[] older = {
+                dart(7, "103.43", "9.16", "131.04"), dart(6, "67.39", "-1.50", "-66.27"),
+                dart(5, "10.89", "-10.92", "30.38"), dart(4, "44.43", "-2.74", "14.46"),
+                dart(3, "111.59", "22.92", "18.12"), dart(2, "66.80", "-3.45", "5.66")};
+
+        List<StockQuarterlyFinancial> stored = new java.util.ArrayList<>(List.of(older));
+        stored.add(dart(1, "23.85", "-1.11", "56.32"));
+        stored.add(dart(0, "143.72", "4.87", "-12.48"));
+        List<EarningSurpriseDto> asStored = runWith(stored.toArray(new StockQuarterlyFinancial[0]));
+        assertThat(asStored).hasSize(1);
+        assertThat(asStored.get(0).getSurpriseType()).as("−3.45 → −1.11 → 4.87: 2분기 연속 적자 뒤 흑자(실적 20점)")
+                .isEqualTo(SurpriseType.TURNAROUND);
+
+        // 반기보고서 기준(DartQuarterly.latestBasisQuarters — 공개 수치 2분기 매출 77억·영업이익 0억): 1분기 90.57·3.76, 2분기 77.00·0.00
+        List<StockQuarterlyFinancial> restated = new java.util.ArrayList<>(List.of(older));
+        restated.add(dart(1, "90.57", "3.76", "56.32"));
+        restated.add(dart(0, "77.00", "0.00", "-12.48"));
+        List<EarningSurpriseDto> asRestated = runWith(restated.toArray(new StockQuarterlyFinancial[0]));
+        assertThat(asRestated).as("1분기가 이미 흑자 — 흑자전환도 급증도 아니다")
+                .noneMatch(EarningSurpriseService::awardsPoints);
+    }
+
+    @Test
+    @DisplayName("전년 동기를 몰라도 NEGATIVE 판정은 그대로 — 점수와 무관한 쪽은 손대지 않는다")
+    void missingYearAgoKeepsNegative() {
+        List<EarningSurpriseDto> out = runWith(
+                q(3, "10000", "200", "150", false),
+                q(2, "10000", "200", "150", false),
+                q(1, "10000", "200", "150", false),
+                q(0, "10000", "100", "80", false));     // 직전 대비 -50%, 전년 동기 없음
 
         assertThat(out).hasSize(1);
-        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.POSITIVE);
+        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.NEGATIVE);
     }
 
     @Test
@@ -366,6 +441,7 @@ class EarningSurpriseQuarterlySourceTest {
     @DisplayName("순이익 기준도 2분기 연속 적자 뒤 흑자면 흑자전환")
     void netIncomeConsecutiveLossIsTurnaround() {
         List<EarningSurpriseDto> out = runWith(
+                q(4, "9000", null, "5", false),        // 전년 동기 순이익 — 이보다 늘었다
                 q(3, "9500", null, "25", false),
                 q(2, "10000", null, "-30", false),     // prev2 적자
                 q(1, "11000", null, "-5", false),      // prev 적자
