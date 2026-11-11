@@ -19,7 +19,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **백엔드(Spring Boot)**: `./gradlew test`  ← 자동 검증 루프는 여기서 돈다
   - 특정만: `./gradlew test --tests "*StockDetailServiceTest"`
   - 빌드: `./gradlew build`
-  - ⚠️ Maven이면 `./mvnw test`로 교체.
+  - 실제로 쓰는 명령: `./gradlew :backend:test -PskipFrontend --offline --tests "*이름"` — `-PskipFrontend` 가 없으면 npm 프론트 빌드까지 돈다. Windows 에서 Gradle 이 뜨지 않으면 `JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=C:/tmp/jdkuds"` 를 붙인다.
 - **프론트(Vue/Vite)**: ✅ **vitest 셋업 완료** (`vitest.config.js` — vite.config 와 분리, jsdom + @vue/test-utils).
   - 테스트: `cd frontend && npm test` (= `vitest run`) / watch: `npm run test:watch`
   - 빌드: `cd frontend && npm run build` (lint 스크립트는 아직 없음)
@@ -310,7 +310,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 ## 코드 위치 힌트 (탐색 시작점)
 - 점수: `RecommendationService`, 결론+매매계획: `StockConclusionService`, 체크리스트: `BuyChecklistService`
 - 발굴 5트랙(모두 `RecommendationService` + `/api/recommendation/*` + `RecommendationDto`): 저평가 `getValueTop10`/value-top10, 성장 `getGrowthTop10`/growth-top10, 낙폭과대 `getOversoldTop10`/oversold-top10, 실적 `getEarningsTop10`/earnings-top10, 수급 `getSmartMoneyTop10`/smartmoney-top10. 프론트는 `StockTradingDashboardV2.vue` 발굴 리스트 서브탭(`discoverListTabs`/`ensureDiscoverListLoaded`).
-- 시그널 평가: `SignalOutcomeService` (19:30 배치, 3거래일 후) — 조건부 적중률 집계(`getAccuracyByBand`)도 여기
+- 시그널 평가: 기록·집계 `SignalOutcomeService`(조건부 적중률 `getAccuracyByBand`·현재 산식 표본 `currentSample`·레거시 19:30 평가) · 교정 D+3 평가 `SignalD3EvaluationService`(평일 19:45:20 — D+3 은 다음 날 08:00 확정 뒤라 D+4 저녁에 나온다, 게이트·화면 성적이 읽는 값)
 - 실적(어닝 서프라이즈): `EarningSurpriseService` — 입력 경로 2개(`detectFromQuarterly` 분기원본 / `detectFromDailySnapshots` 레거시 일별), 분류 산식은 `classify` 단일 출처. 분기 순수함수 `QuarterlyFinancials`(+`QuarterlyFinancialsTest`), 적재 `StockFinancialDataCollector.persistQuarterlyRows`, 테이블 `stock_quarterly_financial`(V55), 진단 `GET /api/diagnostics/earnings-source?compare=true`
 - 재료: `StockCatalystService` (V31, 네이버→Gemini→일캐시), API 는 `StockDetailController` `/api/stock/{code}/catalyst`
 - 지배주주 PER(V64): `dartfinancial/` — 수집 `DartControllingFinancialService`(DART fnlttSinglAcntAll, 평일 21:30), 계산 `ControllingEarnings`(순수, 파싱·TTM·조회 계획), 표 `dart_controlling_financial`·`dart_company`(결산월), 적용 `StockFinancialDataCollector.controllingTtm` → `stock_financial_data.per_basis`
@@ -334,8 +334,8 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 인증: `JwtAuthenticationFilter`·`JwtTokenProvider`(jwt-redis 모듈, 테스트 인프라 없음), `AuthController`/`AuthService`, 프론트 `utils/auth.js`·`utils/api.js`·`main.js`(라우터 가드)
 - 스케줄: `SchedulingConfig`, 락: `SchedulerLockService`
 - 판정 관제실: `controlroom/` 패키지(`ControlRoomSnapshotService`·`CrewOrchestrationService`·`CrewPrompts`, 파서 3종은 순수함수), 프론트 `views/ControlRoomView.vue`+`components/controlroom/`, 문서 `docs/CONTROL_ROOM.md`
-- 프론트 시간대 판정: `frontend/src/.../StockTradingDashboardV2.vue` (663~673줄 부근)
-- 최대 화면: `StockDetailDashboard.vue` (~4,707줄)
+- 프론트 시간대 판정: `StockTradingDashboardV2.vue` 의 `currentPhaseKey`(장 시작 `tradingStartsAt`·휴장 `marketClosedToday` 는 서버 값)
+- 최대 화면: `StockDetailDashboard.vue` (약 2,700줄, 2026-11-11)
 - 종목상세 주가 차트: **lightweight-charts 렌더러 `components/v2/HtsChart.vue`**(십자선·축눈금·줌/팬 내장, 2026-07-15 DIV/SVG 수제 차트에서 교체). 시리즈 변환 순수함수 `utils/htsChartData.js`(일봉 date/분봉 KST epoch time 규약). 데이터/계산 계층은 `composables/useChartCalculations.js`(채널·꼬리는 `utils/trendChannel.js`·`utils/candleAnatomy.js`, 백엔드 `TrendChannelCalculator`·V49 스냅샷과 산식 동기 — 변경 시 화면↔보드↔검증 어긋남). 당일 분봉('1일' 탭)=`IntradayChartService`(`/api/stock/{code}/intraday-candles`). 마이그레이션 이력: `docs/GUIDE_HTS_CHART_MIGRATION.md`.
 
 ## 프론트 IA (P-IA 3단계, 2026-06-11)
@@ -347,6 +347,6 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **발굴은 🧭종합판단 + 백테스트(+ 💎저평가)만 보인다 — 숨긴 탭·🎯종합의 코드·딥링크(`?sub=`)는 보존(삭제·은퇴 금지).** 복구는 `discoverListVisible`·`visibleDiscoverListKeys`·`resolveInitialDiscoverGroup`·`discoverSubTabs`. 💎저평가(`?tab=discover&sub=value`)는 갱신 막대 없음·'성과 검증 전'(`VALUE_LIST_BASIS`)·계산 실패면 '불러오지 못했습니다'. 회귀 프론트 `StockTradingDashboardV2.valueList`. (§ia.5)
   - 💎저평가 `getValueTop10` (PBR·ROE·부채·흑자) / 🚀성장 `getGrowthTop10` (매출·이익 성장률+PEG) / 📉낙폭과대 `getOversoldTop10` (RSI 과매도+MA20 낙폭+반등, 가격히스토리 스캔) / 💰실적 `getEarningsTop10` (흑자전환·이익급증) / 🏦수급 `getSmartMoneyTop10` (외국인·기관 순매수).
   - **lazy 로드**: `ensureDiscoverListLoaded(key)` 가 보고 있는 트랙만 호출(특히 낙폭과대 universe 스캔이 무거움), 각 30분 캐시. 5트랙 동시 eager 로드로 되돌리지 말 것.
-- **허브 60초 갱신은 보이는 탭의 데이터만(`StockTradingDashboardV2._refreshAll`)** — 오늘 = 시장 한 줄(`loadMarketLine`) · 시장 = 지도·수급 패널 · 발굴 = 종합판단 보드, 다른 탭에서 돌아오면 그 탭 데이터를 바로 한 번 읽는다(watch `activeGnbTab`). 시장 지도는 화면에 쓰는 시세만 부른다. 회귀 `StockTradingDashboardV2.ia.test.js`. (§ia.6)
   - 백엔드 5트랙 공통 골격: financial/price/투자자 데이터 broad 스캔 → 점수 → 상위30 `quickDangerCheck`(DART) → top10. 실적/수급은 기존 `scoreEarnings`/`scoreSupplyDemand` 산식 **재사용**(`calculateCategoryTop10`, 단일 출처). 성장 산식 `computeGrowthScoreParts`/낙폭 `computeOversoldScoreParts` 는 순수함수(테스트 有).
+- **허브 60초 갱신은 보이는 탭의 데이터만(`StockTradingDashboardV2._refreshAll`)** — 오늘 = 시장 한 줄(`loadMarketLine`) · 시장 = 지도·수급 패널 · 발굴 = 종합판단 보드, 다른 탭에서 돌아오면 그 탭 데이터를 바로 한 번 읽는다(watch `activeGnbTab`). 시장 지도는 화면에 쓰는 시세만 부른다. 회귀 `StockTradingDashboardV2.ia.test.js`. (§ia.6)
 - 결론 카드(`StockConclusionCard.vue`): 매매계획(손절/목표가+MFE/MAE) · 점수대 적중률 · 재료 배지까지 표시. 데이터 없으면 각 블록 조용히 숨김(배지 생략)이 규약.
