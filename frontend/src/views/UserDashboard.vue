@@ -145,6 +145,23 @@
             </span>
           </article>
 
+          <!-- 내 사이트 바로가기 — 주식 화면이 아닌 운영 편의 화면(/sites). 목록은 로그인한 본인 것만 서버가 준다. -->
+          <article class="menu-card" data-test="sites-card" @click="$router.push('/sites')">
+            <div class="card-icon files">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.5 1.5"/>
+                <path d="M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.5-1.5"/>
+              </svg>
+            </div>
+            <h3>내 사이트</h3>
+            <p>내 사이트 주소를 모아 두고 바로 엽니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
           <article class="menu-card car" @click="goToCar">
             <div class="card-icon car-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">

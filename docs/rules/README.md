@@ -167,3 +167,4 @@
 | §ia.6 | `docs/rules/ia-frontend.md` | 허브 60초 갱신은 보이는 탭의 데이터만(2026-10-07, StockTradingDashboardV2._… |
 | §ia.6-1 | `CLAUDE.md` | 재사용 |
 | §ia.7 | `CLAUDE.md` | 결론 카드(StockConclusionCard.vue): 매매계획(손절/목표가+MFE/MAE) · 점수대 적… |
+| §ia.8 | `docs/rules/ia-frontend.md` | 내 사이트 바로가기(/sites)는 주식 화면이 아니라 운영 편의 화면이다(2026-11-12) |

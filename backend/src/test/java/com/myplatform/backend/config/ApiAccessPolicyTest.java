@@ -317,6 +317,39 @@ class ApiAccessPolicyTest {
     }
 
     @Nested
+    @DisplayName("내 사이트 바로가기(/api/site-links) — 어떤 사이트가 떠 있는지는 로그인한 사람에게만")
+    class SiteLinks {
+
+        static final List<String> ENDPOINTS = List.of("GET /api/site-links", "POST /api/site-links",
+                "PUT /api/site-links/005930", "DELETE /api/site-links/005930");
+
+        @Test
+        @DisplayName("컨트롤러 주소가 실제로 있다 (이름이 바뀌면 아래 검사가 헛통과한다)")
+        void endpointsExist() throws Exception {
+            assertThat(controllerEndpoints()).containsAll(ENDPOINTS);
+        }
+
+        @Test
+        @DisplayName("로그인 없이는 밖에서도 서버 안에서도 401")
+        void anonymousClosedEverywhere() throws Exception {
+            for (String e : ENDPOINTS) {
+                for (Caller c : Caller.values()) {
+                    assertThat(status(e, c, null)).as("anon " + c.name() + " " + e).isEqualTo(401);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("로그인한 사용자는 닿는다 — 본인 행만 주는 것은 SiteLinkServiceTest 가 본다")
+        void loggedInAllowed() throws Exception {
+            for (String e : ENDPOINTS) {
+                assertThat(status(e, Caller.EXTERNAL_REWRITTEN, USER)).as("user " + e).isEqualTo(200);
+                assertThat(status(e, Caller.EXTERNAL_REWRITTEN, ADMIN)).as("admin " + e).isEqualTo(200);
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("수집·배치를 일으키는 주소 — 관리자만")
     class Collectors {
 

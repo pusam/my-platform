@@ -286,6 +286,15 @@ class FlywayMigrationTest {
                 .as("V76 not_compared NOT NULL — '대조 못 함' 수는 늘 센다").isFalse();
         verifyCrosscheckCascadeOnMariaDb();
 
+        // --- 검증 26 (V78): 내 사이트 바로가기 표 — 엔티티와 스키마가 맞아야 운영(ddl-auto: validate)이 뜬다, 초기 행은 넣지 않는다 ---
+        validateEntityClassesAgainstSchema(com.myplatform.backend.sitelinks.SiteLink.class);
+        assertThat(isColumnNullable("site_link", "user_id"))
+                .as("V78 user_id NOT NULL — 주인 없는 줄은 누구 것도 아니다").isFalse();
+        assertThat(isColumnNullable("site_link", "description"))
+                .as("V78 description NULL 허용 — 설명은 선택").isTrue();
+        assertThat(scalarLong("SELECT COUNT(*) FROM site_link"))
+                .as("V78 은 표만 만든다 — 주소 목록을 마이그레이션(공개 저장소)에 넣지 않는다").isZero();
+
         // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
                 + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "

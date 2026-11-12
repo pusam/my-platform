@@ -33,6 +33,8 @@ const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 // 판정 관제실 — 운영자 전용 콘솔(주식 허브 탭이 아니라 별도 라우트).
 const ControlRoomView = () => import('./views/ControlRoomView.vue')
+// 내 사이트 바로가기 — 주식 화면이 아닌 운영 편의 화면(로그인 뒤, 본인 목록만).
+const SiteLinksPage = () => import('./views/SiteLinksPage.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -262,6 +264,15 @@ const router = createRouter({
       name: 'ControlRoom',
       component: ControlRoomView,
       meta: { requiresAuth: true, adminOnly: true }
+    },
+    {
+      // 내 사이트 바로가기 — 한 서버에 올린 개인 사이트들의 주소 모음(2026-11-12).
+      // 주식 화면이 아니라 운영 편의 화면이다: 종목·시세·추천 화면은 여전히 허브 탭에 흡수한다(새 주식 라우트 금지 그대로).
+      // 목록은 화면 파일에 없고 로그인한 요청에만 API(/api/site-links)가 본인 것만 준다 — 여기에 주소를 적지 말 것.
+      path: '/sites',
+      name: 'SiteLinks',
+      component: SiteLinksPage,
+      meta: { requiresAuth: true }
     },
     {
       // 없는 경로는 빈 화면이 아니라 "없다"고 말한다(2026-09-21 디자인 점검).

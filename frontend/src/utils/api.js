@@ -380,6 +380,22 @@ export const carAPI = {
   }
 };
 
+// 내 사이트 바로가기 (/sites) — 로그인한 본인 목록만. 주소는 서버 표에만 있다(화면 번들에 넣지 않는다).
+export const siteLinksAPI = {
+  list() {
+    return apiClient.get('/site-links');
+  },
+  add(data) {
+    return apiClient.post('/site-links', data);
+  },
+  update(id, data) {
+    return apiClient.put(`/site-links/${id}`, data);
+  },
+  remove(id) {
+    return apiClient.delete(`/site-links/${id}`);
+  }
+};
+
 // Diet API (식단 관리)
 export const dietAPI = {
   getRecords(type = null) {
