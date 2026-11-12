@@ -380,8 +380,8 @@ class DartQuarterlyTest {
     }
 
     @Test
-    @DisplayName("3분기보고서가 반기 누적을 다시 적으면 3분기는 그 보고서의 3개월, 2분기는 모른다 — 다른 보고서의 누적끼리 빼지 않는다")
-    void thirdQuarterReportRestatingHalfYearLeavesSecondQuarterUnknown() {
+    @DisplayName("3분기보고서가 반기 누적을 다시 적으면 3분기는 그 보고서의 3개월, 2분기는 반기보고서가 말한 값 그대로 — 다른 보고서의 누적끼리 빼지 않는다")
+    void thirdQuarterReportRestatingHalfYearKeepsHalfYearReportSecondQuarter() {
         // 독립 검토(2026-11-12)의 반례: 3분기보고서가 중단영업을 재분류해 반기 누적을 220·45 → 150·22 로 다시 적었다(진짜 1분기 70·10, 2분기 80·12).
         // 다시 적은 반기에서 반기보고서 기준 1분기(100·30)를 빼면 2분기가 50·−8 이 된다 — 어느 보고서도 말하지 않은 값이다.
         List<Statement> reports = List.of(
@@ -392,12 +392,13 @@ class DartQuarterlyTest {
         List<Quarter> latest = DartQuarterly.latestBasisQuarters(reports);
         assertThat(q(latest, "202609").revenue()).isEqualByComparingTo("90");
         assertThat(q(latest, "202609").operatingProfit()).isEqualByComparingTo("14");
-        assertThat(q(latest, "202606")).as("50·−8 을 지어내지 않는다").isNull();
+        assertThat(q(latest, "202606").revenue()).as("반기보고서의 3개월(220 − 100) — 50·−8 을 지어내지 않는다").isEqualByComparingTo("120");
+        assertThat(q(latest, "202606").operatingProfit()).isEqualByComparingTo("15");
         assertThat(q(latest, "202603").revenue()).as("1분기는 반기보고서가 말한 대로").isEqualByComparingTo("100");
 
         DartQuarterly.BasisDiff diff = DartQuarterly.basisDiff(DartQuarterly.individualQuarters(reports), latest);
         assertThat(diff.changed()).as("종전 3분기 = 240 − 220 = 20").containsExactly("202609");
-        assertThat(diff.removed()).containsExactly("202606");
+        assertThat(diff.removed()).isEmpty();
     }
 
     @Test

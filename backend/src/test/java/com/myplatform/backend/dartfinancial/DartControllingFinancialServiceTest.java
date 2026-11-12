@@ -72,6 +72,7 @@ class DartControllingFinancialServiceTest {
         service = new DartControllingFinancialService(repo, companyRepo, dart, financialRepo, quarterRepo, rest, new ObjectMapper(), clock);
         ReflectionTestUtils.setField(service, "dartApiKey", "test-key");
         service.callIntervalMillis = 0;
+        service.latestReportBasis = true;   // 운영 기본값(2026-11-13) — 수동 조립이라 @Value 가 안 들어온다
 
         when(quarterRepo.findAllSince(any())).thenAnswer(inv -> {
             List<StockQuarterlyFinancial> out = new ArrayList<>(quarters);
@@ -697,10 +698,11 @@ class DartControllingFinancialServiceTest {
     }
 
     @Test
-    @DisplayName("V77 이전에 받은 반기·3분기 보고서만 한 번 다시 받아 3개월 칸을 채운다 — 누적·분기 행은 그대로(기본: 측정만)")
+    @DisplayName("V77 이전에 받은 반기·3분기 보고서만 한 번 다시 받아 3개월 칸을 채운다 — 꺼 두면 누적·분기 행은 그대로(측정만)")
     void threeMonthColumnsFilledOnceWithoutChangingQuarters() {
         filledBeforeV77();
         halfYearRestatesFirstQuarter();
+        service.latestReportBasis = false;
 
         service.collect();
 
@@ -757,6 +759,29 @@ class DartControllingFinancialServiceTest {
         assertThat(h1.isQuarterParsed()).as("매 회차 다시 묻지 않는다").isTrue();
         assertThat(service.lastBasisTally[2]).as("누적이 바뀐 보고서 1건").isEqualTo(1);
         assertThat(quarter("202606").getRevenue()).isEqualByComparingTo("12000");
+    }
+
+    @Test
+    @DisplayName("읽어 온 창(36개월)보다 옛 분기는 쓰지 않는다 — 기존 행을 못 본 채 새 행으로 넣으면 유일 키에 걸린다")
+    void quartersOlderThanTheWindowAreNotWritten() {
+        universe("058470");
+        corp("058470", "00123456");
+        noKisQuarters.add("058470");
+        nineReports("00123456");
+        // 창(2023-09-30~) 밖의 옛 보고서 두 건이 표에 남아 있다 — 2023 1분기·반기(별도, 누적 8,000·17,000)
+        for (String[] r : new String[][]{{"11013", "8000"}, {"11012", "17000"}}) {
+            DartControllingFinancial old = stored("058470", 2023, r[0], DartControllingFinancial.STATUS_OK, LocalDate.of(2026, 9, 1));
+            old.setFsDiv("OFS");
+            old.setRevenue(new java.math.BigDecimal(r[1]));
+            old.setIncomeParsed(true);
+            old.setQuarterParsed(true);
+        }
+
+        service.collect();
+
+        assertThat(quarter("202303")).as("2023-03-31 은 창 밖").isNull();
+        assertThat(quarter("202306")).isNull();
+        assertThat(quarter("202606").getRevenue()).as("창 안 분기는 그대로 쓴다").isEqualByComparingTo("12000");
     }
 
     @Test

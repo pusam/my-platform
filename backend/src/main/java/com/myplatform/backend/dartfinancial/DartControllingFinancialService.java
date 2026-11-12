@@ -83,14 +83,12 @@ public class DartControllingFinancialService {
     private String dartApiKey;
 
     /**
-     * 분기 값을 가장 나중 보고서의 기준으로 쓸까(2026-11-12, {@link DartQuarterly#latestBasisQuarters}) — 기본은 끔: 3개월 칸을 받아 두고
-     * 두 기준이 얼마나 다른지 회차 로그로 재기만 한다. 실제 응답으로 확인한 뒤 켠다({@code DART_QUARTERLY_LATEST_REPORT_BASIS}).
+     * 분기 값을 가장 나중 보고서의 기준으로 쓸까(2026-11-12, {@link DartQuarterly#latestBasisQuarters}) — <b>기본 켬(2026-11-13)</b>.
+     * 11/12 21:30 회차가 받은 3개월 칸 2,774건을 공개 수치와 대조한 뒤 켰다(앤로보틱스 1분기 90.45억·3.84억 = 네이버 90억·4억).
+     * 끄면({@code DART_QUARTERLY_LATEST_REPORT_BASIS=false}) 종전대로 앞 보고서 누적과의 차를 쓰고 두 기준의 차이만 잰다.
      */
-    @Value("${dart.quarterly.latest-report-basis:false}")
+    @Value("${dart.quarterly.latest-report-basis:true}")
     boolean latestReportBasis;
-
-    /** 두 기준이 다른 종목을 회차당 몇 건까지 로그로 남기나 — 실제 값을 눈으로 대조하기 위한 것. */
-    static final int BASIS_DIFF_SAMPLES = 20;
 
     /** 호출 사이 간격 — 테스트는 0. */
     long callIntervalMillis = 100;
@@ -328,7 +326,11 @@ public class DartControllingFinancialService {
         List<DartQuarterly.Quarter> ownBasis = DartQuarterly.individualQuarters(statements);
         List<DartQuarterly.Quarter> latestBasis = DartQuarterly.latestBasisQuarters(statements);
         tallyBasis(run, code, ownBasis, latestBasis);
-        List<DartQuarterly.Quarter> computed = latestReportBasis ? latestBasis : ownBasis;
+        // 읽어 온 기존 행의 창(FILL_LOOKBACK_MONTHS) 밖 분기는 쓰지 않는다 — 보고서는 지우지 않아 창보다 옛 분기도 계산되는데, 기존 행을
+        // 못 본 채 새 행으로 넣으면 (종목, 분기) 유일 키에 걸린다(독립 검토 2026-11-12). 창 밖 분기는 어느 소비처도 읽지 않는다.
+        LocalDate windowStart = run.today.minusMonths(FILL_LOOKBACK_MONTHS);
+        List<DartQuarterly.Quarter> computed = (latestReportBasis ? latestBasis : ownBasis).stream()
+                .filter(q -> !q.periodEnd().isBefore(windowStart)).collect(Collectors.toList());
         // 이제 만들 수 없는 분기(단위가 틀린 보고서·재분류)의 DART 행은 지운다 — 남겨 두면 틀린 값을 계속 읽는다
         java.util.Set<String> periods = computed.stream().map(DartQuarterly.Quarter::fiscalPeriod).collect(Collectors.toSet());
         for (StockQuarterlyFinancial q : existing) {
@@ -359,7 +361,7 @@ public class DartControllingFinancialService {
         }
     }
 
-    /** 두 기준의 차이를 세고 몇 종목은 값을 남긴다 — 켜기 전에 실제 값을 공개 수치와 대조하기 위한 것. */
+    /** 두 기준의 차이를 센다(회차 요약 한 줄) — 종목별 값은 DEBUG 로만(주기 잡의 정상 로그, §5.9). */
     private void tallyBasis(Run run, String code, List<DartQuarterly.Quarter> ownBasis, List<DartQuarterly.Quarter> latestBasis) {
         DartQuarterly.BasisDiff diff = DartQuarterly.basisDiff(ownBasis, latestBasis);
         if (diff.isEmpty()) return;
@@ -367,7 +369,7 @@ public class DartControllingFinancialService {
         run.basisChanged += diff.changed().size();
         run.basisAdded += diff.added().size();
         run.basisRemoved += diff.removed().size();
-        if (run.basisSamples++ >= BASIS_DIFF_SAMPLES) return;
+        if (!log.isDebugEnabled()) return;
         Map<String, DartQuarterly.Quarter> own = new HashMap<>();
         for (DartQuarterly.Quarter q : ownBasis) own.put(q.fiscalPeriod(), q);
         StringBuilder sb = new StringBuilder();
@@ -379,7 +381,7 @@ public class DartControllingFinancialService {
                     .append(" 영업이익 ").append(o == null ? "없음" : o.operatingProfit()).append("→").append(q.operatingProfit()).append(';');
         }
         if (!diff.removed().isEmpty()) sb.append(" 없어짐 ").append(diff.removed());
-        log.info("[DART 분기] {} 나중 보고서 기준이면 달라진다 —{}", code, sb);
+        log.debug("[DART 분기] {} 앞 보고서 기준과 다르다 —{}", code, sb);
     }
 
     private static boolean same(java.math.BigDecimal a, java.math.BigDecimal b) {
@@ -617,7 +619,7 @@ public class DartControllingFinancialService {
         int stocks, calls, ok, noData, failed, skippedNoCorp;
         int fillStocks, quarterRows, quarterRowsRemoved, statements, noRevenue, noOperatingProfit, byName, missingSamples, badScale;
         int threeMonthRefetched, threeMonthFilled, threeMonthAmended, threeMonthMissing, amendedSamples;
-        int basisStocks, basisChanged, basisAdded, basisRemoved, basisSamples;
+        int basisStocks, basisChanged, basisAdded, basisRemoved;
         final Map<String, java.math.BigDecimal> marketCaps = new HashMap<>();
         String abortReason;
 

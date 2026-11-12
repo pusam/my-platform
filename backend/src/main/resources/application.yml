@@ -270,9 +270,9 @@ dart:
   api:
     key: ${DART_API_KEY:}
   # 별도재무제표 회사의 분기 값을 가장 나중 보고서의 기준으로 쓸까(2026-11-12, DartQuarterly.latestBasisQuarters).
-  # 기본 false = 3개월 칸을 받아 두고 두 기준의 차이를 21:30 회차 로그로 재기만 한다. 실제 응답으로 확인한 뒤 켠다.
+  # 기본 true(2026-11-13 — 11/12 수집분을 공개 수치와 대조한 뒤 켰다). false 면 종전대로 앞 보고서 누적과의 차를 쓰고 차이만 잰다.
   quarterly:
-    latest-report-basis: ${DART_QUARTERLY_LATEST_REPORT_BASIS:false}
+    latest-report-basis: ${DART_QUARTERLY_LATEST_REPORT_BASIS:true}
 
 # 12. Naver Search API 설정
 naver:

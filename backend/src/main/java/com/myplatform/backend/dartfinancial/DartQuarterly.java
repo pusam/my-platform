@@ -219,8 +219,9 @@ public final class DartQuarterly {
      * (2분기 = 반기보고서의 3개월, 1분기 = 반기 누적 − 3개월). 두 누적의 연결/별도가 다르면 빼지 않는 규칙·매출이 음수면 모르는 규칙은 그대로다.
      *
      * <p><b>한 분기는 한 보고서가 말한 두 누적의 차로만 만든다</b>(독립 검토 2026-11-12) — 서로 다른 보고서가 다시 적은 누적끼리 빼지 않는다.
-     * 3분기보고서가 반기 누적을 다시 적었으면(중단영업 재분류 등) 3분기는 그 보고서의 3개월이지만, <b>2분기는 모른다</b>: 다시 적은 반기에서
-     * 1분기 몫이 얼마인지 그 보고서는 말하지 않는다(반기보고서 기준 1분기를 빼면 기준이 섞인 값이 된다). 1분기는 반기보고서가 말한 대로 둔다.
+     * 3분기보고서가 반기 누적을 다시 적었으면(중단영업 재분류 등) 3분기는 그 보고서의 3개월이고, <b>2분기는 반기보고서가 말한 값 그대로</b>다
+     * (다시 적은 반기에서 1분기 몫이 얼마인지 3분기보고서는 말하지 않는다 — 그 반기에서 반기보고서 기준 1분기를 빼면 기준이 섞인 값이 된다).
+     * 2026-11-12 운영 수집분으로 확인: 그런 21분기에서 공개 수치(네이버 분기)는 반기보고서의 3개월 값이었다.
      */
     public static List<Quarter> latestBasisQuarters(Collection<Statement> statements) {
         List<Quarter> out = new ArrayList<>();
@@ -238,15 +239,14 @@ public final class DartQuarterly {
         }
         for (ReportKey key : keys) {
             ReportCode previous = previousOf(key.code());
-            Cumulative restated = restatedCumulative(byKey, key);
             Cumulative now;
             Cumulative before = null;
             if (previous == null) {
                 // 1분기 — 반기보고서가 다시 말했으면 그 값, 아니면 1분기 보고서 값
+                Cumulative restated = restatedCumulative(byKey, key);
                 now = restated != null ? restated : ownCumulative(byKey.get(key));
             } else {
-                // 이 시점의 누적을 뒤 보고서가 다시 적었으면 이 분기(2분기)는 모른다 — 한 보고서가 말한 두 누적이 없다
-                if (restated != null) continue;
+                // 이 보고서 자신의 누적에서 뺀다 — 뒤 보고서가 이 누적을 다시 적었어도 이 분기는 이 보고서가 말한 값이다
                 now = ownCumulative(byKey.get(key));
                 ReportKey earlier = new ReportKey(key.year(), previous);
                 // 앞 시점의 누적 — 이 보고서가 다시 말했으면 그 값(같은 보고서), 아니면 앞 보고서 값(두 보고서가 같은 값을 말한다)
