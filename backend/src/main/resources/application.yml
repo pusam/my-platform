@@ -274,6 +274,11 @@ dart:
   quarterly:
     latest-report-basis: ${DART_QUARTERLY_LATEST_REPORT_BASIS:true}
 
+# 11-1. KIS 재무 호출이 실패한 날 직전 수집값을 이어 쓰는 한도(일) — 0 이면 끈다(2026-11-13, StockFinancialDataCollector · V79)
+financial:
+  statement-carry:
+    max-days: ${FINANCIAL_STATEMENT_CARRY_MAX_DAYS:30}
+
 # 12. Naver Search API 설정
 naver:
   api:

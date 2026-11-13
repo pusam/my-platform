@@ -386,15 +386,46 @@ public class ControlRoomSnapshotService {
             long withRatios = toLong(r[2]);
             long withStatement = toLong(r[3]);
             long withBalance = toLong(r[4]);
+            // 이어 쓴 행(V79) — 이어 쓰면 충전율이 정상으로 보이므로 따로 말한다(장애가 숨지 않게)
+            long carried = 0;
+            LocalDate carriedOldest = null;
+            List<Object[]> carriedRows = financialDataRepository.findLatestSnapshotCarried();
+            if (carriedRows != null && !carriedRows.isEmpty() && carriedRows.get(0) != null) {
+                carried = toLong(carriedRows.get(0)[0]);
+                carriedOldest = toLocalDate(carriedRows.get(0)[1]);
+            }
             return new ControlRoomSnapshotDto.FinancialInput(true, asOf, total,
                     withRatios, withStatement, withBalance,
-                    financialInputNote(total, withRatios, withStatement, withBalance),
-                    financialInputNoteDetail(total, withRatios, withStatement, withBalance));
+                    withCarriedNote(financialInputNote(total, withRatios, withStatement, withBalance), carried, total, carriedOldest),
+                    withCarriedDetail(financialInputNoteDetail(total, withRatios, withStatement, withBalance), carried, total, carriedOldest));
         } catch (Exception e) {
             log.warn("[관제실] 재무 입력층 조회 실패: {}", e.getMessage());
             return new ControlRoomSnapshotDto.FinancialInput(false, null, 0, 0, 0, 0,
                     "조회 실패", "재무 입력층 조회가 예외로 실패했다 — '결측 0건'이 아니라 '모름'이다(§4c).");
         }
+    }
+
+    /**
+     * 이어 쓴 값이 있으면 카드 표면에 덧붙인다 — 정상(0건)이면 그대로(조용하다). 순수 함수.
+     *
+     * <p>2026-11-12~13: KIS 재무 호출이 전 종목에서 실패했는데 수집은 '성공'으로 끝났다. 이어 쓰기(V79)로 충전율이 다시
+     * 정상으로 보이면 장애가 숨는다 — 그래서 이어 쓴 종목 수와 가장 오래된 수집일을 항상 말한다.
+     */
+    static String withCarriedNote(String note, long carried, long total, LocalDate oldest) {
+        if (carried <= 0) return note;
+        String carriedNote = "이어 쓴 값 " + carried + "/" + total
+                + (oldest != null ? " (" + oldest.getMonthValue() + "/" + oldest.getDayOfMonth() + " 수집분부터)" : "");
+        return note == null ? carriedNote : note + " · " + carriedNote;
+    }
+
+    /** 이어 쓴 값이 있을 때의 긴 설명 — 무엇을 확인할지까지. 없으면 원래 설명 그대로. */
+    static String withCarriedDetail(String detail, long carried, long total, LocalDate oldest) {
+        if (carried <= 0) return detail;
+        String carriedDetail = "KIS 재무 호출(손익계산서·재무상태표)이 실패해 " + total + "종목 중 " + carried
+                + "종목이 직전에 받아 둔 값을 이어 쓰고 있다" + (oldest != null ? "(가장 오래된 값은 " + oldest + " 수집분)" : "")
+                + ". 값은 분기 재무제표라 며칠은 같지만 30일 한도가 지나면 다시 비고, 그동안 새 분기 실적이 들어오지 않는다 — "
+                + "KIS 장애가 이어지는지 확인하고, 길어지면 대체 출처(DART)를 정할 것.";
+        return detail == null || detail.isBlank() ? carriedDetail : detail + " " + carriedDetail;
     }
 
     /**

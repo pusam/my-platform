@@ -102,6 +102,7 @@
 | §4c.61 | `CLAUDE.md` | 표시 계약 |
 | §4c.62 | `docs/rules/4c-financial.md` | 전년 동기를 모르면 실적 점수를 주지 않는다(2026-11-12) |
 | §4c.63 | `docs/rules/4c-financial.md` | DART 분기 값은 가장 나중 보고서의 기준을 따른다 — 3개월 칸을 받아 두고, 실제 응답으로 확인한 뒤 켠다(2026-11-12, V77) |
+| §4c.64 | `docs/rules/4c-financial.md` | KIS 재무 호출이 실패한 날은 직전에 받아 둔 값을 이어 쓴다(2026-11-13, V79) |
 | §4d.1 | `CLAUDE.md` | 재시작 reconciliation |
 | §4d.2 | `CLAUDE.md` | 매도 체결 확인 |
 | §4d.2-1 | `CLAUDE.md` | 불변식 |

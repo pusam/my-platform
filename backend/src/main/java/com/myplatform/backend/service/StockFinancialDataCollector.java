@@ -69,6 +69,112 @@ public class StockFinancialDataCollector {
     private static final int MAX_RETRY_COUNT = 3;
     private static final long RETRY_DELAY_MS = 500;
 
+    // ==================== KIS 재무 호출이 실패하는 날(2026-11-13) ====================
+    //
+    // 11/12 08:30 회차부터 재무비율 주소는 404, 손익계산서·재무상태표는 '호출 전처리 오류'가 전 종목에서 났다(요청은 그대로).
+    // 그날부터 일별 행의 매출·영업이익·순이익·자본·부채비율이 2천 종목에서 비었고 수집은 '성공 2602, 실패 0'으로 끝났다.
+    // ① 호출이 '실패'한 종목은(자료 없음·묵음이라고 '답한' 종목은 아니다) 직전 일별 행의 값을 한도 안에서 이어 쓰고
+    //    처음 받은 날을 statement_carried_from(V79)에 남긴다. ② 연속으로 실패하면 그 회차의 나머지 종목은 부르지 않는다
+    //    (회차 80분·종목당 실패 호출 4건을 그대로 두지 않는다). ③ 멈춘 순간 리스크 채널에 하루 한 번 알린다.
+
+    /** {@link #getFinancialRatios} 가 담는 표시 — 손익계산서 호출이 실패했다(빈 응답·묵은 자료가 아니다). 값은 의미 없다. */
+    static final String KEY_INCOME_CALL_FAILED = "_incomeCallFailed";
+    /** 재무상태표 호출이 분기·연간 둘 다 실패했다. */
+    static final String KEY_BALANCE_CALL_FAILED = "_balanceCallFailed";
+    /** 손익·재무상태표 호출이 이만큼 연속으로(종목 수) 실패하면 그 회차는 재무 호출을 멈춘다. */
+    static final int STATEMENT_FAILURE_TRIP = 30;
+
+    /** 이어 쓰는 한도(일) — 처음 받은 날이 이보다 오래되면 다시 모른다. 0 이하면 이어 쓰지 않는다. [잠정] */
+    @Value("${financial.statement-carry.max-days:30}")
+    int statementCarryMaxDays = 30;
+
+    private final java.util.concurrent.atomic.AtomicInteger consecutiveStatementFailures = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile boolean statementCallsSuspended = false;
+    private volatile LocalDate outageAlertedOn;
+
+    /** 알림 — 필드 주입(없으면 로그만). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    TelegramNotificationService telegramNotificationService;
+
+    /** 이번 회차에 재무 호출을 멈췄는가 — 회차 경계({@link #drainStateSummary})에서 풀린다. */
+    boolean statementCallsSuspended() {
+        return statementCallsSuspended;
+    }
+
+    private static Map<String, BigDecimal> failedStatementCalls() {
+        Map<String, BigDecimal> m = new HashMap<>();
+        m.put(KEY_INCOME_CALL_FAILED, BigDecimal.ONE);
+        m.put(KEY_BALANCE_CALL_FAILED, BigDecimal.ONE);
+        return m;
+    }
+
+    /** 손익·재무상태표 호출이 둘 다 실패한 종목이 연속 {@link #STATEMENT_FAILURE_TRIP} 이면 멈춘다 — 한 종목이라도 받으면 다시 센다. */
+    private void trackStatementCalls(Map<String, BigDecimal> ratios) {
+        boolean bothFailed = ratios.containsKey(KEY_INCOME_CALL_FAILED) && ratios.containsKey(KEY_BALANCE_CALL_FAILED);
+        if (!bothFailed) {
+            consecutiveStatementFailures.set(0);
+            return;
+        }
+        if (consecutiveStatementFailures.incrementAndGet() >= STATEMENT_FAILURE_TRIP && !statementCallsSuspended) {
+            statementCallsSuspended = true;
+            log.warn("[재무수집] KIS 재무 호출(손익계산서·재무상태표)이 연속 {}종목 실패 — 이번 회차의 나머지 종목은 재무 호출을 건너뛰고 "
+                    + "직전 수집값(최대 {}일 전까지)을 이어 쓴다. KIS 쪽 장애·주소 변경인지 확인할 것", STATEMENT_FAILURE_TRIP, statementCarryMaxDays);
+            alertOutageOncePerDay();
+        }
+    }
+
+    private void alertOutageOncePerDay() {
+        LocalDate today = LocalDate.now(clock);
+        if (today.equals(outageAlertedOn)) return;
+        outageAlertedOn = today;
+        if (telegramNotificationService == null) return;
+        try {
+            telegramNotificationService.sendRisk("⚠️ KIS 재무 자료 수집 장애\n"
+                    + "손익계산서·재무상태표 호출이 연속 " + STATEMENT_FAILURE_TRIP + "종목 실패했습니다. 이번 회차는 재무 호출을 멈추고 "
+                    + "종목마다 마지막으로 받은 값(최대 " + statementCarryMaxDays + "일 전까지)을 이어 씁니다.\n"
+                    + "관제실 '재무 입력층'에서 이어 쓴 종목 수와 기준일을 확인하세요.");
+        } catch (Exception e) {
+            log.warn("[재무수집] 장애 알림 발송 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 이어 쓸 행 — 오늘 이전 일별 행 가운데 그 값이 있는 가장 최근 행. 그 값을 처음 받은 날이 한도보다 오래되면 null
+     * (그리고 회차 요약에 남긴다). 찾지 못했거나 조회가 실패해도 null — 모르는 것은 모른다.
+     */
+    private StockFinancialData carrySource(String stockCode, LocalDate today,
+                                           java.util.function.Predicate<StockFinancialData> hasValue) {
+        if (statementCarryMaxDays <= 0) return null;
+        try {
+            List<StockFinancialData> earlier = stockFinancialDataRepository
+                    .findTop10ByStockCodeAndReportDateBeforeAndMarketCapIsNotNullOrderByReportDateDesc(stockCode, today);
+            if (earlier == null) return null;
+            for (StockFinancialData row : earlier) {
+                if (row == null || !hasValue.test(row)) continue;
+                LocalDate received = firstReceivedOn(row);
+                if (received == null || received.isBefore(today.minusDays(statementCarryMaxDays))) {
+                    noteState("KIS 재무 호출 실패 — 받아 둔 값이 " + statementCarryMaxDays + "일 넘게 묵어 모름");
+                    return null;
+                }
+                return row;
+            }
+        } catch (Exception e) {
+            log.debug("[재무수집] {} 이어 쓸 행 조회 실패 — 모름으로: {}", stockCode, e.getMessage());
+        }
+        return null;
+    }
+
+    /** 그 행의 재무제표 값을 KIS 에서 처음 받은 날 — 이어 쓴 행이면 적힌 날, 아니면 그 행의 날짜. */
+    private static LocalDate firstReceivedOn(StockFinancialData row) {
+        return row.getStatementCarriedFrom() != null ? row.getStatementCarriedFrom() : row.getReportDate();
+    }
+
+    private static LocalDate earlierOf(LocalDate a, LocalDate b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        return a.isBefore(b) ? a : b;
+    }
+
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final StockQuarterlyFinancialRepository quarterlyRepository;
     private final KoreaInvestmentService koreaInvestmentService;
@@ -318,10 +424,15 @@ public class StockFinancialDataCollector {
 
             String token = koreaInvestmentService.getAccessToken();
             Map<String, BigDecimal> financialRatios = new HashMap<>();
-            if (token != null) {
+            if (token != null && statementCallsSuspended) {
+                // 이번 회차에 연속으로 실패했다 — 부르지 않고 '호출 실패'로 다룬다(아래에서 받아 둔 값을 이어 쓴다)
+                financialRatios = failedStatementCalls();
+                noteState("KIS 재무 호출 건너뜀(연속 실패로 이번 회차 중단)");
+            } else if (token != null) {
                 try {
                     Thread.sleep(100);
                     financialRatios = getFinancialRatios(token, stockCode);
+                    trackStatementCalls(financialRatios);
                 } catch (Exception e) {
                     log.debug("재무비율 조회 실패 [{}]: {}", stockCode, e.getMessage());
                 }
@@ -348,6 +459,7 @@ public class StockFinancialDataCollector {
             LocalDate today = LocalDate.now();
             Optional<StockFinancialData> sameDayRow = stockFinancialDataRepository.findByStockCodeAndReportDate(stockCode, today);
             StockFinancialData financialData = sameDayRow.orElse(new StockFinancialData());
+            LocalDate carriedFrom = null;   // 이어 쓴 값이 있으면 그 값을 처음 받은 날(V79) — 오늘 받은 값뿐이면 null
 
             // ★ 이번 회차에 손익 TTM 을 하나도 못 받았으면(조회 실패·빈 응답) 같은 날 앞 회차가 받아 둔 TTM 으로 계산한다(2026-10-19).
             //   예전엔 그 칸을 null 로 덮어 08:30 의 TTM 이 15:38 의 일시 실패 한 번에 지워졌고 PER·EPS·ROE 도 KIS 연간 값으로
@@ -361,6 +473,23 @@ public class StockFinancialDataCollector {
                 operatingProfit = earlier.getOperatingProfit();
                 if (netIncome != null || revenue != null || operatingProfit != null) {
                     noteState("손익 TTM 못 받음 — 같은 날 앞 회차 값 사용");
+                    carriedFrom = earlier.getStatementCarriedFrom();   // 아침 회차가 이어 쓴 값이면 그 기준일도 잇는다
+                }
+            }
+
+            // ★ KIS 손익계산서 호출이 '실패'했고(빈 응답·묵은 자료가 아니다) 오늘 받아 둔 값도 없으면 직전 일별 행의 값을 이어 쓴다(2026-11-13).
+            //   재무제표는 분기에 한 번 바뀐다 — 호출이 실패한 날의 값은 직전에 받은 값과 같다. 11/12~13 은 전 종목 실패로 2천 종목의
+            //   영업이익률·부채비율이 비었고 PER 기준이 KIS 연간으로 돌아갔다. 처음 받은 날을 남기고 한도(30일)가 지나면 다시 모른다.
+            if (netIncome == null && revenue == null && operatingProfit == null && dartTtm == null
+                    && financialRatios.containsKey(KEY_INCOME_CALL_FAILED)) {
+                StockFinancialData source = carrySource(stockCode, today,
+                        r -> r.getNetIncome() != null || r.getRevenue() != null || r.getOperatingProfit() != null);
+                if (source != null) {
+                    netIncome = source.getNetIncome();
+                    revenue = source.getRevenue();
+                    operatingProfit = source.getOperatingProfit();
+                    carriedFrom = earlierOf(carriedFrom, firstReceivedOn(source));
+                    noteState("KIS 손익계산서 호출 실패 — 받아 둔 값 이어 씀");
                 }
             }
 
@@ -426,6 +555,7 @@ public class StockFinancialDataCollector {
             // PBR·BPS 가 KIS 현재가 API 값으로 돌아갔다(손익 TTM 과 같은 규칙)
             if (totalEquity == null && sameDayRow.isPresent()) {
                 totalEquity = sameDayRow.get().getTotalEquity();
+                if (totalEquity != null) carriedFrom = earlierOf(carriedFrom, sameDayRow.get().getStatementCarriedFrom());
             }
             BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
             BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
@@ -438,6 +568,18 @@ public class StockFinancialDataCollector {
                 totalAssets = dartBalance.totalAssets();
                 totalDebt = dartBalance.totalLiabilities();
                 debtRatio = dartBalance.debtRatio();
+            }
+            // KIS 재무상태표 호출이 실패했고 DART 값도 없으면 직전 일별 행의 자본·자산·부채·부채비율을 이어 쓴다(위 손익과 같은 규칙)
+            if (totalEquity == null && financialRatios.containsKey(KEY_BALANCE_CALL_FAILED)) {
+                StockFinancialData source = carrySource(stockCode, today, r -> r.getTotalEquity() != null);
+                if (source != null) {
+                    totalEquity = source.getTotalEquity();
+                    totalAssets = source.getTotalAssets();
+                    totalDebt = source.getTotalDebt();
+                    debtRatio = source.getDebtRatio();
+                    carriedFrom = earlierOf(carriedFrom, firstReceivedOn(source));
+                    noteState("KIS 재무상태표 호출 실패 — 받아 둔 값 이어 씀");
+                }
             }
             if (totalEquity != null) financialData.setTotalEquity(totalEquity);
             if (totalAssets != null) financialData.setTotalAssets(totalAssets);
@@ -527,6 +669,7 @@ public class StockFinancialDataCollector {
                 }
             }
             financialData.setPerBasis(perBasis);
+            financialData.setStatementCarriedFrom(carriedFrom);
 
             stockFinancialDataRepository.save(financialData);
 
@@ -569,6 +712,9 @@ public class StockFinancialDataCollector {
             java.util.concurrent.atomic.LongAdder adder = stateTally.remove(key);
             if (adder != null) counts.put(key, adder.sum());
         }
+        // 회차 경계 — 재무 호출 중단을 푼다(다음 회차는 다시 불러 본다)
+        statementCallsSuspended = false;
+        consecutiveStatementFailures.set(0);
         return formatStateSummary(counts);
     }
 
@@ -763,9 +909,11 @@ public class StockFinancialDataCollector {
                     }
                 } else {
                     log.warn("[손익계산서] {} - API 오류: {}", stockCode, root.path("msg1").asText());
+                    ratios.put(KEY_INCOME_CALL_FAILED, BigDecimal.ONE);
                 }
             } else {
                 log.warn("[손익계산서] {} - API 응답 없음 또는 실패", stockCode);
+                ratios.put(KEY_INCOME_CALL_FAILED, BigDecimal.ONE);
             }
 
             // ★ 재무상태표 조회 → 자본총계/총자산/부채총계 수집 (ROE 직접 계산용)
@@ -774,6 +922,7 @@ public class StockFinancialDataCollector {
             try {
                 boolean bsDataFound = false;
                 boolean bsStale = false;
+                boolean bsAnswered = false;   // 분기·연간 중 한 번이라도 KIS 가 정상 응답(rt_cd=0)했는가 — 아니면 '호출 실패'
                 for (String divClsCode : new String[]{"1", "0"}) {
                     if (bsDataFound) break;
 
@@ -789,6 +938,7 @@ public class StockFinancialDataCollector {
                     if (response != null && response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                         JsonNode bsRoot = objectMapper.readTree(response.getBody());
                         if ("0".equals(bsRoot.path("rt_cd").asText())) {
+                            bsAnswered = true;
                             JsonNode bsOutput = bsRoot.get("output");
                             if (bsOutput != null && bsOutput.isArray() && bsOutput.size() > 0) {
                                 // 가장 최근 데이터 사용
@@ -882,14 +1032,22 @@ public class StockFinancialDataCollector {
                         }
                     }
                 }
-                if (!bsDataFound) {
+                if (!bsAnswered) {
+                    ratios.put(KEY_BALANCE_CALL_FAILED, BigDecimal.ONE);
+                } else if (!bsDataFound) {
                     noteState(bsStale ? "재무상태표 노후(분기·연간) — 자본·부채 모름" : "재무상태표 자본총계 없음(분기·연간)");
                 }
             } catch (Exception e) {
                 log.warn("[재무상태표] {} - 조회 실패: {}", stockCode, e.getMessage());
+                ratios.put(KEY_BALANCE_CALL_FAILED, BigDecimal.ONE);
             }
         } catch (Exception e) {
             log.warn("재무비율 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            // 손익·재무상태표까지 가지 못했다 — 받은 값이 없는 쪽은 '호출 실패'다
+            if (!ratios.containsKey("netIncome") && !ratios.containsKey("revenue") && !ratios.containsKey("operatingProfit")) {
+                ratios.put(KEY_INCOME_CALL_FAILED, BigDecimal.ONE);
+            }
+            if (!ratios.containsKey("totalEquity")) ratios.put(KEY_BALANCE_CALL_FAILED, BigDecimal.ONE);
         }
 
         return ratios;

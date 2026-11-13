@@ -194,6 +194,23 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
             nativeQuery = true)
     List<Object[]> findLatestSnapshotFieldCoverage();
 
+    /**
+     * 최신 일별 스냅샷에서 재무제표 값을 <b>이어 쓴</b> 행 수와 가장 오래된 '처음 받은 날'(V79) — {@code [count, oldest]}.
+     * 이어 쓰면 충전율이 정상으로 보이므로 관제실이 이 숫자를 따로 말한다(장애가 숨지 않게).
+     */
+    @Query(value = "SELECT COUNT(*), MIN(s.statement_carried_from) FROM stock_financial_data s "
+            + "WHERE s.statement_carried_from IS NOT NULL AND s.report_date = ("
+            + "  SELECT MAX(x.report_date) FROM stock_financial_data x WHERE x.report_date <= CURRENT_DATE)",
+            nativeQuery = true)
+    List<Object[]> findLatestSnapshotCarried();
+
+    /**
+     * 그 종목의 <b>오늘 이전</b> KIS 일별 행(시가총액이 있는 행) 최근 10개 — KIS 재무 호출이 실패한 날 이어 쓸 값을 찾는다.
+     * 장애가 이어지면 바로 전날 행이 이미 이어 쓴 행이라 첫 줄에서 끝나고, 장애 첫 며칠만 빈 행을 건너 올라간다.
+     */
+    List<StockFinancialData> findTop10ByStockCodeAndReportDateBeforeAndMarketCapIsNotNullOrderByReportDateDesc(
+            String stockCode, LocalDate before);
+
     /** 이상 점검용 — 기준일이 오늘 이후인 행 수(미래 날짜 행). */
     @Query(value = "SELECT COUNT(*) FROM stock_financial_data WHERE report_date > CURRENT_DATE",
             nativeQuery = true)

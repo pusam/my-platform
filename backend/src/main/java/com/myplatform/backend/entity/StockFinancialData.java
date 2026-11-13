@@ -146,6 +146,14 @@ public class StockFinancialData {
     @Column(length = 10)
     private String perBasis;
 
+    /**
+     * 손익·재무상태표 값을 KIS 에서 <b>처음 받은 날</b>(V79, 2026-11-13) — 오늘 받았으면 null. KIS 재무 호출이 실패한 날
+     * 직전 일별 행의 값을 이어 쓴 행에만 찍힌다({@code StockFinancialDataCollector}, 한도 30일). 이어 쓴 행을 또 이어 써도
+     * 처음 받은 날이 유지된다 — 날마다 새 값인 척하지 않는다.
+     */
+    @Column(name = "statement_carried_from")
+    private java.time.LocalDate statementCarriedFrom;
+
     // 메타 정보
     @Column(length = 20)
     private String sector; // 업종

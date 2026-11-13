@@ -170,6 +170,9 @@ services:
       # 별도재무제표 회사의 분기 값을 가장 나중 보고서의 기준으로(2026-11-12, V77) — 기본 켬(2026-11-13, 11/12 수집분을 공개 수치와 대조한 뒤).
       # 끄려면 .env 에 DART_QUARTERLY_LATEST_REPORT_BASIS=false(종전 기준 + 차이만 잰다) — 꺼져 있으면 부팅 WARN.
       - DART_QUARTERLY_LATEST_REPORT_BASIS=${DART_QUARTERLY_LATEST_REPORT_BASIS:-true}
+      # KIS 재무 호출이 실패한 날 직전 수집값을 이어 쓰는 한도(일, 2026-11-13 · V79) — 처음 받은 날이 이보다 오래되면 다시 비운다.
+      # 끄려면 .env 에 FINANCIAL_STATEMENT_CARRY_MAX_DAYS=0(못 받은 날은 비운다 — 11/12 이전 동작).
+      - FINANCIAL_STATEMENT_CARRY_MAX_DAYS=${FINANCIAL_STATEMENT_CARRY_MAX_DAYS:-30}
       # OOM 때 힙 덤프를 남긴다(2026-09-15). 9/11 16:37 OOM 이 Tomcat Acceptor 스레드만 죽이고 JVM 은
       # 살아남아 배치·텔레그램은 정상으로 보인 채 API 가 3.5일간 죽어 있었는데, 이미지에 jmap/jcmd 가
       # 없어 원인을 특정할 증거가 재시작과 함께 사라졌다. 다음 OOM 은 덤프로 잡는다.
