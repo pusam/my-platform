@@ -294,4 +294,62 @@ class FinancialOutageCarryTest {
 
         assertThat(collector.statementCallsSuspended()).isFalse();
     }
+
+    @Test
+    @DisplayName("DART 로 채우는 종목은 이어 쓴 표시가 남지 않는다 — 아침 행에 표시가 있어도 오늘 값은 DART 값이다")
+    void dartValuesAreNotMarkedAsCarried() {
+        kisStatements(true);
+        StockFinancialData morning = earlierRow(TODAY, TODAY.minusDays(20));
+        when(dailyRepo.findByStockCodeAndReportDate(anyString(), any())).thenReturn(Optional.of(morning));
+        doReturn(new BigDecimal[]{new BigDecimal("600000"), new BigDecimal("50000"), new BigDecimal("36000")})
+                .when(collector).dartQuarterlyTtm(anyString(), any());
+        doReturn(new com.myplatform.backend.dartfinancial.DartQuarterly.Balance(
+                new BigDecimal("230000"), new BigDecimal("400000"), new BigDecimal("170000")))
+                .when(collector).dartBalance(anyString(), any());
+
+        assertThat(collector.collectStockFinancialDataSimple("078930")).isTrue();
+
+        assertThat(morning.getNetIncome()).isEqualByComparingTo("36000");
+        assertThat(morning.getTotalEquity()).isEqualByComparingTo("230000");
+        assertThat(morning.getStatementCarriedFrom()).isNull();
+    }
+
+    @Test
+    @DisplayName("멈춘 뒤에도 200종목마다 한 번은 불러 본다 — KIS 가 다시 답하면 그 회차 안에서 다시 부른다")
+    void probesAndResumesWithinTheRun() {
+        kisStatements(true);
+        previousRows();
+        for (int i = 0; i < StockFinancialDataCollector.STATEMENT_FAILURE_TRIP; i++) {
+            collector.collectStockFinancialDataSimple("078930");
+        }
+        assertThat(collector.statementCallsSuspended()).isTrue();
+
+        // 멈춘 동안 199종목은 부르지 않고, 200번째에 한 번 불러 본다 — 이번엔 KIS 가 답한다
+        for (int i = 0; i < StockFinancialDataCollector.STATEMENT_PROBE_EVERY - 1; i++) {
+            collector.collectStockFinancialDataSimple("078930");
+        }
+        verify(collector, times(StockFinancialDataCollector.STATEMENT_FAILURE_TRIP)).getFinancialRatios(anyString(), anyString());
+        kisStatements(false);
+        collector.collectStockFinancialDataSimple("078930");
+
+        assertThat(collector.statementCallsSuspended()).isFalse();
+        collector.collectStockFinancialDataSimple("078930");
+        verify(collector, times(StockFinancialDataCollector.STATEMENT_FAILURE_TRIP + 2)).getFinancialRatios(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("KIS 가 손익계산서에 정상 응답했는데 우리가 해석하다 실패한 것은 '호출 실패'가 아니다 — 옛 값으로 메우지 않는다")
+    void parseErrorAfterAnAnswerIsNotACallFailure() {
+        when(rest.exchange(contains("financial-ratio"), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"rt_cd\":\"0\",\"output\":[]}"));
+        // output 의 첫 행이 객체가 아니라 숫자다 — 해석 중 예외
+        when(rest.exchange(contains("income-statement"), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"rt_cd\":\"0\",\"output\":[{\"stac_yymm\":\"202606\",\"sale_account\":\"x\",\"bsop_prti\":\"y\",\"thtr_ntin\":\"z\"}]}"));
+        when(rest.exchange(contains("balance-sheet"), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"rt_cd\":\"0\",\"output\":[]}"));
+
+        Map<String, BigDecimal> ratios = collector.getFinancialRatios("token", "078930");
+
+        assertThat(ratios).doesNotContainKey(StockFinancialDataCollector.KEY_INCOME_CALL_FAILED);
+    }
 }

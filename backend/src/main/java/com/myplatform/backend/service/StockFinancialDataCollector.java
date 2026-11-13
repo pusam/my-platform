@@ -83,6 +83,8 @@ public class StockFinancialDataCollector {
     static final String KEY_BALANCE_CALL_FAILED = "_balanceCallFailed";
     /** 손익·재무상태표 호출이 이만큼 연속으로(종목 수) 실패하면 그 회차는 재무 호출을 멈춘다. */
     static final int STATEMENT_FAILURE_TRIP = 30;
+    /** 멈춘 뒤에도 이만큼(종목 수)마다 한 번은 불러 본다 — 받으면 그 회차 안에서 다시 부른다(KIS 복구·잘못 멈춘 경우). */
+    static final int STATEMENT_PROBE_EVERY = 200;
 
     /** 이어 쓰는 한도(일) — 처음 받은 날이 이보다 오래되면 다시 모른다. 0 이하면 이어 쓰지 않는다. [잠정] */
     @Value("${financial.statement-carry.max-days:30}")
@@ -90,6 +92,7 @@ public class StockFinancialDataCollector {
 
     private final java.util.concurrent.atomic.AtomicInteger consecutiveStatementFailures = new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean statementCallsSuspended = false;
+    private final java.util.concurrent.atomic.AtomicInteger skippedSinceSuspended = new java.util.concurrent.atomic.AtomicInteger();
     private volatile LocalDate outageAlertedOn;
 
     /** 알림 — 필드 주입(없으면 로그만). */
@@ -113,6 +116,10 @@ public class StockFinancialDataCollector {
         boolean bothFailed = ratios.containsKey(KEY_INCOME_CALL_FAILED) && ratios.containsKey(KEY_BALANCE_CALL_FAILED);
         if (!bothFailed) {
             consecutiveStatementFailures.set(0);
+            if (statementCallsSuspended) {
+                statementCallsSuspended = false;
+                log.warn("[재무수집] KIS 재무 호출이 다시 응답한다 — 이번 회차의 남은 종목은 다시 부른다");
+            }
             return;
         }
         if (consecutiveStatementFailures.incrementAndGet() >= STATEMENT_FAILURE_TRIP && !statementCallsSuspended) {
@@ -424,7 +431,8 @@ public class StockFinancialDataCollector {
 
             String token = koreaInvestmentService.getAccessToken();
             Map<String, BigDecimal> financialRatios = new HashMap<>();
-            if (token != null && statementCallsSuspended) {
+            if (token != null && statementCallsSuspended
+                    && skippedSinceSuspended.incrementAndGet() % STATEMENT_PROBE_EVERY != 0) {
                 // 이번 회차에 연속으로 실패했다 — 부르지 않고 '호출 실패'로 다룬다(아래에서 받아 둔 값을 이어 쓴다)
                 financialRatios = failedStatementCalls();
                 noteState("KIS 재무 호출 건너뜀(연속 실패로 이번 회차 중단)");
@@ -459,7 +467,9 @@ public class StockFinancialDataCollector {
             LocalDate today = LocalDate.now();
             Optional<StockFinancialData> sameDayRow = stockFinancialDataRepository.findByStockCodeAndReportDate(stockCode, today);
             StockFinancialData financialData = sameDayRow.orElse(new StockFinancialData());
-            LocalDate carriedFrom = null;   // 이어 쓴 값이 있으면 그 값을 처음 받은 날(V79) — 오늘 받은 값뿐이면 null
+            // 이어 쓴 값이 있으면 그 값을 처음 받은 날(V79) — 손익·재무상태표를 따로 세고 저장할 땐 더 오래된 쪽. 오늘 받은 값·DART 값이면 null
+            LocalDate carriedFrom = null;
+            LocalDate balanceCarriedFrom = null;
 
             // ★ 이번 회차에 손익 TTM 을 하나도 못 받았으면(조회 실패·빈 응답) 같은 날 앞 회차가 받아 둔 TTM 으로 계산한다(2026-10-19).
             //   예전엔 그 칸을 null 로 덮어 08:30 의 TTM 이 15:38 의 일시 실패 한 번에 지워졌고 PER·EPS·ROE 도 KIS 연간 값으로
@@ -555,7 +565,7 @@ public class StockFinancialDataCollector {
             // PBR·BPS 가 KIS 현재가 API 값으로 돌아갔다(손익 TTM 과 같은 규칙)
             if (totalEquity == null && sameDayRow.isPresent()) {
                 totalEquity = sameDayRow.get().getTotalEquity();
-                if (totalEquity != null) carriedFrom = earlierOf(carriedFrom, sameDayRow.get().getStatementCarriedFrom());
+                if (totalEquity != null) balanceCarriedFrom = sameDayRow.get().getStatementCarriedFrom();
             }
             BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
             BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
@@ -564,6 +574,7 @@ public class StockFinancialDataCollector {
             DartQuarterly.Balance dartBalance = dartTtm != null || totalEquity == null
                     ? dartBalance(stockCode, LocalDate.now(clock)) : null;
             if (dartBalance != null) {
+                balanceCarriedFrom = null;   // DART 값이다 — 이어 쓴 값이 아니다
                 totalEquity = dartBalance.totalEquity();
                 totalAssets = dartBalance.totalAssets();
                 totalDebt = dartBalance.totalLiabilities();
@@ -577,7 +588,7 @@ public class StockFinancialDataCollector {
                     totalAssets = source.getTotalAssets();
                     totalDebt = source.getTotalDebt();
                     debtRatio = source.getDebtRatio();
-                    carriedFrom = earlierOf(carriedFrom, firstReceivedOn(source));
+                    balanceCarriedFrom = firstReceivedOn(source);
                     noteState("KIS 재무상태표 호출 실패 — 받아 둔 값 이어 씀");
                 }
             }
@@ -669,7 +680,7 @@ public class StockFinancialDataCollector {
                 }
             }
             financialData.setPerBasis(perBasis);
-            financialData.setStatementCarriedFrom(carriedFrom);
+            financialData.setStatementCarriedFrom(earlierOf(carriedFrom, balanceCarriedFrom));
 
             stockFinancialDataRepository.save(financialData);
 
@@ -715,6 +726,7 @@ public class StockFinancialDataCollector {
         // 회차 경계 — 재무 호출 중단을 푼다(다음 회차는 다시 불러 본다)
         statementCallsSuspended = false;
         consecutiveStatementFailures.set(0);
+        skippedSinceSuspended.set(0);
         return formatStateSummary(counts);
     }
 
@@ -733,6 +745,7 @@ public class StockFinancialDataCollector {
      */
     public Map<String, BigDecimal> getFinancialRatios(String token, String stockCode) {
         Map<String, BigDecimal> ratios = new HashMap<>();
+        boolean incomeAnswered = false;   // 손익계산서에 KIS 가 정상 응답했는가 — 그 뒤의 해석 오류는 '호출 실패'가 아니다
 
         try {
             String url = baseUrl + "/uapi/domestic-stock/v1/finance/financial-ratio"
@@ -792,6 +805,7 @@ public class StockFinancialDataCollector {
             if (response != null && response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode root = objectMapper.readTree(response.getBody());
                 String rtCd = root.path("rt_cd").asText();
+                incomeAnswered = "0".equals(rtCd);
                 log.debug("[손익계산서 API] 종목: {}, rt_cd: {}, msg: {}",
                         stockCode, rtCd, root.path("msg1").asText());
 
@@ -1044,7 +1058,7 @@ public class StockFinancialDataCollector {
         } catch (Exception e) {
             log.warn("재무비율 조회 실패 [{}]: {}", stockCode, e.getMessage());
             // 손익·재무상태표까지 가지 못했다 — 받은 값이 없는 쪽은 '호출 실패'다
-            if (!ratios.containsKey("netIncome") && !ratios.containsKey("revenue") && !ratios.containsKey("operatingProfit")) {
+            if (!incomeAnswered) {
                 ratios.put(KEY_INCOME_CALL_FAILED, BigDecimal.ONE);
             }
             if (!ratios.containsKey("totalEquity")) ratios.put(KEY_BALANCE_CALL_FAILED, BigDecimal.ONE);
