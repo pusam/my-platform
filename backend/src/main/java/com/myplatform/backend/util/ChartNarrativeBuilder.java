@@ -41,6 +41,12 @@ public final class ChartNarrativeBuilder {
     public static final double THICK_WALL_PCT = 12.0;
     /** [잠정] 이 거리(%)보다 먼 매물벽은 지금 자리의 저항이 아니라고 보고 언급하지 않는다. */
     public static final double MAX_WALL_DISTANCE_PCT = 30.0;
+    /** [잠정] 자주 닿은 가격대로 말하려면 이 횟수 이상 닿아야 한다 — 한 번 닿은 자리는 그냥 고점·저점이다. */
+    public static final int MIN_LEVEL_TOUCHES = 2;
+    /** [잠정] 현재가에서 이 거리(%) 안의 가격대만 말한다 — 먼 가격대는 지금 자리의 이야기가 아니다. */
+    public static final double NEAR_LEVEL_PCT = 3.0;
+    /** 거리가 이보다 작으면(%) '0.0% 위'라 하지 않고 닿아 있다고 말한다. */
+    public static final double AT_LEVEL_PCT = 0.05;
 
     private ChartNarrativeBuilder() {}
 
@@ -83,13 +89,22 @@ public final class ChartNarrativeBuilder {
 
     /** @param disparityBasis 이격도를 잰 기준 — 장 시작 전·휴장일엔 마지막 봉의 종가다(오늘 시세가 아니다) */
     public static Narrative build(Metrics metrics, OverheadSupply overhead, Double disparityPct, String disparityBasis) {
+        return build(metrics, overhead, disparityPct, disparityBasis, null, null);
+    }
+
+    /**
+     * @param nearResistance 현재가 위의 자주 닿은 가격대({@link #nearestLevel} 로 고른 것). null 이면 말하지 않는다
+     * @param nearSupport    현재가 아래의 자주 닿은 가격대. null 이면 말하지 않는다
+     */
+    public static Narrative build(Metrics metrics, OverheadSupply overhead, Double disparityPct, String disparityBasis,
+                                  PriceLevel nearResistance, PriceLevel nearSupport) {
         if (metrics == null) {
             return new Narrative(List.of(), Verdict.UNKNOWN,
                     "일봉 데이터가 충분하지 않아 차트 판단을 하지 않습니다.");
         }
 
         List<Section> sections = new ArrayList<>();
-        addPosition(sections, metrics, disparityPct, disparityBasis);
+        addPosition(sections, metrics, disparityPct, disparityBasis, nearResistance, nearSupport);
         addBounce(sections, metrics);
         addOverhead(sections, overhead);
         addCandle(sections, metrics);
@@ -100,7 +115,8 @@ public final class ChartNarrativeBuilder {
 
     // ========== ① 지금 위치 ==========
 
-    private static void addPosition(List<Section> sections, Metrics m, Double disparityPct, String disparityBasis) {
+    private static void addPosition(List<Section> sections, Metrics m, Double disparityPct, String disparityBasis,
+                                    PriceLevel nearResistance, PriceLevel nearSupport) {
         List<String> lines = new ArrayList<>();
         double pb = m.percentB();
 
@@ -132,7 +148,58 @@ public final class ChartNarrativeBuilder {
             lines.add(String.format(Locale.KOREA, "20일선 대비 %+.1f%% 이격입니다(%s).", disparityPct, disparityBasis));
         }
 
+        String levelLine = levelLine(nearResistance, nearSupport, disparityBasis);
+        if (levelLine != null) lines.add(levelLine);
+
         sections.add(new Section("지금 위치", lines));
+    }
+
+    // ========== ①-1 자주 닿은 가격대 (2026-11-13) ==========
+
+    /**
+     * 자주 닿은 가격대 하나 — 일봉 고점·저점(피벗)이 같은 가격대(±2%)에 모인 곳.
+     *
+     * @param price       가격대(모인 피벗의 평균)
+     * @param touches     그 가격대에서 방향이 바뀐 횟수(피벗 수 — 마지막 5봉은 피벗이 될 수 없어 지금 접근은 세지 않는다)
+     * @param distancePct 현재가에서의 거리(%) — 위면 양수, 아래면 음수
+     */
+    public record PriceLevel(double price, int touches, double distancePct) {}
+
+    /**
+     * 해설에 말할 가격대 고르기 — 2회 이상 닿았고 현재가에서 {@link #NEAR_LEVEL_PCT}% 안인 것 중 가장 가까운 것.
+     * 없으면 null(줄을 만들지 않는다, §4c).
+     */
+    public static PriceLevel nearestLevel(List<PriceLevel> levels) {
+        if (levels == null) return null;
+        PriceLevel best = null;
+        for (PriceLevel lv : levels) {
+            if (lv == null || lv.touches() < MIN_LEVEL_TOUCHES) continue;
+            if (!Double.isFinite(lv.distancePct()) || !Double.isFinite(lv.price()) || lv.price() <= 0) continue;
+            if (Math.abs(lv.distancePct()) > NEAR_LEVEL_PCT) continue;
+            if (best == null || Math.abs(lv.distancePct()) < Math.abs(best.distancePct())) best = lv;
+        }
+        return best;
+    }
+
+    /**
+     * 가격대 한 줄 — 사실(가격대·닿은 횟수·거리)만 말한다. '뚫으면 오른다' 같은 전망은 붙이지 않고
+     * 판정({@link #decide})에도 넣지 않는다(검증 전 — 관찰용).
+     */
+    static String levelLine(PriceLevel resistance, PriceLevel support, String basis) {
+        if (resistance == null && support == null) return null;
+        String tail = basis == null || basis.isBlank() ? "." : "(" + basis + ").";
+        if (resistance != null && support != null) {
+            return String.format(Locale.KOREA,
+                    "지지 %,.0f원 부근(%d회, %.1f%% 아래)과 저항 %,.0f원 부근(%d회, %.1f%% 위) 사이에 있습니다%s",
+                    support.price(), support.touches(), Math.abs(support.distancePct()),
+                    resistance.price(), resistance.touches(), Math.abs(resistance.distancePct()), tail);
+        }
+        PriceLevel lv = resistance != null ? resistance : support;
+        String name = resistance != null ? "저항" : "지지";
+        String head = String.format(Locale.KOREA, "%s %,.0f원 부근(%d회 닿고 돌아선 자리)", name, lv.price(), lv.touches());
+        double gap = Math.abs(lv.distancePct());
+        if (gap < AT_LEVEL_PCT) return head + "에 닿아 있습니다" + tail;
+        return head + String.format(Locale.KOREA, "의 %.1f%% %s에 있습니다%s", gap, resistance != null ? "아래" : "위", tail);
     }
 
     // ========== ② 반등의 성격 ==========

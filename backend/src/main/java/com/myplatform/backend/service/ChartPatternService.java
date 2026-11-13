@@ -569,7 +569,11 @@ public class ChartPatternService {
             key = "'sr:' + #stockCode",
             condition = "#stockCode != null && !#stockCode.isEmpty()")
     public SupportResistanceDto detectSupportResistance(String stockCode) {
-        List<Candle> candles = fetchCandles(stockCode);
+        return supportResistanceOf(fetchCandles(stockCode));
+    }
+
+    /** 받아 둔 일봉으로 지지/저항 레벨을 만든다 — 차트 해설이 같은 봉(같은 기준 가격)으로 다시 쓴다. */
+    private SupportResistanceDto supportResistanceOf(List<Candle> candles) {
         if (candles.size() < PIVOT_WINDOW * 4) {
             return SupportResistanceDto.builder()
                     .resistance(Collections.emptyList())
@@ -777,8 +781,11 @@ public class ChartPatternService {
         }
 
         PullbackEntryCalculator.Metrics metrics = PullbackEntryCalculator.compute(bars);
+        SupportResistanceDto levels = supportResistanceOf(candles);
         ChartNarrativeBuilder.Narrative narrative = ChartNarrativeBuilder.build(
-                metrics, resolveOverheadSupply(stockCode, candles), resolveDisparityPct(candles), disparityBasis(candles));
+                metrics, resolveOverheadSupply(stockCode, candles), resolveDisparityPct(candles), disparityBasis(candles),
+                ChartNarrativeBuilder.nearestLevel(narrativeLevels(levels.getResistance())),
+                ChartNarrativeBuilder.nearestLevel(narrativeLevels(levels.getSupport())));
 
         List<ChartNarrativeDto.Section> sections = new ArrayList<>();
         for (ChartNarrativeBuilder.Section s : narrative.sections()) {
@@ -793,6 +800,18 @@ public class ChartPatternService {
                 .verdictReason(narrative.verdictReason())
                 .unverified(true)
                 .build();
+    }
+
+    /** 지지/저항 레벨 → 해설용 사실(가격대·닿은 횟수·거리). 값이 빠진 레벨은 넘기지 않는다. */
+    private static List<ChartNarrativeBuilder.PriceLevel> narrativeLevels(List<SupportResistanceDto.Level> levels) {
+        List<ChartNarrativeBuilder.PriceLevel> out = new ArrayList<>();
+        if (levels == null) return out;
+        for (SupportResistanceDto.Level lv : levels) {
+            if (lv == null || lv.getPrice() == null || lv.getDistancePct() == null) continue;
+            out.add(new ChartNarrativeBuilder.PriceLevel(
+                    lv.getPrice().doubleValue(), lv.getTouches(), lv.getDistancePct().doubleValue()));
+        }
+        return out;
     }
 
     /** 머리 위 매물벽 — Volume Profile(캐시) 재사용. 데이터 없으면 null(섹션 생략). */

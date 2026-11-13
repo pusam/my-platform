@@ -192,4 +192,72 @@ class ChartNarrativeBuilderTest {
         assertThat(n.verdictReason()).contains("바닥을 확인");
         assertThat(allText(n)).contains("볼린저 하단 아래");
     }
+
+    // ===== 자주 닿은 가격대 한 줄 (2026-11-13) =====
+
+    private static final Metrics PLAIN = new Metrics(0.55, 4, 2, null);
+
+    private static ChartNarrativeBuilder.PriceLevel level(double price, int touches, double distancePct) {
+        return new ChartNarrativeBuilder.PriceLevel(price, touches, distancePct);
+    }
+
+    @Test
+    @DisplayName("가까운 저항(여러 번 닿은 자리)이 있으면 '지금 위치'에 한 줄로 말한다")
+    void nearResistance_oneLine() {
+        Narrative n = ChartNarrativeBuilder.build(PLAIN, null, 1.2, "오늘 시세 기준", level(12300, 3, 1.2), null);
+
+        assertThat(n.sections().get(0).title()).isEqualTo("지금 위치");
+        assertThat(n.sections().get(0).lines())
+                .contains("저항 12,300원 부근(3회 닿고 돌아선 자리)의 1.2% 아래에 있습니다(오늘 시세 기준).");
+    }
+
+    @Test
+    @DisplayName("가까운 지지만 있으면 지지 위라고 말하고, 기준(종가 날짜)을 그대로 붙인다")
+    void nearSupport_oneLine() {
+        Narrative n = ChartNarrativeBuilder.build(PLAIN, null, 1.2, "11/12 종가 기준", null, level(11800, 2, -2.1));
+
+        assertThat(allText(n)).contains("지지 11,800원 부근(2회 닿고 돌아선 자리)의 2.1% 위에 있습니다(11/12 종가 기준).");
+    }
+
+    @Test
+    @DisplayName("위아래 둘 다 가까우면 한 줄에 '사이'로 묶는다")
+    void betweenLevels_oneLine() {
+        Narrative n = ChartNarrativeBuilder.build(PLAIN, null, 1.2, "오늘 시세 기준", level(12300, 3, 1.2), level(11800, 2, -2.1));
+
+        String text = allText(n);
+        assertThat(text).contains("지지 11,800원 부근(2회, 2.1% 아래)과 저항 12,300원 부근(3회, 1.2% 위) 사이에 있습니다(오늘 시세 기준).");
+        assertThat(text.split("부근\\(", -1)).hasSize(3);   // 한 줄에 두 가격대만
+    }
+
+    @Test
+    @DisplayName("가까운 가격대가 없으면 줄을 만들지 않고, 판정은 가격대와 무관하다")
+    void noLevel_noLine_verdictUnchanged() {
+        Narrative without = ChartNarrativeBuilder.build(PLAIN, null, 1.2);
+        Narrative with = ChartNarrativeBuilder.build(PLAIN, null, 1.2, "오늘 시세 기준", level(12300, 3, 1.2), level(11800, 2, -2.1));
+
+        assertThat(allText(without)).doesNotContain("닿고 돌아선").doesNotContain("사이에 있습니다");
+        assertThat(with.verdict()).isEqualTo(without.verdict());
+        assertThat(with.verdictReason()).isEqualTo(without.verdictReason());
+    }
+
+    @Test
+    @DisplayName("가격대 고르기 — 한 번 닿은 자리·먼 자리는 빼고 남은 것 중 가장 가까운 것")
+    void nearestLevel_filters() {
+        var once = level(12100, 1, 0.5);        // 한 번 닿은 자리는 그냥 고점·저점이다
+        var near = level(12300, 3, 1.2);
+        var far = level(13000, 4, 6.0);         // 지금 자리의 가격대가 아니다
+
+        assertThat(ChartNarrativeBuilder.nearestLevel(java.util.List.of(once, near, far))).isEqualTo(near);
+        assertThat(ChartNarrativeBuilder.nearestLevel(java.util.List.of(once, far))).isNull();
+        assertThat(ChartNarrativeBuilder.nearestLevel(java.util.List.of())).isNull();
+        assertThat(ChartNarrativeBuilder.nearestLevel(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("가격대에 닿아 있으면(거리 0) '0.0% 위'라 하지 않고 닿아 있다고 말한다")
+    void atLevel_saysTouching() {
+        Narrative n = ChartNarrativeBuilder.build(PLAIN, null, 1.2, "오늘 시세 기준", null, level(12000, 2, 0.0));
+
+        assertThat(allText(n)).contains("지지 12,000원 부근(2회 닿고 돌아선 자리)에 닿아 있습니다(오늘 시세 기준).");
+    }
 }
