@@ -170,6 +170,9 @@ services:
       # 별도재무제표 회사의 분기 값을 가장 나중 보고서의 기준으로(2026-11-12, V77) — 기본 켬(2026-11-13, 11/12 수집분을 공개 수치와 대조한 뒤).
       # 끄려면 .env 에 DART_QUARTERLY_LATEST_REPORT_BASIS=false(종전 기준 + 차이만 잰다) — 꺼져 있으면 부팅 WARN.
       - DART_QUARTERLY_LATEST_REPORT_BASIS=${DART_QUARTERLY_LATEST_REPORT_BASIS:-true}
+      # 12월 결산 전 종목을 DART 분기로 채운다(2026-11-16 — KIS 재무 호출이 11/12 부터 전 종목 실패, 3분기가 안 들어온다).
+      # 끄려면 .env 에 DART_QUARTERLY_FILL_ALL=false(종전: KIS 분기가 기한 + 30일 넘게 빈 종목만) — 꺼져 있으면 부팅 WARN.
+      - DART_QUARTERLY_FILL_ALL=${DART_QUARTERLY_FILL_ALL:-true}
       # KIS 재무 호출이 실패한 날 직전 수집값을 이어 쓰는 한도(일, 2026-11-13 · V79) — 처음 받은 날이 이보다 오래되면 다시 비운다.
       # 끄려면 .env 에 FINANCIAL_STATEMENT_CARRY_MAX_DAYS=0(못 받은 날은 비운다 — 11/12 이전 동작).
       - FINANCIAL_STATEMENT_CARRY_MAX_DAYS=${FINANCIAL_STATEMENT_CARRY_MAX_DAYS:-30}

@@ -73,6 +73,9 @@ class DartControllingFinancialServiceTest {
         ReflectionTestUtils.setField(service, "dartApiKey", "test-key");
         service.callIntervalMillis = 0;
         service.latestReportBasis = true;   // 운영 기본값(2026-11-13) — 수동 조립이라 @Value 가 안 들어온다
+        // 전 종목 채우기는 운영 기본 켬(2026-11-16)이지만 이 파일의 다른 테스트는 '누구를 채우나'(needsFill)를 재므로 끈 채로 둔다 —
+        // 켠 동작은 fillAll* 테스트가 따로 본다
+        service.fillAll = false;
 
         when(quarterRepo.findAllSince(any())).thenAnswer(inv -> {
             List<StockQuarterlyFinancial> out = new ArrayList<>(quarters);
@@ -369,7 +372,7 @@ class DartControllingFinancialServiceTest {
     }
 
     @Test
-    @DisplayName("KIS 분기가 다 있는 회사는 채우지 않는다 — 호출은 종전처럼 두 건")
+    @DisplayName("전 종목 채우기를 끄면(DART_QUARTERLY_FILL_ALL=false) KIS 분기가 다 있는 회사는 채우지 않는다 — 호출은 종전처럼 두 건")
     void completeKisNotFilled() {
         universe("023590");
         corp("023590", "00176914");
@@ -380,6 +383,39 @@ class DartControllingFinancialServiceTest {
 
         assertThat(s.fillStocks()).isZero();
         assertThat(calls).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("전 종목 채우기(2026-11-16) — KIS 분기가 다 있는 회사도 보고서 9건으로 DART 분기를 만든다. KIS 재무 호출이 11/12 부터 "
+            + "전 종목 실패라 KIS 분기 원본에 3분기(11/14 기한)가 안 들어오는데, 종전 규칙은 기한 + 30일(12/14)이 지나야 채운다")
+    void fillAllFillsCompanyWithCompleteKisQuarters() {
+        service.fillAll = true;
+        universe("023590");
+        corp("023590", "00176914");
+        nineReports("00176914");
+
+        DartControllingFinancialService.Summary s = service.collect();
+
+        assertThat(s.fillStocks()).isEqualTo(1);
+        assertThat(quarter("202606").getRevenue()).as("KIS 행(매출 10) 자리가 DART 값이 된다").isEqualByComparingTo("12000");
+        assertThat(quarter("202512").getNetIncome()).isEqualByComparingTo("2000");    // 9,000 − 7,000
+        assertThat(quarters).allMatch(q -> StockQuarterlyFinancial.SOURCE_DART.equals(q.getSource()) && !q.isCumulative());
+        assertThat(quarters).extracting(StockQuarterlyFinancial::getStockCode).containsOnly("023590");
+    }
+
+    @Test
+    @DisplayName("전 종목 채우기도 12월 결산만 — 보고서를 달력 분기로 옮기는 규칙이 12월 기준이다")
+    void fillAllStillDecemberOnly() {
+        service.fillAll = true;
+        universe("023590");
+        corp("023590", "00176914");
+        nineReports("00176914");
+        responses.put("company/00176914", "{\"status\":\"000\",\"acc_mt\":\"03\"}");
+
+        DartControllingFinancialService.Summary s = service.collect();
+
+        assertThat(s.fillStocks()).isZero();
+        assertThat(quarters).isEmpty();
     }
 
     @Test

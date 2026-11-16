@@ -273,6 +273,9 @@ dart:
   # 기본 true(2026-11-13 — 11/12 수집분을 공개 수치와 대조한 뒤 켰다). false 면 종전대로 앞 보고서 누적과의 차를 쓰고 차이만 잰다.
   quarterly:
     latest-report-basis: ${DART_QUARTERLY_LATEST_REPORT_BASIS:true}
+    # 12월 결산 전 종목을 DART 분기로 채울까(2026-11-16, DartControllingFinancialService.fillAll) — KIS 재무 호출이 11/12 부터 전 종목 실패.
+    # 기본 true. false 면 종전 규칙(KIS 분기가 기한 + 30일 넘게 빈 종목·이미 채운 종목만) — 꺼져 있으면 부팅 WARN.
+    fill-all: ${DART_QUARTERLY_FILL_ALL:true}
 
 # 11-1. KIS 재무 호출이 실패한 날 직전 수집값을 이어 쓰는 한도(일) — 0 이면 끈다(2026-11-13, StockFinancialDataCollector · V79)
 financial:

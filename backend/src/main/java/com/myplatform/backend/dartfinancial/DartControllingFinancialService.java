@@ -45,6 +45,8 @@ import java.util.stream.Collectors;
  * 몰랐다. 그런 종목({@link DartQuarterly#needsFill})은 보고서 {@link DartQuarterly#REPORTS_TO_KEEP} 건을 받아 개별 분기를
  * {@code stock_quarterly_financial} 에 {@code DART_FNLTT} 행으로 넣는다 — 소비처(수집기 TTM·성장률·실적 판정)는 그 표만 본다.
  * 12월 결산만 다룬다. 호출은 첫 회차에 약 5,000건, 그 뒤로는 새 보고서만.
+ * <b>2026-11-16 부터 12월 결산 전 종목을 채운다</b>({@link #fillAll}) — KIS 재무 호출이 전 종목 실패라 KIS 분기에 새 분기가 안 들어온다.
+ * 새로 들어온 약 2천 종목은 보고서 9건씩(약 1만 8천 호출)이라 회차 상한에 걸려 몇 회차에 나뉜다.
  *
  * <p><b>§4c</b>: 조회 실패(네트워크·타임아웃)는 '데이터 없음'으로 기록하지 않는다 — 다음 회차에 다시 본다. DART 가 한도 초과
  * (020)나 키·시스템 오류를 주면 그 회차를 멈추고 WARN 을 남긴다(나머지 종목을 헛호출하지 않는다). 키는 로그에 남기지 않는다.
@@ -90,6 +92,17 @@ public class DartControllingFinancialService {
     @Value("${dart.quarterly.latest-report-basis:true}")
     boolean latestReportBasis;
 
+    /**
+     * 12월 결산 전 종목을 DART 분기로 채울까(2026-11-16, 사용자 결정 "지금 넓혀") — <b>기본 켬</b>.
+     * KIS 재무 호출이 11/12 부터 전 종목 실패라(§4c.64) KIS 분기 원본에 3분기(11/14 기한)가 들어오지 않는다. 종전 규칙
+     * ({@link DartQuarterly#needsFill})은 기한 + 30일(12/14)이 지나야 채우기 시작하고, 이어 쓴 값은 12/11 에 다시 빈다.
+     * 켜면 KIS 분기가 다 있는 회사도 보고서 {@link DartQuarterly#REPORTS_TO_KEEP} 건으로 분기를 만든다(창 안의 KIS 행은 같은 자리에서
+     * DART 행이 된다). 끄면({@code DART_QUARTERLY_FILL_ALL=false}) 종전 규칙 — 이미 채운 종목은 needsFill 이 DART 행을 보고 계속 채운다.
+     * 첫 채우기는 종목당 보고서 9건이라 회차 상한({@link #MAX_CALLS_PER_RUN})에 걸려 여러 회차에 나뉜다(다음 회차가 잇는다).
+     */
+    @Value("${dart.quarterly.fill-all:true}")
+    boolean fillAll;
+
     /** 호출 사이 간격 — 테스트는 0. */
     long callIntervalMillis = 100;
     long corpCodePollMillis = 2000;
@@ -121,6 +134,10 @@ public class DartControllingFinancialService {
         if (!latestReportBasis) {
             log.warn("[DART 분기] 나중 보고서 기준이 꺼져 있다(DART_QUARTERLY_LATEST_REPORT_BASIS=false) — 3개월 칸은 받아 두고 재기만 한다. "
                     + "분기 값은 종전대로 앞 보고서 누적과의 차다");
+        }
+        if (!fillAll) {
+            log.warn("[DART 분기] 전 종목 채우기가 꺼져 있다(DART_QUARTERLY_FILL_ALL=false) — KIS 분기가 기한 + 30일 넘게 빈 종목과 "
+                    + "이미 채운 종목만 DART 로 채운다. KIS 재무 장애 중이면 나머지 종목의 새 분기가 들어오지 않는다");
         }
         try {
             // 보고서 표나 결산월 표가 비었으면(첫 배포·V65 직후) 한 번 채운다 — 결산월이 없으면 순이익을 못 만든다.
@@ -201,11 +218,12 @@ public class DartControllingFinancialService {
             Map<ReportKey, DartControllingFinancial> reports = stored.computeIfAbsent(code, k -> new HashMap<>());
             collectStock(run, code, corpCode, reports, candidates);
 
-            // ★ KIS 가 분기를 주지 않는 종목은 DART 로 채운다 — 12월 결산만(보고서를 달력 분기로 옮기는 규칙이 12월 기준)
+            // ★ KIS 가 분기를 주지 않는 종목은 DART 로 채운다 — 12월 결산만(보고서를 달력 분기로 옮기는 규칙이 12월 기준).
+            //   전 종목 채우기(2026-11-16, 기본 켬)면 KIS 분기가 다 있어도 채운다 — KIS 재무 장애로 새 분기가 안 들어온다
             DartCompany known = companies.get(code);
             List<StockQuarterlyFinancial> stockQuarters = quarters.getOrDefault(code, List.of());
             if (run.abortReason == null && known != null && ControllingEarnings.DECEMBER.equals(known.getFiscalMonth())
-                    && DartQuarterly.needsFill(stockQuarters, fillKeys, today)) {
+                    && (fillAll || DartQuarterly.needsFill(stockQuarters, fillKeys, today))) {
                 fillQuarters(run, code, corpCode, reports, fillKeys, stockQuarters);
             }
         }
