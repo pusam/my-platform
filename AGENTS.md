@@ -281,6 +281,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **헬스체크는 앱 자신만 본다(`management.health.mail.enabled=false`) — 외부 서비스 지시자를 되살리지 말 것.** 회귀 `ActuatorMailHealthOffTest`. (§5.13)
 - **진단 API(`/api/diagnostics`)·python API(`/api/v2`)는 nginx 가 403 으로 막는다 — 이 블록을 지우거나 프록시로 되돌리지 말 것**(다시 열려면 로그인·권한부터). 밖에서 403 은 고장이 아니다(점검은 서버 안에서). 회귀 `NginxExternalBlockTest`. (§5.14)
 - **API 권한은 세 층 — 공개 목록(`ApiAccessPolicyTest.PUBLIC`)·서버 안 요청(`InternalCaller`)·관리자.** 새 공개 주소는 이유와 함께 목록에, 수집·배치를 일으키는 쓰기 주소는 `SecurityConfig`·`ApiAccessPolicyTest.ADMIN_ONLY` 에 같이(`@PreAuthorize` 는 무효 — URL 규칙만). nginx 의 새 프록시 location 엔 `X-Real-IP` 필수. 진단 시세 스캔 168시간·1,000건 상한은 올리지 말 것. 회귀 `ApiAccessPolicyTest`·`InternalCallerTest`·`PriceScalingDiagnosticServiceTest`·`NginxExternalBlockTest`·프론트 `collectButtonsAdminOnly`. (§5.15)
+- **금·은 시세 `GET /api/gold/price`·`/api/silver/price` 는 서버 안 목록(`ApiAccessPolicyTest.INTERNAL`)이다 — 같은 서버의 jewelry-leads 가 토큰 없이 읽는다(이 저장소엔 부르는 코드가 없다). 닫지도, `/api/gold/**`·공개로 넓히지도 말 것 — `InternalCaller` 를 좁힐 때도 볼 것.** (§5.16)
 
 ### 6. 인증/세션·실시간 동시성 (2026-06-22 점검)
 - **인증 필터는 Access Token 만 통과**: `JwtAuthenticationFilter` 는 `validateAccessToken`(type 검사) 사용 — `validateToken`(서명·만료만)으로 되돌리면 REFRESH 토큰을 Authorization 헤더로 보내 API 통과(보안 결함). 레거시 type=null 토큰은 여전히 허용.

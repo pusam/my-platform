@@ -23,6 +23,10 @@ import java.util.regex.Pattern;
  * </ol>
  * ⚠ nginx 에 백엔드로 넘기는 location 을 새로 만들면 {@code X-Real-IP} 를 반드시 붙일 것 — 빠지면 밖의 요청이
  * 내부로 보인다. 같은 호스트의 다른 컨테이너도 내부로 본다(신뢰 경계 = 이 서버).
+ *
+ * <p>⚠ 이 판정을 좁히기 전에(예: 루프백만, python 주소만) 공유 도커 네트워크에 붙은 다른 프로젝트 컨테이너를 볼 것 —
+ * jewelry-leads 백엔드가 금·은 시세를 이 판정에 기대어 토큰 없이 읽는다(2026-11-16 운영 확인: 172.18.0.0/16 의 주소,
+ * {@code X-Real-IP} 없음 → 서버 안. {@code SecurityConfig} · docs/rules/5-infra.md §5.16).
  */
 public final class InternalCaller {
 

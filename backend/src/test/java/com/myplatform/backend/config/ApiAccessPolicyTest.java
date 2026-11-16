@@ -55,7 +55,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *   <li>밖(nginx 를 거친 요청 — {@code X-Real-IP} 가 붙는다)에서 로그인 없이 닿는 주소는 {@link #PUBLIC} 와 정확히 같아야 한다.
  *       새 공개 주소가 생기면 이 테스트가 실패한다 — 정말 공개해야 하면 이유와 함께 목록에 넣을 것.</li>
  *   <li>서버 안(루프백·사설 주소, {@code X-Real-IP} 없음)에서 로그인 없이 닿는 주소는 {@link #PUBLIC} + {@link #INTERNAL} 이다 —
- *       운영자 {@code curl localhost:8080/api/diagnostics/...} 점검과 python 의 지수 일봉 호출이 여기 든다.</li>
+ *       운영자 {@code curl localhost:8080/api/diagnostics/...} 점검과 python 의 지수 일봉 호출, 같은 서버의 다른 프로젝트
+ *       (jewelry-leads)가 읽는 금·은 시세가 여기 든다.</li>
  *   <li>수집·배치를 일으키는 주소는 관리자만({@link #ADMIN_ONLY}).</li>
  * </ul>
  * 실행하면 전체 실효 권한 표를 {@code build/reports/api-access-table.md} 에 남긴다.
@@ -88,7 +89,10 @@ class ApiAccessPolicyTest {
             // 운영자 curl 검증용으로 열어 두었던 측정 메타데이터 — 화면은 로그인한 채로 부른다
             "GET /api/signal-outcomes/accuracy", "GET /api/signal-outcomes/compare", "GET /api/signal-outcomes/timeseries",
             "GET /api/recommendation/strong-value-frequency", "GET /api/recommendation/sector-strength",
-            "GET /api/recommendation/trend-pullback-top10");
+            "GET /api/recommendation/trend-pullback-top10",
+            // 같은 서버의 jewelry-leads 백엔드가 공유 도커 네트워크에서 토큰 없이 읽는다 — 현재가 두 주소의 GET 만.
+            // 닫으면 그쪽 금시세가 멈춘다(2026-11-10 정리 때 닫혀 11/11 부터 멈췄다, 11/16 발견 — docs/rules/5-infra.md §5.16)
+            "GET /api/gold/price", "GET /api/silver/price");
 
     /** 수집·배치를 일으키는 주소 — 일반 사용자 403, 관리자 통과. */
     static final List<String> ADMIN_ONLY = List.of(
@@ -169,7 +173,12 @@ class ApiAccessPolicyTest {
         /** 컨테이너 안 curl / 헬스체크. */
         LOOPBACK("127.0.0.1", null),
         /** python-backend 컨테이너(도커 내부망). */
-        PYTHON("172.18.0.5", null);
+        PYTHON("172.18.0.5", null),
+        /**
+         * 같은 도커 네트워크에 붙은 다른 프로젝트의 컨테이너 — jewelry-leads 백엔드. 특별한 헤더 없이 컨테이너 이름으로 바로 부른다
+         * (2026-11-16 서버에서 확인: 172.18.0.0/16 의 주소, {@code X-Real-IP} 없음).
+         */
+        SIBLING_CONTAINER("172.18.0.10", null);
 
         final String remoteAddr;
         final String realIp;
@@ -293,6 +302,7 @@ class ApiAccessPolicyTest {
                 assertThat(status("GET /api/market/index/kospi-daily", c, null)).as(c.name()).isEqualTo(401);
                 assertThat(status("GET /api/signal-outcomes/accuracy", c, null)).as(c.name()).isEqualTo(401);
                 assertThat(status("GET /api/gold/price", c, null)).as(c.name()).isEqualTo(401);
+                assertThat(status("GET /api/silver/price", c, null)).as(c.name()).isEqualTo(401);
                 assertThat(status("GET /actuator/prometheus", c, null)).as(c.name()).isEqualTo(401);
                 assertThat(status("GET /v3/api-docs", c, null)).as(c.name()).isEqualTo(401);
                 // 공개로 남긴 것
@@ -313,6 +323,66 @@ class ApiAccessPolicyTest {
             assertThat(status("GET /api/diagnostics/price-scaling", c, USER)).isEqualTo(403);
             assertThat(status("GET /api/diagnostics/price-scaling", c, ADMIN)).isEqualTo(200);
             assertThat(status("GET /actuator/prometheus", c, ADMIN)).as("액추에이터 내부 지표는 서버 안에서만").isEqualTo(403);
+        }
+    }
+
+    @Nested
+    @DisplayName("금·은 시세 — 서버 안에서는 토큰 없이(같은 서버의 jewelry-leads 가 읽는다), 밖에서는 로그인 사용자")
+    class GoldSilverPrice {
+
+        /** jewelry-leads 가 읽는 두 주소 — 응답의 {@code data.pricePerGram} 을 쓴다. */
+        static final List<String> PRICES = List.of("GET /api/gold/price", "GET /api/silver/price");
+        /** 같은 컨트롤러의 다른 읽기 주소 — 서버 안 목록에 넣지 않았다(화면만 쓴다). */
+        static final List<String> HISTORY = List.of("GET /api/gold/history/month", "GET /api/silver/history/month");
+        static final List<Caller> INSIDE =
+                List.of(Caller.SIBLING_CONTAINER, Caller.PYTHON, Caller.HOST_CURL, Caller.LOOPBACK);
+
+        @Test
+        @DisplayName("컨트롤러 주소가 실제로 있다 (이름이 바뀌면 아래 검사가 헛통과한다)")
+        void endpointsExist() throws Exception {
+            assertThat(controllerEndpoints()).containsAll(PRICES).containsAll(HISTORY);
+        }
+
+        @Test
+        @DisplayName("같은 도커 네트워크의 jewelry-leads 백엔드는 토큰 없이 읽는다 — 닫으면 그쪽 금시세가 멈춘다(2026-11-11 부터 멈췄던 일)")
+        void siblingContainerReadsWithoutToken() throws Exception {
+            for (String e : PRICES) {
+                for (Caller c : INSIDE) {
+                    assertThat(status(e, c, null)).as("anon " + c.name() + " " + e).isEqualTo(200);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("밖에서는 로그인 없이 401 그대로(nginx 를 거쳤든 주소가 바뀌었든) — 로그인한 사용자는 읽는다")
+        void outsideStillNeedsLogin() throws Exception {
+            for (String e : PRICES) {
+                for (Caller c : List.of(Caller.EXTERNAL_VIA_NGINX, Caller.EXTERNAL_REWRITTEN)) {
+                    assertThat(status(e, c, null)).as("anon " + c.name() + " " + e).isEqualTo(401);
+                    assertThat(status(e, c, USER)).as("user " + c.name() + " " + e).isEqualTo(200);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("연 것은 현재가 두 주소의 GET 뿐 — 이력·다른 메서드·하위 경로는 서버 안에서도 로그인 없이 401")
+        void onlyTheTwoGetsOpenInside() throws Exception {
+            List<String> closed = new ArrayList<>(HISTORY);
+            for (String price : PRICES) {
+                String path = price.substring(price.indexOf(' ') + 1);
+                for (String verb : List.of("POST", "PUT", "PATCH", "DELETE", "HEAD")) closed.add(verb + " " + path);
+                closed.add("GET " + path + "/005930");
+            }
+            closed.addAll(List.of("GET /api/gold", "GET /api/silver", "GET /api/gold/collect", "GET /api/silver/collect"));
+            for (String e : closed) {
+                for (Caller c : INSIDE) {
+                    assertThat(status(e, c, null)).as("internal anon " + c.name() + " " + e).isEqualTo(401);
+                }
+            }
+            // 로그인한 사용자에게 이력은 그대로 열려 있다(화면 차트)
+            for (String e : HISTORY) {
+                assertThat(status(e, Caller.EXTERNAL_REWRITTEN, USER)).as("user " + e).isEqualTo(200);
+            }
         }
     }
 

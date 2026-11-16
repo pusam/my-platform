@@ -138,6 +138,15 @@ public class SecurityConfig {
                                 "/api/recommendation/trend-pullback-top10"
                         ).access(AuthorizationManagers.anyOf(
                                 InternalCaller.authorizationManager(), AuthenticatedAuthorizationManager.authenticated()))
+                        //  · 금·은 시세 현재가 — 같은 서버의 다른 프로젝트 jewelry-leads(컨테이너 jewelry-leads-backend)가
+                        //    공유 도커 네트워크에서 토큰 없이 읽는다: http://myplatform-backend:8080/api/gold/price · /api/silver/price,
+                        //    응답의 data.pricePerGram. 2026-11-10 정리 때 로그인 필수로 닫혀 그쪽 금시세가 11/11 부터 멈췄다(11/16 발견).
+                        //    ⚠ 다시 닫지 말 것(이 저장소에는 부르는 코드가 없다 — 소비자는 저장소 밖에 있다). 연 것은 이 두 주소의 GET 뿐 —
+                        //    이력(/history/**)·다른 메서드는 로그인 사용자 그대로, 밖(nginx 경유)에서는 이 둘도 로그인 필요.
+                        //    목록 ApiAccessPolicyTest.INTERNAL · 경위 docs/rules/5-infra.md §5.16
+                        .requestMatchers(HttpMethod.GET, "/api/gold/price", "/api/silver/price")
+                                .access(AuthorizationManagers.anyOf(
+                                        InternalCaller.authorizationManager(), AuthenticatedAuthorizationManager.authenticated()))
 
                         // SSE (Server-Sent Events) - JwtAuthenticationFilter가 ?token= 쿼리 파라미터 허용
                         .requestMatchers("/api/sse/**").authenticated()

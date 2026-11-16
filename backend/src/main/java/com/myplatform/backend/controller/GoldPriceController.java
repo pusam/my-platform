@@ -37,6 +37,8 @@ public class GoldPriceController {
             responseCode = "401",
             description = "인증 실패")
     })
+    // 서버 안에서는 토큰 없이 읽힌다(SecurityConfig) — 같은 서버의 jewelry-leads 가 이 응답의 data.pricePerGram 을 읽는다.
+    // 주소·응답 모양을 바꾸면 그쪽 금시세가 조용히 멈춘다(docs/rules/5-infra.md §5.16).
     @GetMapping("/price")
     public ResponseEntity<ApiResponse<GoldPriceDto>> getGoldPrice() {
         GoldPriceDto goldPrice = goldPriceService.getGoldPrice();

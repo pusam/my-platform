@@ -134,6 +134,7 @@
 | §5.13 | `docs/rules/5-infra.md` | 헬스체크는 앱 자신만 본다 — 메일 지시자는 껐다(2026-11-04) |
 | §5.14 | `docs/rules/5-infra.md` | 밖에서 부를 일이 없는 로그인 없는 주소는 nginx 가 막는다(2026-11-10) |
 | §5.15 | `docs/rules/5-infra.md` | API 권한은 세 층이다 — 공개 목록·서버 안·관리자(2026-11-10) |
+| §5.16 | `docs/rules/5-infra.md` | 금·은 시세 현재가 두 주소는 서버 안에서 토큰 없이 읽힌다 — 같은 서버의 다른 프로젝트가 읽는다(2026-11-16) |
 | §6.1 | `CLAUDE.md` | 인증 필터는 Access Token 만 통과 |
 | §6.2 | `CLAUDE.md` | 라우터 가드는 RT 보존 |
 | §6.3 | `CLAUDE.md` | authAPI 는 apiClient 경유 |
