@@ -14,6 +14,22 @@ RUN mkdir -p /app/uploads && \
     cp /usr/share/zoneinfo/Asia/Seoul /etc/localtime && \
     echo "Asia/Seoul" > /etc/timezone
 
+# 1-1. 개인키가 유출된 인증기관(eMudhra)의 뿌리 인증서를 자바 신뢰 목록에서 뺀다 — OpenJDK 권고(openjdk.org/emudhra, CVE-2026-114820).
+#      Temurin 17.0.21+9 는 그 권고보다 먼저 나왔고, 신뢰 목록이 모질라 기반이라 별칭이 OpenJDK 안내와 다르다 → 소유자 이름으로 찾는다.
+#      목록을 못 읽거나 지운 뒤에도 남아 있으면 빌드를 멈춘다. 고친 Temurin 에서 이미 빠져 있으면 지울 것 없이 통과한다.
+#      백엔드가 부르는 바깥 주소(KIS·DART·네이버·Gemini·텔레그램 등) 중 이 인증기관을 쓰는 곳은 없다(2026-11-17 확인).
+#      회귀 DockerfileTrustStoreTest.
+RUN set -eu; \
+    kt="keytool -J-Duser.language=en -J-Duser.country=US"; \
+    before=$($kt -list -v -cacerts -storepass changeit </dev/null); \
+    printf '%s\n' "$before" | awk '/^Alias name: /{a=substr($0,13)} tolower($0) ~ /^owner: .*(emudhra|emsign)/{print a}' > /tmp/distrust; \
+    while IFS= read -r a; do $kt -delete -cacerts -storepass changeit -noprompt -alias "$a" </dev/null; done < /tmp/distrust; \
+    after=$($kt -list -v -cacerts -storepass changeit </dev/null); \
+    [ "$(printf '%s\n' "$after" | grep -c '^Alias name: ')" -gt 50 ] || { echo "자바 신뢰 목록을 읽지 못했다" >&2; exit 1; }; \
+    if printf '%s\n' "$after" | grep -qiE '^owner: .*(emudhra|emsign)'; then echo "eMudhra 뿌리 인증서가 아직 신뢰 목록에 있다" >&2; exit 1; fi; \
+    echo "자바 신뢰 목록에서 뺀 뿌리 인증서: $(wc -l < /tmp/distrust)개"; \
+    rm -f /tmp/distrust
+
 ENV TZ=Asia/Seoul
 
 # 2. JAR 파일 복사
