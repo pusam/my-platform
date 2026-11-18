@@ -48,6 +48,9 @@ class KoreaInvestmentBalanceLogLevelTest {
 
     private static final String EGW00215 =
             "{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00215\",\"msg1\":\"원장에서 허용 가능한 초당 거래건수를 초과하였습니다.\"}";
+    /** 같은 '초당 거래건수 초과'의 다른 코드 — 운영 11/18 15:25 에 EGW00215 재시도 다음 시도가 이 코드로 와서 ERROR 1줄이 남았다. */
+    private static final String EGW00201 =
+            "{\"rt_cd\":\"1\",\"msg1\":\"초당 거래건수를 초과하였습니다.\",\"msg_cd\":\"EGW00201\",\"message\":\"EGW00201\"}";
     private static final String EGW00123 =
             "{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00123\",\"msg1\":\"기간이 만료된 token 입니다.\"}";
     private static final String OK =
@@ -121,6 +124,21 @@ class KoreaInvestmentBalanceLogLevelTest {
         assertThat(logs.list).anySatisfy(e -> {
             assertThat(e.getLevel()).isEqualTo(Level.WARN);
             assertThat(e.getFormattedMessage()).contains("EGW00215");
+        });
+    }
+
+    @Test
+    @DisplayName("재현(11/18): 초당 건수 초과가 EGW00201 로 와도 재시도로 받아오면 ERROR 0줄 — 시도는 WARN")
+    void recoveredEgw00201LeavesNoError() {
+        stubFailuresThenOk(1, EGW00201);
+
+        assertThat(service.getBalance()).isNotNull();
+
+        assertThat(errorsFrom(kisLogger)).as("EGW00215 만 WARN 이라 EGW00201 은 ERROR 였다(수정 전 1줄)").isEmpty();
+        assertThat(errorsFrom(limiterLogger)).isEmpty();
+        assertThat(logs.list).anySatisfy(e -> {
+            assertThat(e.getLevel()).isEqualTo(Level.WARN);
+            assertThat(e.getFormattedMessage()).contains("EGW00201");
         });
     }
 

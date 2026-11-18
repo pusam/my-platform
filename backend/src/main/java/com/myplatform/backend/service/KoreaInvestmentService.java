@@ -1747,10 +1747,14 @@ public class KoreaInvestmentService {
         } catch (org.springframework.web.client.HttpServerErrorException e) {
             // rate limit 등은 rateLimiter 가 재시도할 수 있도록 예외를 그대로 던진다.
             String body = e.getResponseBodyAsString();
-            if (body != null && body.contains("EGW00215")) {
+            String rateLimitCode = body == null ? null
+                    : body.contains("EGW00215") ? "EGW00215"
+                    : body.contains("EGW00201") ? "EGW00201" : null;
+            if (rateLimitCode != null) {
                 // 초당 건수 초과 — rateLimiter 가 백오프 뒤 다시 부른다. 바닥나면 rateLimiter 가 '최대 재시도 초과' ERROR 를
-                // 남기고 getBalance 가 호출 단위로 실패를 센다(2026-11-09: 재시도로 받아온 시도까지 ERROR 라 하루 5줄이 섞였다)
-                log.warn("[실전매매] 잔고 조회 초당 건수 초과(EGW00215) — 재시도");
+                // 남기고 getBalance 가 호출 단위로 실패를 센다(2026-11-09: 재시도로 받아온 시도까지 ERROR 라 하루 5줄이 섞였다).
+                // KIS 는 같은 뜻을 EGW00201 로도 준다(2026-11-18 15:25 — EGW00215 재시도의 다음 시도가 EGW00201 로 와서 ERROR 1줄).
+                log.warn("[실전매매] 잔고 조회 초당 건수 초과({}) — 재시도", rateLimitCode);
             } else {
                 log.error("[실전매매] 잔고 조회 실패: {} {}", e.getStatusCode(), body);
             }
