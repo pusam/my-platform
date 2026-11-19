@@ -133,6 +133,37 @@ class StockFinancialDataScreenerQueryTest {
     }
 
     @Test
+    @DisplayName("종목별 가장 새 시가총액(2026-11-19) — 오늘 수집이 도는 중이라 오늘 행이 일부 종목에만 있어도 나머지 종목이 빠지지 않는다. "
+            + "창 밖·네이버 행(시총 없음)·미래 행은 읽지 않는다")
+    void latestMarketCapPerStockSurvivesPartialCollectionDay() {
+        // 오늘 행이 이미 쓰인 종목 — 어제 행도 있다(가장 새 행만)
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("005930").stockName("삼성전자").market("KOSPI")
+                .reportDate(TODAY.minusDays(1)).marketCap(new BigDecimal("11000000")).build());
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("005930").stockName("삼성전자").market("KOSPI")
+                .reportDate(TODAY).marketCap(new BigDecimal("11200000")).build());
+        // 오늘 수집 차례가 아직 안 온 종목 — 어제 행뿐
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("000660").stockName("SK하이닉스").market("KOSPI")
+                .reportDate(TODAY.minusDays(1)).marketCap(new BigDecimal("8000000")).build());
+        // 창(10일) 밖 · 네이버 분기 행(시총 없음) · 미래 행
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("111110").stockName("옛").market("KOSPI")
+                .reportDate(TODAY.minusDays(30)).marketCap(new BigDecimal("50000")).build());
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("222220").stockName("네이버행").market("KOSPI")
+                .reportDate(TODAY.minusDays(2)).build());
+        repo.saveAndFlush(StockFinancialData.builder().stockCode("000660").stockName("SK하이닉스").market("KOSPI")
+                .reportDate(ESTIMATE_DATE).marketCap(new BigDecimal("1")).build());
+
+        List<Object[]> rows = repo.findLatestMarketCapPerStockSince(TODAY.minusDays(10));
+
+        assertThat(rows).hasSize(2);
+        java.util.Map<String, BigDecimal> caps = new java.util.HashMap<>();
+        for (Object[] r : rows) caps.put((String) r[0], (BigDecimal) r[1]);
+        assertThat(caps.get("005930")).isEqualByComparingTo("11200000");
+        assertThat(caps.get("000660")).isEqualByComparingTo("8000000");
+        // 종전 조회는 '가장 최근 수집일' 행만 준다 — 수집 도중이면 일부 종목만 온다(주도주 대상이 줄어드는 길)
+        assertThat(repo.findLatestMarketCaps()).hasSize(1);
+    }
+
+    @Test
     @DisplayName("PEG — 오늘 행에 PEG 가 있으면 미래 행(PEG 없음) 때문에 빠지지 않는다")
     void lowPegKeepsStockWithFutureEstimateRow() {
         kisRow("D00004", "8.0", "12.0", "6.0", "0.8", "20.0", "20.0");

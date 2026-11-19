@@ -308,3 +308,70 @@ describe('overnightTiltLabel', () => {
     expect(overnightTiltLabel('XYZ')).toBe('XYZ')
   })
 })
+
+/** 발굴 탭 👑주도주·💎저평가 크기 선택 이름표(2026-11-19). */
+describe('주도주·저평가 크기 이름표', () => {
+  it('eokLabel — 억 원을 조/억으로, 모르면(0·음수·빈 값) "-"', async () => {
+    const { eokLabel } = await import('./marketDataLabels')
+    expect(eokLabel(682)).toBe('682억')
+    expect(eokLabel(5240.4)).toBe('5,240억')
+    expect(eokLabel(10000)).toBe('1.0조')
+    expect(eokLabel(49484.12)).toBe('4.9조')
+    expect(eokLabel(8000000)).toBe('800조')
+    expect(eokLabel(11234567)).toBe('1,123조')
+    for (const v of [null, undefined, '', 0, -5, 'abc', NaN]) expect(eokLabel(v)).toBe('-')
+  })
+
+  it('signedEokLabel — 순매수는 부호와 함께, 0 은 값이라 "0억", 모르면 "-"', async () => {
+    const { signedEokLabel } = await import('./marketDataLabels')
+    expect(signedEokLabel(1234.4)).toBe('+1,234억')
+    expect(signedEokLabel(-63994)).toBe('-6.4조')
+    expect(signedEokLabel(0)).toBe('0억')
+    expect(signedEokLabel(-0.3)).toBe('0억')          // 반올림해 0 이면 부호를 붙이지 않는다
+    expect(signedEokLabel(null)).toBe('-')
+    expect(signedEokLabel('x')).toBe('-')
+  })
+
+  it('signedPctLabel·signClass — 모르는 등락을 0% 로 채우지 않는다', async () => {
+    const { signedPctLabel, signClass } = await import('./marketDataLabels')
+    expect(signedPctLabel(-10.24)).toBe('-10.2%')
+    expect(signedPctLabel(3.44)).toBe('+3.4%')
+    expect(signedPctLabel(0)).toBe('0.0%')
+    expect(signedPctLabel(-0.04)).toBe('0.0%')
+    expect(signedPctLabel(null)).toBe('-')
+    expect(signClass(5)).toBe('positive')
+    expect(signClass(-5)).toBe('negative')
+    expect(signClass(0)).toBe('')
+    expect(signClass(null)).toBe('')
+  })
+
+  it('leadersBasisLabel — 데이터의 기준일로 말한다(화면 시계 아님)', async () => {
+    const { leadersBasisLabel } = await import('./marketDataLabels')
+    expect(leadersBasisLabel('2026-11-18')).toBe('11.18 종가 기준')
+    expect(leadersBasisLabel('2026-11-18', true)).toBe('11.18 종가 기준 · 갱신 지연')
+    expect(leadersBasisLabel(null)).toBe('')
+    expect(leadersBasisLabel('어제')).toBe('')
+  })
+
+  it('leadersNetHeader·leadersNetCell — 수급 표의 범위와 빠진 날을 숨기지 않는다', async () => {
+    const { leadersNetHeader, leadersNetCell } = await import('./marketDataLabels')
+    const list = { basisDate: '2026-11-18', windowDays: 20, netAvailable: true, netThrough: '2026-11-18' }
+    expect(leadersNetHeader(list)).toBe('외국인+기관 20거래일')
+    expect(leadersNetHeader({ ...list, netThrough: '2026-11-17' })).toBe('외국인+기관 20거래일(11.17까지)')
+    expect(leadersNetHeader({ ...list, netAvailable: false })).toBe('외국인+기관(조회 실패)')
+    expect(leadersNetHeader(null)).toBe('외국인+기관(조회 실패)')
+    expect(leadersNetCell({ netBuyEok: -63994, netBuyDays: 20 })).toBe('-6.4조')
+    expect(leadersNetCell({ netBuyEok: 1234, netBuyDays: 12 })).toBe('+1,234억 (12일치)')
+    expect(leadersNetCell({ netBuyEok: null, netBuyDays: null })).toBe('-')
+    expect(leadersNetCell(null)).toBe('-')
+  })
+
+  it('저평가 크기 선택지는 백엔드와 같은 0·3,000·10,000억 — 모르는 값은 전체로', async () => {
+    const { VALUE_SIZE_CHOICES, normalizeValueSize } = await import('./marketDataLabels')
+    expect(VALUE_SIZE_CHOICES.map(c => c.minCapEok)).toEqual([0, 3000, 10000])
+    expect(VALUE_SIZE_CHOICES.map(c => c.label)).toEqual(['전체', '시총 3천억 이상', '시총 1조 이상'])
+    expect(normalizeValueSize('3000')).toBe(3000)
+    expect(normalizeValueSize(10000)).toBe(10000)
+    for (const v of [null, undefined, '', '777', 'abc', -1]) expect(normalizeValueSize(v)).toBe(0)
+  })
+})

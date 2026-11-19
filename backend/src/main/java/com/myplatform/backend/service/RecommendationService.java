@@ -142,6 +142,12 @@ public class RecommendationService {
     // 저평가 TOP 10 별도 캐시 — 가치 점수는 분기 단위로 거의 안 변하므로 30분 캐시 충분.
     private volatile List<RecommendationDto> cachedValueTop10 = null;
     private volatile LocalDateTime valueCacheTime = null;
+    /** 저평가 목록의 시가총액 하한 선택지(억 원) — 0 = 전체(종전 목록). 화면 보기 전용(2026-11-19). */
+    public static final List<Integer> VALUE_MIN_CAP_CHOICES_EOK = List.of(0, 3000, 10000);
+    /** 시가총액 하한을 건 저평가 목록의 캐시 — 하한(억 원)별로 따로. 전체(0)는 위 cachedValueTop10 그대로. */
+    private final Map<Integer, ValueSizedCache> valueSizedCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record ValueSizedCache(List<RecommendationDto> items, LocalDateTime at) {}
     private volatile List<RecommendationDto> cachedGrowthTop10 = null;
     private volatile LocalDateTime growthCacheTime = null;
     private volatile List<RecommendationDto> cachedOversoldTop10 = null;
@@ -1095,6 +1101,38 @@ public class RecommendationService {
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
 
+    /**
+     * 저평가 TOP 10 — 시가총액 하한을 고른 보기(2026-11-19, 사용자 "저평가 종목·국내 주도주를 원한다").
+     *
+     * <p>전체 목록은 만점(20) 동점이 160여 종목이고 그 90% 가 시가총액 3천억 원 미만이라 상위 10 이 거의 작은 회사다(11/18 운영 자료).
+     * 큰 회사 가운데 싼 종목을 따로 볼 수 있게 하한을 건 목록을 준다 — <b>점수 산식·순서·필터는 전체 목록과 같고</b> 대상만 줄인다.
+     * 하한 0 은 {@link #getValueTop10()} 그대로다(종합판단 보드·재료 워밍이 쓰는 목록은 바뀌지 않는다). 시가총액을 모르는 종목은
+     * 하한을 건 목록에 넣지 않는다(얼마인지 모르는 것을 '이상'이라 하지 않는다 §4c). 선택지는 {@link #VALUE_MIN_CAP_CHOICES_EOK} 뿐.
+     */
+    public Top5Response getValueTop10BySize(int minCapEok) {
+        if (minCapEok <= 0) return getValueTop10();
+        if (!VALUE_MIN_CAP_CHOICES_EOK.contains(minCapEok)) {
+            throw new IllegalArgumentException("minCapEok 는 " + VALUE_MIN_CAP_CHOICES_EOK + " 중 하나여야 한다: " + minCapEok);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        boolean trading = isTradingHours(now);
+        ValueSizedCache cached = valueSizedCache.get(minCapEok);
+        if (cached != null && cached.at().isAfter(now.minusMinutes(CACHE_MINUTES))) {
+            return buildValueResponse(cached.items(), cached.at().format(TIME_FMT) + " 기준", trading);
+        }
+        List<RecommendationDto> result;
+        try {
+            result = calculateValueTop10For(BigDecimal.valueOf(minCapEok));
+            if (!result.isEmpty()) valueSizedCache.put(minCapEok, new ValueSizedCache(result, now));
+        } catch (Exception e) {
+            log.error("[저평가TOP10] 계산 실패(시가총액 {}억 이상): {}", minCapEok, e.getMessage(), e);
+            // 폴백은 캐시 시각으로 라벨 — 옛 데이터에 현재 시각을 붙이지 않는다(§4c)
+            if (cached != null) return buildValueResponse(cached.items(), cached.at().format(TIME_FMT) + " 기준", trading);
+            return Top5Response.unavailable();
+        }
+        return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
+    }
+
     private Top5Response buildValueResponse(List<RecommendationDto> items, String dataTime, boolean realtime) {
         items = activeRecommendations(items);
         refreshPrices(items);  // 가격은 실시간 — 가치 점수는 캐시
@@ -1158,6 +1196,11 @@ public class RecommendationService {
     }
 
     private List<RecommendationDto> calculateValueTop10() {
+        return calculateValueTop10For(null);
+    }
+
+    /** @param minCapEok 시가총액 하한(억 원). null 이면 전체(종전 목록). 하한이 있으면 시가총액을 모르는 종목도 뺀다. */
+    private List<RecommendationDto> calculateValueTop10For(BigDecimal minCapEok) {
         long t0 = System.currentTimeMillis();
         List<StockFinancialData> all = loadSynthesizedFinancials("저평가TOP10");
         java.util.Map<String, String> masterNames = masterNameMap();
@@ -1169,6 +1212,8 @@ public class RecommendationService {
         for (StockFinancialData fin : all) {
             if (fin.getStockCode() == null || fin.getStockName() == null) continue;
             if (!stockStatusService.isActive(fin.getStockCode())) continue;  // 거래정지/상폐 제외
+            // 시가총액 하한(2026-11-19, 화면 보기 선택) — 점수·순서는 그대로 두고 대상만 줄인다. 시가총액을 모르면 넣지 않는다.
+            if (minCapEok != null && (fin.getMarketCap() == null || fin.getMarketCap().compareTo(minCapEok) < 0)) continue;
             // 이익의 질(2026-10-07) — 마법의 공식·PEG 와 같은 규칙으로 순위를 매기기 전에 뺀다. 순이익이 본업으로 설명되지 않으면
             // PBR 대비 ROE(=이익수익률)와 PER 이 한 번의 이익을 잰다(SG&G 순이익 954억 vs 영업이익 52억 → PER 0.6). 판정 불가는 통과.
             // 순이익은 PER 이 실제로 쓴 값(시가총액 ÷ PER)으로 본다 — 지배주주 기준 PER 은 DART 순이익이라 행의 net_income(KIS 연결)과
@@ -1196,6 +1241,8 @@ public class RecommendationService {
             vs.profitEquityScore = parts[3];
             vs.per = fin.getPer() != null && fin.getPer().signum() > 0 ? fin.getPer() : null;
             vs.pbr = fin.getPbr() != null && fin.getPbr().signum() > 0 ? fin.getPbr() : null;
+            vs.marketCapEok = fin.getMarketCap() != null && fin.getMarketCap().signum() > 0
+                    ? fin.getMarketCap().setScale(0, java.math.RoundingMode.HALF_UP) : null;
             vs.tags = computeValueTags(fin);
             scored.add(vs);
         }
@@ -1215,8 +1262,9 @@ public class RecommendationService {
         shortlist.sort(VALUE_ORDER);
         List<ValueScoredStock> top = shortlist.stream().limit(10).collect(Collectors.toList());
 
-        log.info("[저평가TOP10] 계산 완료 — {}건 후보(이익의 질 {}건·이익 급증 {}건 제외) → 상위 30 리스크검사 → top10 ({}ms)",
-                scored.size(), distorted, spiked, System.currentTimeMillis() - t0);
+        log.info("[저평가TOP10] 계산 완료 — {}건 후보(이익의 질 {}건·이익 급증 {}건 제외) → 상위 30 리스크검사 → top10 ({}ms){}",
+                scored.size(), distorted, spiked, System.currentTimeMillis() - t0,
+                minCapEok == null ? "" : " · 시가총액 " + minCapEok.toPlainString() + "억 이상만");
 
         return top.stream().map(vs -> RecommendationDto.builder()
                 .stockCode(vs.stockCode)
@@ -1237,6 +1285,7 @@ public class RecommendationService {
                 .valueProfitEquityScore(vs.profitEquityScore)
                 .valuePer(vs.per)
                 .valuePbr(vs.pbr)
+                .valueMarketCapEok(vs.marketCapEok)
                 .build()).toList();
     }
 
@@ -1330,6 +1379,7 @@ public class RecommendationService {
         int score;
         BigDecimal per;   // 동점 순서용 — 양수만, 모르면 null
         BigDecimal pbr;   // 동점 순서용 — 양수만, 모르면 null
+        BigDecimal marketCapEok;   // 표시용 — 시가총액(억 원), 모르면 null
         List<String> tags;
         // 항목별 점수 — UI 막대 그래프 분해 표시용
         int pbrScore;             // 0~8
@@ -3302,6 +3352,8 @@ public class RecommendationService {
         // 순서는 PER → PBR 로 정해지는데 카드엔 그 값이 없어 왜 1위인지 알 수 없었다. 표시 전용.
         private BigDecimal valuePer;
         private BigDecimal valuePbr;
+        // 저평가 TOP 10 전용 — 시가총액(억 원, 보통주). 모르면 null(2026-11-19). 작은 회사인지 큰 회사인지 카드에서 보이게. 표시 전용.
+        private BigDecimal valueMarketCapEok;
         // 성장주 TOP 10 전용 — 3 항목 점수 분해 (UI 막대 그래프용). 그 외 트랙은 null.
         private Integer growthRevScore;            // 0~7 (매출성장률)
         private Integer growthProfitScore;         // 0~8 (이익성장률)

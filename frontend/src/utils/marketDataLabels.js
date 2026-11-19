@@ -217,9 +217,113 @@ export function multipleOrDash(v, digits = 1) {
 export function valueMultiplesLine(rec) {
   const per = multipleOrDash(rec?.valuePer, 1)
   const pbr = multipleOrDash(rec?.valuePbr, 2)
-  if (per === '-' && pbr === '-') return null
-  return `PER ${per} · PBR ${pbr}`
+  // 시가총액(2026-11-19) — 작은 회사인지 큰 회사인지 카드에서 보이게. 모르면 붙이지 않는다.
+  const cap = eokLabel(rec?.valueMarketCapEok)
+  const capPart = cap === '-' ? null : `시총 ${cap}`
+  if (per === '-' && pbr === '-') return capPart
+  return `PER ${per} · PBR ${pbr}` + (capPart ? ` · ${capPart}` : '')
 }
+
+/**
+ * 억 원 → '1.2조'·'5,240억'(2026-11-19). 1조 이상은 조 단위(100조 미만은 소수 한 자리). 모르면(null·0·음수·숫자 아님) '-' —
+ * 시가총액·거래대금처럼 0 이 값일 수 없는 칸에 쓴다(부호가 있는 값은 {@link signedEokLabel}).
+ */
+export function eokLabel(eok) {
+  if (eok == null || eok === '') return '-'
+  const n = Number(eok)
+  if (!Number.isFinite(n) || n <= 0) return '-'
+  if (n >= 10000) {
+    const jo = n / 10000
+    return (jo >= 100 ? Math.round(jo).toLocaleString('ko-KR') : jo.toFixed(1)) + '조'
+  }
+  return Math.round(n).toLocaleString('ko-KR') + '억'
+}
+
+/**
+ * 부호 있는 억 원(순매수) → '+1,234억'·'-6.4조'·'0억'(2026-11-19). 모르면(null·숫자 아님) '-' — 0 은 실재 값이라 '0억'.
+ * 반올림해 0 이면 부호를 붙이지 않는다(방향이 있는 것처럼 읽히지 않게 — stockFormat.netBuyText 와 같은 규칙).
+ */
+export function signedEokLabel(eok) {
+  if (eok == null || eok === '') return '-'
+  const n = Number(eok)
+  if (!Number.isFinite(n)) return '-'
+  const abs = Math.abs(n)
+  if (Math.round(abs) === 0) return '0억'
+  return (n > 0 ? '+' : '-') + eokLabel(abs)
+}
+
+/** 등락률 → '+12.3%'·'-8.0%'·'0.0%'(소수 한 자리). 모르면 '-'(0 으로 채우지 않는다). */
+export function signedPctLabel(pct) {
+  if (pct == null || pct === '') return '-'
+  const n = Number(pct)
+  if (!Number.isFinite(n)) return '-'
+  const fixed = n.toFixed(1)
+  if (Number(fixed) === 0) return '0.0%'
+  return (n > 0 ? '+' : '') + fixed + '%'
+}
+
+/** 오른 값·내린 값의 색 클래스 — 모르거나 0 이면 ''(색을 입히지 않는다). */
+export function signClass(v) {
+  if (v == null || v === '') return ''
+  const n = Number(v)
+  if (!Number.isFinite(n) || n === 0) return ''
+  return n > 0 ? 'positive' : 'negative'
+}
+
+/**
+ * 💎저평가 목록의 시가총액 하한 선택지(억 원, 2026-11-19) — 백엔드 RecommendationService.VALUE_MIN_CAP_CHOICES_EOK 와 같다.
+ * 전체 목록은 만점 동점이 160여 종목이고 그 90% 가 시가총액 3천억 원 미만이라 상위 10 이 거의 작은 회사다 — 큰 회사만 따로 본다.
+ * 점수·순서 규칙은 같고 대상만 줄인다.
+ */
+export const VALUE_SIZE_CHOICES = [
+  { minCapEok: 0, label: '전체' },
+  { minCapEok: 3000, label: '시총 3천억 이상' },
+  { minCapEok: 10000, label: '시총 1조 이상' }
+]
+
+/** 저장된 하한이 선택지에 있으면 그 값, 아니면 0(전체). */
+export function normalizeValueSize(raw) {
+  const n = Number(raw)
+  return VALUE_SIZE_CHOICES.some(c => c.minCapEok === n) ? n : 0
+}
+
+/**
+ * 👑주도주 목록 머리말(2026-11-19) — 무엇으로 세웠는지·무엇이 아닌지. 거래가 많이 몰리는 큰 회사를 보여 줄 뿐 '사라'는 신호가 아니고,
+ * 이 목록대로 샀을 때의 성과는 재 본 적이 없다.
+ */
+export const LEADERS_LIST_BASIS = '시가총액 1조 원 이상 종목을 최근 20거래일 평균 거래대금(KRX 정규장)이 큰 순서로 세운 목록 · '
+  + '우선주·ETF 제외 · 사라는 신호가 아니며 실제 성과는 아직 검증 전입니다'
+
+/**
+ * 주도주 목록의 기준 — '11.18 종가 기준'(값이 굳은 마지막 거래일). 갱신이 이틀 넘게 밀리면 '· 갱신 지연'. 기준일을 모르면 ''.
+ * @param {string|null|undefined} basisDate 'YYYY-MM-DD'
+ */
+export function leadersBasisLabel(basisDate, stale = false) {
+  const md = toMonthDay(basisDate)
+  if (!md) return ''
+  return `${md} 종가 기준` + (stale ? ' · 갱신 지연' : '')
+}
+
+/**
+ * 주도주 목록 수급 칸의 머리말 — '외국인+기관 20거래일'. 수급 표가 기준일보다 앞에서 끝나면 '(MM.DD까지)'를 붙인다.
+ * 표를 못 읽었으면 '외국인+기관(조회 실패)'.
+ */
+export function leadersNetHeader(list) {
+  if (!list || list.netAvailable === false) return '외국인+기관(조회 실패)'
+  const days = Number(list.windowDays) || 20
+  const base = `외국인+기관 ${days}거래일`
+  const through = toMonthDay(list.netThrough)
+  return through && list.netThrough !== list.basisDate ? `${base}(${through}까지)` : base
+}
+
+/** 순매수 칸 — '+1,234억', 창(20거래일)보다 적은 날만 있으면 '+1,234억 (12일치)', 모르면 '-'. */
+export function leadersNetCell(item, windowDays = 20) {
+  if (!item || item.netBuyEok == null) return '-'
+  const text = signedEokLabel(item.netBuyEok)
+  const days = Number(item.netBuyDays)
+  return Number.isFinite(days) && days > 0 && days < windowDays ? `${text} (${days}일치)` : text
+}
+
 
 /**
  * 종목 상세 PER·PBR 아래 '최근 실적 기준' 줄(2026-10-07). 큰 숫자는 KIS 최근 결산(연간) EPS·BPS 기준이고, 이 줄은 점수·목록

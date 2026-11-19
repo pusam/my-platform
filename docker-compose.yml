@@ -167,6 +167,9 @@ services:
       # 외부 공개 수치 대조(2026-11-11, V76) — 평일 10:20:40 우리 종가를 네이버 '전일'과 견준다(측정 전용, 하루 최대 40회).
       # 끄려면 .env 에 EXTERNAL_CROSSCHECK_ENABLED=false — 꺼져 있으면 부팅 WARN.
       - EXTERNAL_CROSSCHECK_ENABLED=${EXTERNAL_CROSSCHECK_ENABLED:-true}
+      # 주도주 목록(2026-11-19, V80) — 매일 08:20:40(보완 10:40:40) 시가총액 1조 이상 280여 종목의 일봉을 받아 순위를 만든다(표시 전용).
+      # 끄려면 .env 에 LEADERS_REFRESH_ENABLED=false(목록이 마지막 계산일에 멈춘다) — 꺼져 있으면 부팅 WARN.
+      - LEADERS_REFRESH_ENABLED=${LEADERS_REFRESH_ENABLED:-true}
       # 별도재무제표 회사의 분기 값을 가장 나중 보고서의 기준으로(2026-11-12, V77) — 기본 켬(2026-11-13, 11/12 수집분을 공개 수치와 대조한 뒤).
       # 끄려면 .env 에 DART_QUARTERLY_LATEST_REPORT_BASIS=false(종전 기준 + 차이만 잰다) — 꺼져 있으면 부팅 WARN.
       - DART_QUARTERLY_LATEST_REPORT_BASIS=${DART_QUARTERLY_LATEST_REPORT_BASIS:-true}

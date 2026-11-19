@@ -160,9 +160,10 @@
           <span class="sector-strength-label">⚠ 섹터강도(베타) 분석서버 일시 미가용</span>
         </div>
 
-        <!-- 발굴 = 종합판단 중심 축소(2026-07-01): 종합판단 + 백테스트 + (2026-10-07) 💎저평가 목록. 나머지 목록 4트랙/기타 심화는 숨김(코드 보존). -->
+        <!-- 발굴 첫 화면 = 목록(💎저평가 · 👑주도주)(2026-11-19, 사용자 "원하는 건 저평가 종목·국내 주도주"). 종합판단·백테스트는 아래 줄 그대로.
+             나머지 목록 4트랙/기타 심화는 숨김(코드 보존). -->
         <div class="discover-nav" v-if="activeGnbTab === 'discover'">
-          <!-- 목록 트랙 — 💎저평가만 다시 보인다(2026-10-07). 나머지 4트랙은 숨김(종합판단 union 에 이미 포함). -->
+          <!-- 목록 트랙 — 💎저평가·👑주도주. 나머지 4트랙은 숨김(종합판단 union 에 이미 포함). -->
           <div class="sub-tabs" v-if="discoverListVisible && shownDiscoverListTabs.length">
             <span class="sub-group-label">목록</span>
             <button v-for="st in shownDiscoverListTabs" :key="st.key"
@@ -188,6 +189,13 @@
           </div>
           <!-- 무엇을 재는지·무엇이 아닌지(2026-10-07) — 규칙 점수이고 성과는 아직 재 본 적이 없다 -->
           <p class="value-basis">{{ VALUE_LIST_BASIS }}</p>
+          <!-- 시가총액 크기 선택(2026-11-19) — 전체 목록은 상위가 거의 작은 회사라 큰 회사만 따로 본다. 점수·순서 규칙은 같고 대상만 줄인다 -->
+          <div class="value-size-chips" role="group" aria-label="시가총액 크기">
+            <button v-for="c in VALUE_SIZE_CHOICES" :key="'vsz-' + c.minCapEok" type="button"
+                    :class="['value-size-chip', { active: valueMinCapEok === c.minCapEok }]"
+                    :aria-pressed="valueMinCapEok === c.minCapEok ? 'true' : 'false'"
+                    @click="selectValueSize(c.minCapEok)">{{ c.label }}</button>
+          </div>
           <div v-if="valueTopLoading" class="signal-skeleton">
             <div class="skel-row" v-for="i in 3" :key="'val-sk-'+i"><div class="skel-bar"></div></div>
           </div>
@@ -230,8 +238,14 @@
           </div>
           <!-- 조회 실패를 '수집 중'으로 보이지 않는다(§4c) -->
           <div v-else-if="valueTopUnavailable" class="empty-signal">저평가 목록을 불러오지 못했습니다<br><small>잠시 뒤 다시 열어 주세요</small></div>
+          <!-- 크기를 고른 목록이 비면 '수집 중'이 아니다 — 그 크기에 점수를 받은 종목이 없는 것 -->
+          <div v-else-if="valueMinCapEok > 0" class="empty-signal">이 크기에서 점수를 받은 종목이 없습니다<br><small>'전체'를 눌러 보세요</small></div>
           <div v-else class="empty-signal">저평가 종목 데이터 수집 중<br><small>PBR·ROE·부채비율 기반 가치주만 산정 (분기 단위 갱신)</small></div>
         </div>
+
+        <!-- ②-a2 주도주 TOP 20 (시가총액 1조 이상, 20거래일 평균 거래대금 순 — 표시 전용) -->
+        <SectionLeaders v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && discoverListTab === 'leaders'"
+                        @open-stock="goToStock" />
 
         <!-- ②-b 성장주 TOP 10 (발굴 탭 — 빠르게 크는 종목, 저평가와 짝) -->
         <div id="briefing-section-growth" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && discoverListTab === 'growth'">
@@ -621,6 +635,7 @@ import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import SectionJudgmentBoard from '../components/v2/SectionJudgmentBoard.vue'
+import SectionLeaders from '../components/v2/SectionLeaders.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 import SectionTotalRecommendation from '../components/v2/SectionTotalRecommendation.vue'
 import TodayBriefingTab from '../components/v2/TodayBriefingTab.vue'
@@ -645,7 +660,17 @@ import {
   recommendationAPI, stockDetailAPI, quantTaAPI, stockAPI
 } from '../utils/api'
 import { botSummarySignal, investorReason, withUnifiedChange, signalCodes } from '../utils/phaseSignals'
-import { topNetSum, supplyBasisLabel, supplyTotalNote, consecutiveThroughLabel, VALUE_LIST_BASIS, valueMultiplesLine } from '../utils/marketDataLabels'
+import {
+  topNetSum, supplyBasisLabel, supplyTotalNote, consecutiveThroughLabel, VALUE_LIST_BASIS, valueMultiplesLine,
+  VALUE_SIZE_CHOICES, normalizeValueSize
+} from '../utils/marketDataLabels'
+
+/** 발굴 심화 화면 키 — 이 값이 ?sub= 로 오면 심화(종합판단 등)로, 그 밖엔 목록(💎저평가·👑주도주)으로 연다. */
+const DISCOVER_DEEP_SUBS = ['total', 'board', 'ai-strategy', 'backtest', 'screener', 'quant-ta']
+/** 목록 줄에 보이는 트랙 가운데 ?sub= 로 바로 열 수 있는 것. */
+const DISCOVER_LIST_SUBS = ['value', 'leaders']
+/** 💎저평가에서 고른 시가총액 하한을 이 브라우저에 기억하는 자리. */
+const VALUE_SIZE_STORAGE_KEY = 'discover.valueMinCapEok'
 import { kstDateOf, closedTodayFromStatus, closedOn, tradingStartOn } from '../utils/marketPhase'
 import { closeBasisLabel, todayKstIso } from '../utils/stockFormat'
 
@@ -700,6 +725,7 @@ export default {
     SectionLiveSurge,
     SectionBacktest,
     SectionJudgmentBoard,
+    SectionLeaders,
     StockSearchModal,
     SectionTotalRecommendation,
     TodayBriefingTab,
@@ -724,7 +750,8 @@ export default {
       activeGnbTab: this.resolveInitialTab(),
       // P-IA: 발굴 탭 deep-tool 서브탭 / 시장 탭 deep-tool 서브탭
       discoverSubTab: this.resolveInitialSubTab(),
-      // ★ 발굴 기본 진입 그룹 — 'deep'(심화: 종합판단 보드) / 'list'(목록 5트랙). 되돌리려면 이 한 줄만 'list'로.
+      // ★ 발굴 기본 진입 그룹 — 'list'(목록: 💎저평가·👑주도주) / 'deep'(심화: 종합판단 보드). 2026-11-19 부터 기본은 목록
+      //   (사용자 "원하는 건 저평가 종목·국내 주도주"). 종합판단을 첫 화면으로 되돌리려면 resolveInitialDiscoverGroup 의 기본값만 'deep' 으로.
       discoverGroup: this.resolveInitialDiscoverGroup(),
       marketSubTab: this.resolveInitialMarketSub(),
       // 발굴 종합판단 중심 축소(2026-07-01): board + backtest 만 노출.
@@ -733,16 +760,20 @@ export default {
         { key: 'board', label: '🧭 종합판단' },
         { key: 'backtest', label: '백테스트' }
       ],
-      // 목록 트랙 노출 — 2026-07-01 축소로 숨겼다가 2026-10-07 💎저평가만 다시 보인다(사용자 "주식 가치에 비해 저가인 종목도 볼 수 있는 거지?").
+      // 목록 트랙 노출 — 2026-07-01 축소로 숨겼다가 2026-10-07 💎저평가, 2026-11-19 👑주도주(새 목록)를 보인다.
       // 나머지 4트랙은 그대로 숨김(종합판단 union 에 이미 포함) — 되살리려면 visibleDiscoverListKeys 에 키를 더한다.
       discoverListVisible: true,
-      visibleDiscoverListKeys: ['value'],
+      visibleDiscoverListKeys: ['value', 'leaders'],
       valueTopUnavailable: false,
       VALUE_LIST_BASIS,
-      // 발굴 리스트 서브탭 — 저평가/성장/낙폭과대 중 하나만 표시 (기본 저평가)
-      discoverListTab: 'value',
+      // 💎저평가 시가총액 하한(억 원) — 0 = 전체. 고른 값은 이 브라우저에 기억한다(2026-11-19).
+      VALUE_SIZE_CHOICES,
+      valueMinCapEok: this.resolveInitialValueSize(),
+      // 발굴 리스트 서브탭 — 하나만 표시 (기본 저평가, ?sub=leaders 면 주도주)
+      discoverListTab: this.resolveInitialDiscoverList(),
       discoverListTabs: [
         { key: 'value', label: '💎 저평가' },
+        { key: 'leaders', label: '👑 주도주' },
         { key: 'growth', label: '🚀 성장' },
         { key: 'oversold', label: '📉 낙폭과대' },
         { key: 'earnings', label: '💰 실적' },
@@ -1244,13 +1275,24 @@ export default {
     },
     resolveInitialSubTab() {
       const sub = this.$route?.query?.sub
-      const valid = ['total', 'board', 'ai-strategy', 'backtest', 'screener', 'quant-ta']
-      return valid.includes(sub) ? sub : 'board'   // 기본 = 종합판단 보드
+      return DISCOVER_DEEP_SUBS.includes(sub) ? sub : 'board'   // 심화 줄의 기본 = 종합판단 보드
     },
-    // 발굴 기본 그룹 — 종합판단(deep). 목록은 💎저평가만 보이므로 그 딥링크만 'list'(2026-10-07).
+    // 발굴 기본 그룹 — 목록(💎저평가·👑주도주)(2026-11-19). 심화 화면 딥링크(?sub=board·backtest·…)만 'deep'.
     resolveInitialDiscoverGroup() {
-      // ?tab=discover&sub=value — 다시 보이게 한 💎저평가 목록으로 바로(2026-10-07). 그 밖은 종합판단(deep).
-      return this.$route?.query?.sub === 'value' ? 'list' : 'deep'
+      return DISCOVER_DEEP_SUBS.includes(this.$route?.query?.sub) ? 'deep' : 'list'
+    },
+    // 목록 첫 트랙 — ?sub=leaders 면 주도주, 그 밖은 저평가.
+    resolveInitialDiscoverList() {
+      const sub = this.$route?.query?.sub
+      return DISCOVER_LIST_SUBS.includes(sub) ? sub : 'value'
+    },
+    // 💎저평가 시가총액 하한 — 이 브라우저에서 마지막으로 고른 값. 없거나 선택지에 없으면 전체(0).
+    resolveInitialValueSize() {
+      try {
+        return normalizeValueSize(localStorage.getItem(VALUE_SIZE_STORAGE_KEY))
+      } catch {
+        return 0
+      }
     },
     resolveInitialMarketSub() {
       const sub = this.$route?.query?.sub
@@ -1271,20 +1313,37 @@ export default {
     },
     // 저평가 TOP 10 — 가치 데이터는 분기 단위라 자주 갱신 불필요. 첫 진입 + 30분 캐시.
     async refreshValueTop10() {
-      if (this.valueTopLoading) return
+      const minCap = this.valueMinCapEok || 0
+      // 같은 크기를 이미 읽는 중이면 다시 부르지 않는다. 크기를 바꿨으면 새로 부르고, 늦게 온 이전 크기의 응답은 버린다(2026-11-19).
+      if (this.valueTopLoading && this._valueLoadingCap === minCap) return
+      const seq = (this._valueReqSeq = (this._valueReqSeq || 0) + 1)
+      this._valueLoadingCap = minCap
       this.valueTopLoading = true
       try {
-        const res = await recommendationAPI.getValueTop10()
+        const res = await recommendationAPI.getValueTop10(minCap)
+        if (seq !== this._valueReqSeq) return
         const body = res?.data || res
         // 서버가 '계산 실패'라고 말하면(dataAvailable=false) 빈 목록을 '수집 중'으로 보이지 않는다(§4c)
         this.valueTopUnavailable = body?.dataAvailable === false
         this.valueTop10 = (body?.data) || []
         this.valueTopDataTime = body?.dataTime || ''
       } catch {
+        if (seq !== this._valueReqSeq) return
         // 갱신 실패 시 기존 값 유지 — 보여 줄 값이 없을 때만 '불러오지 못했습니다'
         if (!this.valueTop10.length) this.valueTopUnavailable = true
       }
-      finally { this.valueTopLoading = false }
+      finally { if (seq === this._valueReqSeq) this.valueTopLoading = false }
+    },
+    // 💎저평가 시가총액 크기 선택(2026-11-19) — 점수·순서 규칙은 같고 대상만 줄인다. 다른 크기의 목록을 잠깐이라도 보이지 않게 먼저 비운다.
+    selectValueSize(minCapEok) {
+      const next = normalizeValueSize(minCapEok)
+      if (this.valueMinCapEok === next) return
+      this.valueMinCapEok = next
+      try { localStorage.setItem(VALUE_SIZE_STORAGE_KEY, String(next)) } catch { /* 기억하지 못해도 화면은 그대로 쓴다 */ }
+      this.valueTop10 = []
+      this.valueTopDataTime = ''
+      this.valueTopUnavailable = false
+      this.refreshValueTop10()
     },
     // 성장주 TOP 10 — 저평가와 별도 트랙. 분기 데이터라 첫 진입 + 30분 캐시.
     async refreshGrowthTop10() {
@@ -1449,9 +1508,10 @@ export default {
       // 오늘 강세 섹터
       this.loadStrongSectors()
 
-      // 발굴 리스트 — 목록 그룹 + 현재 선택된 서브탭만 로드 (나머지는 서브탭 전환 시 lazy 로드).
+      // 발굴 리스트 — 발굴 탭을 보고 있을 때만, 목록 그룹의 현재 트랙만 로드 (나머지는 탭·서브탭 전환 시 lazy 로드).
+      // 발굴 첫 화면이 목록이 되면서(2026-11-19) 탭 조건이 없으면 '오늘' 탭만 봐도 저평가 목록을 미리 읽게 된다 — 보는 화면만 읽는다.
       // (모멘텀 종합추천은 오늘 탭으로 일원화 — 여기서 미로드)
-      if (this.discoverGroup === 'list') this.ensureDiscoverListLoaded(this.discoverListTab)
+      if (this.activeGnbTab === 'discover' && this.discoverGroup === 'list') this.ensureDiscoverListLoaded(this.discoverListTab)
 
       // 수급 현황 패널
       this.loadSupplyPanel()
@@ -1934,6 +1994,28 @@ export default {
   color: #a5b4fc;
   font-weight: 600;
 }
+/* 💎저평가 시가총액 크기 선택(2026-11-19) — 서브탭보다 한 단계 작은 단추(목록 안의 보기 선택). 좁은 화면에선 줄바꿈 */
+.value-size-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.value-size-chip {
+  padding: 5px 12px;
+  border: 1px solid var(--border-light, rgba(255,255,255,0.1));
+  background: transparent;
+  color: rgba(255,255,255,0.6);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.value-size-chip:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.04); }
+.value-size-chip.active {
+  background: #242b3b;
+  border-color: #3a4460;
+  color: #c5c9ff;
+  font-weight: 600;
+}
+.value-size-chip:focus-visible { outline: 2px solid var(--primary-start, #8b93ff); outline-offset: 1px; }
 .embedded-content {
   min-height: 400px;
 }

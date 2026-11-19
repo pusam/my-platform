@@ -278,5 +278,16 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     @Query("SELECT f.stockCode, f.marketCap FROM StockFinancialData f WHERE f.marketCap > 0 AND f.reportDate = "
             + "(SELECT MAX(g.reportDate) FROM StockFinancialData g WHERE g.marketCap > 0 AND g.reportDate <= CURRENT_DATE)")
     List<Object[]> findLatestMarketCaps();
+
+    /**
+     * 종목마다 {@code since} 이후 가장 새 시가총액(억원) — {@code [stockCode, marketCap]}. 주도주 목록 대상 선정용(2026-11-19).
+     *
+     * <p>{@link #findLatestMarketCaps} 는 '가장 최근 수집일'의 행만 주므로 그날 수집이 도는 중(08:30~·15:38~)이면 일부 종목만 온다.
+     * 여기서는 종목별로 가장 새 행을 고르므로 수집 도중에도 종목이 빠지지 않는다. 미래 날짜 행은 뺀다(§4c).
+     */
+    @Query("SELECT f.stockCode, f.marketCap FROM StockFinancialData f WHERE f.marketCap > 0 AND f.reportDate >= :since "
+            + "AND f.reportDate = (SELECT MAX(g.reportDate) FROM StockFinancialData g WHERE g.stockCode = f.stockCode "
+            + "AND g.marketCap > 0 AND g.reportDate >= :since AND g.reportDate <= CURRENT_DATE)")
+    List<Object[]> findLatestMarketCapPerStockSince(@Param("since") java.time.LocalDate since);
 }
 

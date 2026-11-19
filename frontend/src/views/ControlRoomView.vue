@@ -16,7 +16,7 @@
           type="button"
           class="navlink"
           :title="l.why"
-          @click="l.path ? goPath(l.path) : goHub(l.tab)"
+          @click="l.path ? goPath(l.path) : goHub(l.tab, l.sub)"
         >{{ l.label }}</button>
       </nav>
 
@@ -277,9 +277,13 @@ function errorText(e) {
 /** 목적지 목록은 순수 모듈(CONTROL_ROOM_NAV)에 있다 — 허브 매핑과 대조하는 테스트 대상. */
 const navLinks = CONTROL_ROOM_NAV
 
-/** 탭 키는 허브의 mapLegacyTab 기준(today/market/discover/trade). 없으면 '오늘'로 간다. */
-function goHub(tab) {
-  router.push(tab ? { path: '/stock-dashboard', query: { tab } } : '/stock-dashboard')
+/**
+ * 탭 키는 허브의 mapLegacyTab 기준(today/market/discover/trade). 없으면 '오늘'로 간다. sub 는 그 탭 안의 화면(예: 발굴의 종합판단
+ * 'board') — 발굴 첫 화면이 목록으로 바뀌어(2026-11-19) 종합판단으로 가려면 sub 를 실어야 한다.
+ */
+function goHub(tab, sub) {
+  if (!tab) return router.push('/stock-dashboard')
+  router.push({ path: '/stock-dashboard', query: sub ? { tab, sub } : { tab } })
 }
 
 function goPath(path) {

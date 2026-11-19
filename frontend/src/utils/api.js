@@ -1105,8 +1105,15 @@ export const recommendationAPI = {
     return apiClient.get('/recommendation/top5', { timeout: 30000 });
   },
   // 저평가 TOP 10 — 종합 추천과 별도 트랙. PBR·ROE 기반 가치주.
-  getValueTop10() {
-    return apiClient.get('/recommendation/value-top10', { timeout: 30000 });
+  // minCapEok: 시가총액 하한(억 원) — 0 이면 전체(종전 주소 그대로). 선택지는 백엔드가 정한 0·3000·10000 뿐.
+  getValueTop10(minCapEok = 0) {
+    const config = { timeout: 30000 };
+    if (Number(minCapEok) > 0) config.params = { minCapEok: Number(minCapEok) };
+    return apiClient.get('/recommendation/value-top10', config);
+  },
+  // 주도주 목록 — 시가총액 1조 원 이상, 20거래일 평균 거래대금 순. 저장된 결과만 읽는다(표시 전용).
+  getLeaders(limit = 20) {
+    return apiClient.get('/leaders', { params: { limit }, timeout: 15000 });
   },
   // 성장주 TOP 10 — 매출·이익 성장률 + PEG 기반. 저평가와 짝.
   getGrowthTop10() {

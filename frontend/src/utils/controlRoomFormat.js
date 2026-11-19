@@ -299,7 +299,8 @@ export default {
  */
 export const CONTROL_ROOM_NAV = [
   { key: 'today', label: '오늘', tab: 'today', why: '종합판단 후보 KPI 의 원본 — 매수 후보 목록' },
-  { key: 'discover', label: '발굴', tab: 'discover', why: '종합판단 보드 · 백테스트' },
+  // sub: 'board' — 발굴 첫 화면이 목록(💎저평가·👑주도주)으로 바뀌어(2026-11-19) 종합판단으로 바로 가려면 화면 키를 실어야 한다
+  { key: 'discover', label: '발굴', tab: 'discover', sub: 'board', why: '종합판단 보드 · 백테스트' },
   { key: 'trade', label: '매매', tab: 'trade', why: '봇 게이트 · 일일손실 서킷의 원본 화면' },
   { key: 'screener', label: '재무수집', path: '/earnings-screener', why: '재무 입력층 KPI 의 원본 — 수집 실행/상태' }
 ]

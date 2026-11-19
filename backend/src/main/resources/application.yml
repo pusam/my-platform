@@ -201,6 +201,12 @@ stock-price:
 external-crosscheck:
   enabled: ${EXTERNAL_CROSSCHECK_ENABLED:true}
 
+# 주도주 목록(2026-11-19, V80) — 매일 08:20:40(보완 10:40:40) 시가총액 1조 이상 종목의 일봉을 KIS 로 받아(280여 종목, 약 2분)
+# 20거래일 평균 거래대금 순위를 만든다. 표시 전용(추천·봇·시그널 미편입, 일봉은 저장하지 않는다). 꺼져 있으면 부팅 WARN. LeaderStockService.
+leaders:
+  refresh:
+    enabled: ${LEADERS_REFRESH_ENABLED:true}
+
 # 유튜브 투자 의견(참고 표시·기록 전용, 2026-09-28) — 추천 점수·순위·봇·signal_outcome 미편입.
 # 공개 영상 자막은 YouTube Data API 로 못 받는다(captions.download = 영상 편집 권한 필요) → 관리자 자막 등록만(자동 수집 미연결).
 youtube-opinion:

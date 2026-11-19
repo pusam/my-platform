@@ -50,14 +50,22 @@ public class RecommendationController {
      * PBR/ROE/부채비율/흑자 기반 가치주 점수만 사용.
      */
     @GetMapping("/value-top10")
-    public ResponseEntity<?> getValueTop10() {
-        var response = recommendationService.getValueTop10();
+    public ResponseEntity<?> getValueTop10(@RequestParam(defaultValue = "0") int minCapEok) {
+        // 시가총액 하한(2026-11-19) — 정해 둔 선택지만 받는다. 모르는 값에 다른 목록을 조용히 주지 않는다.
+        if (!RecommendationService.VALUE_MIN_CAP_CHOICES_EOK.contains(minCapEok)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "minCapEok 는 " + RecommendationService.VALUE_MIN_CAP_CHOICES_EOK + " 중 하나여야 합니다"));
+        }
+        var response = recommendationService.getValueTop10BySize(minCapEok);
         return ResponseEntity.ok(Map.of(
                 "success", response.isDataAvailable(),
                 "dataAvailable", response.isDataAvailable(),
                 "data", response.getItems(),
                 "dataTime", response.getDataTime(),
-                "realtime", response.isRealtime()
+                "realtime", response.isRealtime(),
+                "minCapEok", minCapEok,
+                "minCapChoicesEok", RecommendationService.VALUE_MIN_CAP_CHOICES_EOK
         ));
     }
 

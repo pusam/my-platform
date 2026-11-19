@@ -295,6 +295,15 @@ class FlywayMigrationTest {
         assertThat(scalarLong("SELECT COUNT(*) FROM site_link"))
                 .as("V78 은 표만 만든다 — 주소 목록을 마이그레이션(공개 저장소)에 넣지 않는다").isZero();
 
+        // --- 검증 27 (V80): 주도주 목록 표 — 엔티티와 스키마가 맞아야 운영(ddl-auto: validate)이 뜬다, 기준일·종목 한 행 ---
+        validateEntityClassesAgainstSchema(com.myplatform.backend.leaders.LeaderStockDaily.class);
+        assertThat(uniqueConstraintCount("leader_stock_daily", "uq_lsd_basis_stock"))
+                .as("V80 leader_stock_daily UNIQUE(basis_date, stock_code) — 같은 기준일에 종목이 두 번 나오지 않는다").isEqualTo(1);
+        assertThat(isColumnNullable("leader_stock_daily", "return_60d"))
+                .as("V80 return_60d NULL 허용 — 60거래일 전 봉이 없으면 비워 둔다(0 으로 위장 금지)").isTrue();
+        assertThat(isColumnNullable("leader_stock_daily", "avg_traded_value_eok"))
+                .as("V80 avg_traded_value_eok NOT NULL — 평균 거래대금을 모르는 종목은 순위에 넣지 않는다").isFalse();
+
         // --- 검증 19 (V68): 끊긴 KIS 분기로 만든 값만 비운다 — 그날엔 최신이던 행·정상 종목·네이버 행은 그대로 ---
         assertThat(scalarLong("SELECT COUNT(*) FROM stock_financial_data WHERE stock_code = 'S00001' AND report_date = '2026-11-04' "
                 + "AND revenue IS NULL AND operating_profit IS NULL AND net_income IS NULL AND operating_margin IS NULL "

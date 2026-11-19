@@ -375,7 +375,7 @@ public class SignalD3EvaluationService {
      * 비교 대상인 KOSPI 는 15:30 종가라 초과수익에는 저녁 움직임이 그대로 섞였다. OK 는 다시 재지 않으니 그 값이 그대로 굳었다.
      * 저녁 값이 정확히 무엇인지(NXT·시간외)는 확인하지 못했다 — 15:39 시세와도, 그 시각 통합 시세와도 다르다.
      */
-    static LocalDate lastFinalTradingDay(LocalDateTime now, MarketCalendarService calendar) {
+    public static LocalDate lastFinalTradingDay(LocalDateTime now, MarketCalendarService calendar) {
         return calendar.lastClosedTradingDay(now.minusMinutes(BAR_FINAL_DELAY_MINUTES));
     }
 

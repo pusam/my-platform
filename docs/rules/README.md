@@ -165,9 +165,11 @@
 | §ia.3 | `CLAUDE.md` | 역할 분리(2026-06-23~24): 오늘=모멘텀, 발굴=다각도 선별. |
 | §ia.4 | `docs/rules/ia-frontend.md` | 차트 기법 통합 시 발굴/매수후보 스코어러는 항상 분리한다(2026-06-29). |
 | §ia.5 | `docs/rules/ia-frontend.md` | 발굴 = 종합판단 중심 축소(2026-07-01) |
-| §ia.5-1 | `CLAUDE.md` | 💎저평가 getValueTop10 (PBR·ROE·부채·흑자) / 🚀성장 getGrowthTop10 (매출·… |
+| §ia.5-1 | `docs/rules/ia-frontend.md`(§ia.5 덧붙임, 2026-11-19 옮김) | 💎저평가 getValueTop10 (PBR·ROE·부채·흑자) / 🚀성장 getGrowthTop10 (매출·… |
 | §ia.5-2 | `CLAUDE.md` | lazy 로드 |
 | §ia.6 | `docs/rules/ia-frontend.md` | 허브 60초 갱신은 보이는 탭의 데이터만(2026-10-07, StockTradingDashboardV2._… |
 | §ia.6-1 | `CLAUDE.md` | 재사용 |
 | §ia.7 | `CLAUDE.md` | 결론 카드(StockConclusionCard.vue): 매매계획(손절/목표가+MFE/MAE) · 점수대 적… |
 | §ia.8 | `docs/rules/ia-frontend.md` | 내 사이트 바로가기(/sites)는 주식 화면이 아니라 운영 편의 화면이다(2026-11-12) |
+| §ia.9 | `docs/rules/ia-frontend.md` | 💎저평가 목록의 시가총액 크기 보기(2026-11-19) |
+| §ia.10 | `docs/rules/ia-frontend.md` | 👑주도주 목록(2026-11-19) |

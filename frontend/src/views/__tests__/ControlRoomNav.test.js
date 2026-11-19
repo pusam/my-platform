@@ -45,3 +45,21 @@ describe('관제실 화면 이동 링크', () => {
     expect(CONTROL_ROOM_NAV.length).toBeLessThanOrEqual(5)
   })
 })
+
+/**
+ * 발굴 첫 화면이 목록(💎저평가·👑주도주)으로 바뀌었다(2026-11-19) — 관제실 '발굴' 링크는 종합판단 보드(게이트 KPI 의 원본)로 가야 하므로
+ * 화면 키(sub)를 싣는다. 싣지 않으면 에러 없이 저평가 목록이 열린다.
+ */
+describe('관제실 → 발굴 링크는 종합판단 보드를 연다', () => {
+  it('sub 가 있는 링크는 허브가 그 화면으로 연다', () => {
+    const link = CONTROL_ROOM_NAV.find((l) => l.key === 'discover')
+    expect(link.sub).toBe('board')
+    const route = { $route: { query: { tab: link.tab, sub: link.sub } } }
+    expect(Hub.methods.resolveInitialDiscoverGroup.call(route)).toBe('deep')
+    expect(Hub.methods.resolveInitialSubTab.call(route)).toBe('board')
+  })
+
+  it('sub 없이 발굴로 가면 목록이 열린다 — 그래서 위 링크에 sub 가 필요하다', () => {
+    expect(Hub.methods.resolveInitialDiscoverGroup.call({ $route: { query: { tab: 'discover' } } })).toBe('list')
+  })
+})

@@ -24,9 +24,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
   - 테스트: `cd frontend && npm test` (= `vitest run`) / watch: `npm run test:watch`
   - 빌드: `cd frontend && npm run build` (lint 스크립트는 아직 없음)
   - 테스트 파일 규약: `src/**/*.{test,spec}.js`. 브라우저 API 스텁은 `vitest.setup.js`.
-- **python-backend(FastAPI)**: ✅ **pytest 도입(2026-06-29, 이후 확대)** — 테스트: `cd python-backend && pytest`(`pytest.ini` pythonpath=., `testpaths=tests`). 현재 `tests/` **9개 파일**: 차트 지표 순수함수(`test_indicators.py`)·백테스트 3종(`test_backtest`/`test_composite_backtest`/`test_exit_backtest`)·포트폴리오(`test_portfolio_backtest`)·수급 가설(`test_supply_hypothesis`)·**국면 경계값(`test_regime_service.py`)**·지수 어댑터(`test_index_source`)·배치 복원력(`test_service_resilience`).
-
-> 정리: **백엔드(`./gradlew test`) · 프론트(`npm test`) · python-backend(`pytest`) 세 곳 모두 "구현→테스트" 루프 가동 가능.**
+- **python-backend(FastAPI)**: ✅ **pytest 도입(2026-06-29, 이후 확대)** — 테스트: `cd python-backend && pytest`(`pytest.ini` pythonpath=., `testpaths=tests`). 현재 `tests/` **9개 파일**(지표 순수함수·백테스트·포트폴리오·수급 가설·국면 경계값·지수 어댑터·배치 복원력).
 
 ## 작업 완료 기준 (반드시 지킬 것)
 1. 버그 수정은 **재현 테스트(고치기 전엔 실패)부터** 작성한 뒤 구현한다.
@@ -51,7 +49,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 | 유튜브 의견 (`youtubeopinion/`) | `docs/rules/4e-youtube-opinion.md` | 분석·검토·작업자 |
 | 인프라·배포·권한 | `docs/rules/5-infra.md` · `docs/DEPLOY_GUARD.md` · `docs/OPS_WATCH_BACKUP.md` · `docs/STOCK_PRICE_RETENTION.md` | 배포·메모리·로그·권한 |
 | 판정 관제실 (`controlroom/`) | `docs/rules/7-control-room.md` · `docs/CONTROL_ROOM.md` | KPI·게이트·크루 |
-| 프론트 IA (`StockTradingDashboardV2`) | `docs/rules/ia-frontend.md` | 탭·서브탭 |
+| 프론트 IA (`StockTradingDashboardV2`)·주도주 목록 (`leaders/`) | `docs/rules/ia-frontend.md` | 탭·서브탭·발굴 목록 |
 | 원문 속 '위·아래 항목' | `docs/rules/README.md` | 상대 참조를 따라갈 때 |
 
 ---
@@ -316,7 +314,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 ## 코드 위치 힌트 (탐색 시작점)
 - 점수: `RecommendationService`, 결론+매매계획: `StockConclusionService`, 체크리스트: `BuyChecklistService`
 - 발굴 5트랙(모두 `RecommendationService` + `/api/recommendation/*` + `RecommendationDto`): 저평가 `getValueTop10`/value-top10, 성장 `getGrowthTop10`/growth-top10, 낙폭과대 `getOversoldTop10`/oversold-top10, 실적 `getEarningsTop10`/earnings-top10, 수급 `getSmartMoneyTop10`/smartmoney-top10. 프론트는 `StockTradingDashboardV2.vue` 발굴 리스트 서브탭(`discoverListTabs`/`ensureDiscoverListLoaded`).
-- 시그널 평가: 기록·집계 `SignalOutcomeService`(조건부 적중률 `getAccuracyByBand`·현재 산식 표본 `currentSample`·레거시 19:30 평가) · 교정 D+3 평가 `SignalD3EvaluationService`(평일 19:45:20 — D+3 은 다음 날 08:00 확정 뒤라 D+4 저녁에 나온다, 게이트·화면 성적이 읽는 값)
+- 시그널 평가: 기록·집계 `SignalOutcomeService`(조건부 적중률 `getAccuracyByBand`·현재 산식 표본 `currentSample`·레거시 19:30 평가) · 교정 D+3 평가 `SignalD3EvaluationService`(평일 19:45:20, 게이트·화면 성적이 읽는 값)
 - 실적(어닝 서프라이즈): `EarningSurpriseService` — 입력 경로 2개(`detectFromQuarterly` 분기원본 / `detectFromDailySnapshots` 레거시 일별), 분류 산식은 `classify` 단일 출처. 분기 순수함수 `QuarterlyFinancials`(+`QuarterlyFinancialsTest`), 적재 `StockFinancialDataCollector.persistQuarterlyRows`, 테이블 `stock_quarterly_financial`(V55), 진단 `GET /api/diagnostics/earnings-source?compare=true`
 - 재료: `StockCatalystService` (V31, 네이버→Gemini→일캐시), API 는 `StockDetailController` `/api/stock/{code}/catalyst`
 - 지배주주 PER(V64): `dartfinancial/` — 수집 `DartControllingFinancialService`(DART fnlttSinglAcntAll, 평일 21:30), 계산 `ControllingEarnings`(순수, 파싱·TTM·조회 계획), 표 `dart_controlling_financial`·`dart_company`(결산월), 적용 `StockFinancialDataCollector.controllingTtm` → `stock_financial_data.per_basis`
@@ -326,14 +324,14 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 백테스트 API: `BacktestController` `/api/backtest/performance` (서비스는 기존 `BacktestService`)
 - 수급 확정치(V70): `InvestorFinalDataService`(16:15·18:10, 순위 재구성) · 파서·순위 `InvestorFinalRows`(순수) · 표 `investor_stock_daily` · 순위 행 기준 `investor_daily_trade.data_basis` · 이름표 `utils/marketDataLabels`
 - 별도재무제표 회사 분기(V69): `dartfinancial/DartQuarterly`(순수, 누적 → 개별 분기·대상 판정) · 수집 `DartControllingFinancialService.fillQuarters` · 읽기 `QuarterlyFinancials.usableFromStored`
-- 공매도(거래 비중, 표시 전용): `shortselling/` — 수집·조회 `ShortSellingTradeService`(KIS 상위종목·일별추이), 파서 `ShortSaleRows`(순수), 표 `short_selling_trade`(V67), API `/api/short-selling/**`. 잔고 `ShortSellingService` 는 조회 전용(출처 없음 — 봇 차단·19시 경보 비활성), 화면 `InvestorAnalysisPage.vue` 공매도 탭
+- 공매도(거래 비중, 표시 전용): `shortselling/` — 수집·조회 `ShortSellingTradeService`(KIS 상위종목·일별추이), 파서 `ShortSaleRows`(순수), 표 `short_selling_trade`(V67), API `/api/short-selling/**`. 잔고 `ShortSellingService` 는 조회 전용, 화면 `InvestorAnalysisPage.vue` 공매도 탭
 - 모닝브리핑+재료워밍: `MorningBriefingService` (크론은 `StockAlertScheduler` 07:30)
 - 시세: `StockPriceService`, KIS: `KoreaInvestmentService`
 - 체결강도: `ScalpingAnalysisService` (ccnl 폴백 `getCcnlVolumePower`), 게이지: `VolumePowerGauge.vue`
 - 시장 진단(ADR): `MarketTimingService`, 섹터 거래대금: `SectorTradingService`
 - 시장 폭·ADR: `MarketBreadth`(순수, KIS 등락 수 파싱·ADR 유효일 규칙) → `MarketTimingService`(수집 16:30·화면·이력), 관제실 규칙 ⑮. 매매 사유 이름 `TradeReasonLabels`, 화면 이름표 `frontend/src/utils/marketDataLabels.js`
 - 시장 국면(V32): python `regime_service.py` ↔ Java `MarketRegimeClient`
-- 차트기법 신호(미검증 베타): python 지표 `app/indicators/*`(순수, `tests/test_indicators.py`) + `chart_pattern_service.py`/`sector_strength_service.py` + `routers/chart_patterns.py`. 파라미터 `ChartPatternConfig`(config.py). Java `ChartPatternClient`/`ChartSignalRanker`(순수, `ChartSignalRankerTest`)/`ChartSignalController`. 프론트: **타이밍** = `TodayBriefingTab.vue`(오늘 탭 **'🪝 차트 타이밍 관찰'** 섹션 — 화면 h2 문자열과 동일, `loadTimingCandidates`. ⚠ **'매수 후보'가 아니다** — 그 이름은 별개 섹션 '📌 오늘의 매수 후보'의 것이고, 이 섹션은 접기 기본·점수 미표시가 불변식), **섹터강도** = `StockTradingDashboardV2.vue`(발굴 탭 상단 배지, `refreshSectorStrength`)
+- 차트기법 신호(미검증 베타): python 지표 `app/indicators/*`(순수, `tests/test_indicators.py`) + `chart_pattern_service.py`/`sector_strength_service.py` + `routers/chart_patterns.py`. 파라미터 `ChartPatternConfig`(config.py). Java `ChartPatternClient`/`ChartSignalRanker`(순수, `ChartSignalRankerTest`)/`ChartSignalController`. 프론트: **타이밍** = `TodayBriefingTab.vue`(오늘 탭 '🪝 차트 타이밍 관찰' — '매수 후보' 섹션이 아니다(§ia.4), `loadTimingCandidates`), **섹터강도** = `StockTradingDashboardV2.vue`(발굴 탭 상단 배지, `refreshSectorStrength`)
 - 봇: `AutoTradingBotService`, 성과: `BotPerformanceService`
 - 봇 성적 게이트(⑧): 판정 `controlroom/BotGateRules`(순수), 입력 `BotTradeOutcomes`(순수, FIFO 로 매수 사유=전략), 조립 `BotPerformanceService.trustGateSummary` → 관제실 `ControlRoomSnapshotService.botGate`·주간 텔레그램 `SignalWeeklyReportService.gateSection`
 - 봇 실주문: `RealTradeService`(체결확인 `confirmFill`/`resolveFill`, KIS주문성공+DB실패→killswitch), 재시작 정합성 `AutoTradingBotService.reconcilePositionsWithKis`/`computeReconciliation`, KIS 체결조회 `KoreaInvestmentService.inquireDailyCcld`(TTTC0081R)
@@ -342,18 +340,19 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 판정 관제실: `controlroom/` 패키지(`ControlRoomSnapshotService`·`CrewOrchestrationService`·`CrewPrompts`, 파서 3종은 순수함수), 프론트 `views/ControlRoomView.vue`+`components/controlroom/`, 문서 `docs/CONTROL_ROOM.md`
 - 프론트 시간대 판정: `StockTradingDashboardV2.vue` 의 `currentPhaseKey`(장 시작 `tradingStartsAt`·휴장 `marketClosedToday` 는 서버 값)
 - 최대 화면: `StockDetailDashboard.vue` (약 2,700줄, 2026-11-11)
-- 종목상세 주가 차트: **lightweight-charts 렌더러 `components/v2/HtsChart.vue`**(십자선·축눈금·줌/팬 내장, 2026-07-15 DIV/SVG 수제 차트에서 교체). 시리즈 변환 순수함수 `utils/htsChartData.js`(일봉 date/분봉 KST epoch time 규약). 데이터/계산 계층은 `composables/useChartCalculations.js`(채널·꼬리는 `utils/trendChannel.js`·`utils/candleAnatomy.js`, 백엔드 `TrendChannelCalculator`·V49 스냅샷과 산식 동기 — 변경 시 화면↔보드↔검증 어긋남). 당일 분봉('1일' 탭)=`IntradayChartService`(`/api/stock/{code}/intraday-candles`). 마이그레이션 이력: `docs/GUIDE_HTS_CHART_MIGRATION.md`.
+- 종목상세 주가 차트: **lightweight-charts 렌더러 `components/v2/HtsChart.vue`**. 시리즈 변환 순수함수 `utils/htsChartData.js`(일봉 date/분봉 KST epoch time 규약). 데이터/계산 계층은 `composables/useChartCalculations.js`(채널·꼬리는 `utils/trendChannel.js`·`utils/candleAnatomy.js`, 백엔드 `TrendChannelCalculator`·V49 스냅샷과 산식 동기 — 변경 시 화면↔보드↔검증 어긋남). 당일 분봉('1일' 탭)=`IntradayChartService`(`/api/stock/{code}/intraday-candles`). 마이그레이션 이력: `docs/GUIDE_HTS_CHART_MIGRATION.md`.
 
 ## 프론트 IA (P-IA 3단계, 2026-06-11)
 - 주식 허브 = `StockTradingDashboardV2` 단일 화면, **GNB 4탭: 오늘/시장/발굴/매매** (`DashboardHeader.vue`). 레거시 경로(/sector, /news, /ai-strategy 등)는 main.js 에서 탭 쿼리로 redirect — **새 주식 화면(라우트)을 만들지 말고 탭/서브탭에 흡수할 것.**
-- 기본 진입은 **'오늘' 탭**(`TodayBriefingTab.vue` — 시장 한줄·🌙간밤미국장·매수 후보(55점 컷)·🪝차트타이밍관찰(접힘)·신뢰도·포지션. 하단 도구 바로가기 3버튼은 GNB 중복이라 2026-07-21 제거). `resolveInitialTab` 쿼리 없으면 today 고정 — 시각 기반 분기로 되돌리지 말 것. 탭 매핑 회귀 테스트: `StockTradingDashboardV2.ia.test.js`.
+- 기본 진입은 **'오늘' 탭**(`TodayBriefingTab.vue` — 시장 한줄·🌙간밤미국장·매수 후보(55점 컷)·🪝차트타이밍관찰(접힘)·신뢰도·포지션). `resolveInitialTab` 쿼리 없으면 today 고정 — 시각 기반 분기로 되돌리지 말 것. 탭 매핑 회귀 테스트: `StockTradingDashboardV2.ia.test.js`.
   - **시간대신호(장전/장후)·실시간수급(장중)·관심종목은 '오늘' 탭 — 허브 데이터를 슬롯(`#phase-signals`/`#watchlist`)으로 `TodayBriefingTab` 에 넣는다. 발굴↔오늘 위젯을 되섞지 말 것.** 차트신호 세 곳은 서로 다른 엔진이다(발굴 '📐 차트 패턴' = Java `ChartPatternService` · '🪝 차트 타이밍' = python `compute_timing` · 🎯종합 = `compositeRanking`) — 삭제·통합·은퇴 금지('패턴'/'타이밍' 이름으로만 구분). (§ia.2-1)
-- **역할 분리(2026-06-23~24): 오늘=모멘텀, 발굴=다각도 선별.** 모멘텀 종합추천 TOP10(`getTop5`)은 '오늘' 탭 전용 — **발굴에 모멘텀 TOP10 다시 넣지 말 것**(오늘과 중복 + "오른 종목만" 노출의 원인이었음).
+- **역할 분리(2026-06-23~24): 오늘=모멘텀, 발굴=다각도 선별.** 모멘텀 종합추천 TOP10(`getTop5`)은 '오늘' 탭 전용 — **발굴에 모멘텀 TOP10 다시 넣지 말 것**.
 - **차트 기법을 붙일 땐 발굴/매수후보 스코어러를 분리한다** — 섹터 상대강도 = 발굴 탭 상단 배지(유니버스 필터), 정배열+눌림목 타이밍 = '오늘' 탭 '🪝 차트 타이밍 관찰'(매수후보 아님·접기 기본·점수 미표시). 기존 momentum 스코어러(`RecommendationService`/`getTop5`)에 넣지 말고 별도 모듈(python `app/indicators/*` + Java `ChartPatternClient`/`ChartSignalRanker`/`ChartSignalController`), 실거래·봇·매수후보 승격 금지(`unverified=true`). (§ia.4)
-- **발굴은 🧭종합판단 + 백테스트(+ 💎저평가)만 보인다 — 숨긴 탭·🎯종합의 코드·딥링크(`?sub=`)는 보존(삭제·은퇴 금지).** 복구는 `discoverListVisible`·`visibleDiscoverListKeys`·`resolveInitialDiscoverGroup`·`discoverSubTabs`. 💎저평가(`?tab=discover&sub=value`)는 갱신 막대 없음·'성과 검증 전'(`VALUE_LIST_BASIS`)·계산 실패면 '불러오지 못했습니다'. 회귀 프론트 `StockTradingDashboardV2.valueList`. (§ia.5)
-  - 💎저평가 `getValueTop10` (PBR·ROE·부채·흑자) / 🚀성장 `getGrowthTop10` (매출·이익 성장률+PEG) / 📉낙폭과대 `getOversoldTop10` (RSI 과매도+MA20 낙폭+반등, 가격히스토리 스캔) / 💰실적 `getEarningsTop10` (흑자전환·이익급증) / 🏦수급 `getSmartMoneyTop10` (외국인·기관 순매수).
+- **발굴 첫 화면은 목록(💎저평가·👑주도주), 🧭종합판단·백테스트는 옆 줄이다(2026-11-19 사용자 결정) — 숨긴 4트랙·🎯종합 등의 코드·딥링크(`?sub=`)는 보존(삭제·은퇴 금지).** 되돌리기·복구는 `resolveInitialDiscoverGroup`·`visibleDiscoverListKeys`·`discoverSubTabs`. 종합판단으로 바로 가는 링크는 `?sub=board` 를 싣는다(관제실 `CONTROL_ROOM_NAV` 의 `sub`). 목록 화면은 갱신 막대 없음·'성과 검증 전'·조회 실패면 '불러오지 못했습니다'. 회귀 프론트 `StockTradingDashboardV2.valueList`·`ControlRoomNav`. (§ia.5)
   - **lazy 로드**: `ensureDiscoverListLoaded(key)` 가 보고 있는 트랙만 호출(특히 낙폭과대 universe 스캔이 무거움), 각 30분 캐시. 5트랙 동시 eager 로드로 되돌리지 말 것.
-  - 백엔드 5트랙 공통 골격: financial/price/투자자 데이터 broad 스캔 → 점수 → 상위30 `quickDangerCheck`(DART) → top10. 실적/수급은 기존 `scoreEarnings`/`scoreSupplyDemand` 산식 **재사용**(`calculateCategoryTop10`, 단일 출처). 성장 산식 `computeGrowthScoreParts`/낙폭 `computeOversoldScoreParts` 는 순수함수(테스트 有).
+  - 실적·수급 트랙은 종합추천 산식(`scoreEarnings`/`scoreSupplyDemand`)을 그대로 쓴다(`calculateCategoryTop10`, 단일 출처). 트랙별 점수 항목·공통 골격은 `docs/rules/ia-frontend.md` §ia.5.
+  - **💎저평가 시가총액 크기 보기(전체·3천억·1조 이상)는 대상만 줄인다 — 점수·순서(`VALUE_ORDER`)·필터는 전체와 같게, `getValueTop10()`(종합판단 보드·재료 워밍이 읽는 전체 목록)의 뜻을 바꾸지 말 것.** 하한 목록 `getValueTop10BySize`(캐시 따로), 선택지 `VALUE_MIN_CAP_CHOICES_EOK` = 프론트 `VALUE_SIZE_CHOICES`, 시가총액을 모르면 넣지 않는다. 회귀 `ValueTrackSizeFilterTest`. (§ia.9)
 - **허브 60초 갱신은 보이는 탭의 데이터만(`StockTradingDashboardV2._refreshAll`)** — 오늘 = 시장 한 줄(`loadMarketLine`) · 시장 = 지도·수급 패널 · 발굴 = 종합판단 보드, 다른 탭에서 돌아오면 그 탭 데이터를 바로 한 번 읽는다(watch `activeGnbTab`). 시장 지도는 화면에 쓰는 시세만 부른다. 회귀 `StockTradingDashboardV2.ia.test.js`. (§ia.6)
+- **👑주도주 목록(`leaders/`, V80, `/api/leaders`)은 표시 전용 — 추천·봇·시그널에 넣지 말 것, '사라'는 신호로 쓰지 말 것.** 대상 = 시가총액 1조 이상·마스터 시장 KOSPI/KOSDAQ(우선주·ETF 제외)·거래정지 제외, 순서 = 20거래일 평균 거래대금(`LiquidityFloor` 정의). **받은 일봉을 `stock_price_history` 에 저장하지 말 것**(추천 기술 점수·낙폭과대·정지 감지의 입력). 기준일 = 값이 굳은 마지막 거래일(`lastFinalTradingDay` — 저녁 값으로 당기지 말 것), 그 목록이 있으면 KIS 를 부르지 않는다(08:20:40·10:40:40·부팅 4분 뒤), 못 잰 종목이 10% 를 넘으면 저장 안 함, 모르는 등락·순매수는 null, 순매수는 읽을 때 `investor_stock_daily` 에서(복사 금지). 끄기 `LEADERS_REFRESH_ENABLED`(compose 배선·부팅 WARN). 회귀 `LeaderRulesTest`·`LeaderStockServiceTest`·`LeaderIsolationTest`·프론트 `SectionLeaders`. (§ia.10)
 - 결론 카드(`StockConclusionCard.vue`): 매매계획(손절/목표가+MFE/MAE) · 점수대 적중률 · 재료 배지까지 표시. 데이터 없으면 각 블록 조용히 숨김(배지 생략)이 규약.
 - **내 사이트 바로가기(`/sites`, `views/SiteLinksPage.vue`)는 주식 화면이 아니라 운영 편의 화면이다 — '새 주식 화면 금지 → 탭에 흡수'는 그대로다(종목·시세·추천 화면을 라우트로 만들지 말 것).** 목록은 DB `site_link`(V78, 계정별)에만 둔다 — 주소를 저장소·화면 파일·마이그레이션에 적지 말 것. API `/api/site-links` 는 로그인 필수·본인 행만(공개 목록에 넣지 말 것), 주소는 http/https 만 저장하고 링크로 그린다(`SiteLinkRules.url`·`utils/siteLinks.safeHref` 두 곳 다), 평문 렌더링(v-html 금지). 회귀 `SiteLinkRulesTest`·`SiteLinkServiceTest`·`ApiAccessPolicyTest`·프론트 `SiteLinksPage`·`siteLinks`. (§ia.8)
