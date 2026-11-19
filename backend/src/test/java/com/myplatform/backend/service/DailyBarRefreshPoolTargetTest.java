@@ -56,33 +56,36 @@ class DailyBarRefreshPoolTargetTest {
     @DisplayName("재현: 그날 봉을 가진 종목이 없어도(마감 전 봉 미저장) 후보 풀 두 종목의 확정 봉을 받는다")
     void collectsCandidatePoolEvenWithoutSavedBars() {
         StockAnalysisService analysis = mock(StockAnalysisService.class);
+        when(analysis.tryCollectPriceHistory(anyString())).thenReturn(true);
         DailyBarRefreshService svc = service(historyWith(List.of()), analysis, poolOf("005930", "000660"));
 
         int done = svc.refreshBarsFor(LocalDate.of(2026, 10, 19));
 
         assertThat(done).isEqualTo(2);
-        verify(analysis).collectPriceHistory("005930");
-        verify(analysis).collectPriceHistory("000660");
+        verify(analysis).tryCollectPriceHistory("005930");
+        verify(analysis).tryCollectPriceHistory("000660");
     }
 
     @Test
     @DisplayName("후보 풀 ∪ 그날 봉을 가진 종목 — 겹치는 종목은 한 번만")
     void unionWithoutDuplicates() {
         StockAnalysisService analysis = mock(StockAnalysisService.class);
+        when(analysis.tryCollectPriceHistory(anyString())).thenReturn(true);
         DailyBarRefreshService svc = service(historyWith(List.of("000660", "035420")), analysis, poolOf("005930", "000660"));
 
         int done = svc.refreshBarsFor(LocalDate.of(2026, 10, 19));
 
         assertThat(done).isEqualTo(3);
-        verify(analysis, times(1)).collectPriceHistory("000660");
-        verify(analysis).collectPriceHistory("005930");
-        verify(analysis).collectPriceHistory("035420");
+        verify(analysis, times(1)).tryCollectPriceHistory("000660");
+        verify(analysis).tryCollectPriceHistory("005930");
+        verify(analysis).tryCollectPriceHistory("035420");
     }
 
     @Test
     @DisplayName("재현: 재시작 뒤 계산 전이라 후보 풀이 없으면 직전 거래일 봉을 가진 종목(그날 아침 계산이 받아 둔 후보 풀)으로 대신한다")
     void noPoolFallsBackToPreviousTradingDayBars() {
         StockAnalysisService analysis = mock(StockAnalysisService.class);
+        when(analysis.tryCollectPriceHistory(anyString())).thenReturn(true);
         StockPriceHistoryRepository repo = mock(StockPriceHistoryRepository.class);
         when(repo.findStockCodesByTradeDate(LocalDate.of(2026, 10, 19))).thenReturn(List.of("035420"));
         when(repo.findStockCodesByTradeDate(LocalDate.of(2026, 10, 16))).thenReturn(List.of("005930", "000660"));   // 직전 거래일(금)
@@ -91,9 +94,9 @@ class DailyBarRefreshPoolTargetTest {
         int done = svc.refreshBarsFor(LocalDate.of(2026, 10, 19));
 
         assertThat(done).isEqualTo(3);
-        verify(analysis).collectPriceHistory("005930");
-        verify(analysis).collectPriceHistory("000660");
-        verify(analysis).collectPriceHistory("035420");
+        verify(analysis).tryCollectPriceHistory("005930");
+        verify(analysis).tryCollectPriceHistory("000660");
+        verify(analysis).tryCollectPriceHistory("035420");
     }
 
     @Test
@@ -101,13 +104,14 @@ class DailyBarRefreshPoolTargetTest {
     @SuppressWarnings("unchecked")
     void poolFailureDoesNotStopBatch() {
         StockAnalysisService analysis = mock(StockAnalysisService.class);
+        when(analysis.tryCollectPriceHistory(anyString())).thenReturn(true);
         ObjectProvider<RecommendationService> broken = mock(ObjectProvider.class);
         when(broken.getIfAvailable()).thenThrow(new IllegalStateException("context closing"));
         DailyBarRefreshService svc = service(historyWith(List.of("035420")), analysis, broken);
 
         assertThat(svc.refreshBarsFor(LocalDate.of(2026, 10, 19))).isEqualTo(1);
-        verify(analysis).collectPriceHistory("035420");
-        verify(analysis, never()).collectPriceHistory("005930");
+        verify(analysis).tryCollectPriceHistory("035420");
+        verify(analysis, never()).tryCollectPriceHistory("005930");
     }
 
     @Test
@@ -122,9 +126,10 @@ class DailyBarRefreshPoolTargetTest {
     @DisplayName("대상이 하나도 없으면 KIS 를 부르지 않는다")
     void nothingToDo() {
         StockAnalysisService analysis = mock(StockAnalysisService.class);
+        when(analysis.tryCollectPriceHistory(anyString())).thenReturn(true);
         DailyBarRefreshService svc = service(historyWith(List.of()), analysis, poolOf());
 
         assertThat(svc.refreshBarsFor(LocalDate.of(2026, 10, 19))).isZero();
-        verify(analysis, never()).collectPriceHistory(anyString());
+        verify(analysis, never()).tryCollectPriceHistory(anyString());
     }
 }

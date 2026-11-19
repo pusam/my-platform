@@ -78,7 +78,7 @@ public class DailyBarRefreshService {
         }
         try {
             int refreshed = refreshBarsFor(LocalDate.now());
-            log.info("[일봉갱신] 완료 — {}종목 재수집", refreshed);
+            log.info("[일봉갱신] 완료 — {}종목 받음", refreshed);
         } catch (Exception e) {
             log.error("[일봉갱신] 실패: {}", e.getMessage(), e);
         }
@@ -105,7 +105,7 @@ public class DailyBarRefreshService {
             long before = stockAnalysisService.correctedBarCount();
             int refreshed = refreshBarsFor(target);
             long corrected = stockAnalysisService.correctedBarCount() - before;
-            log.info("[일봉갱신] 아침 갱신 완료 — {} 봉 기준 {}종목 재수집, 값이 달라 고친 봉 {}개", target, refreshed, corrected);
+            log.info("[일봉갱신] 아침 갱신 완료 — {} 봉 기준 {}종목 받음, 값이 달라 고친 봉 {}개", target, refreshed, corrected);
             if (tooFewCorrected(refreshed, corrected)) {
                 log.warn("[일봉갱신] 아침 갱신이 고친 봉이 {}종목 중 {}개뿐 — 평소엔 대부분 바뀐다. KIS 값이 아직 안 바뀐 시각이면 "
                         + "그날 기술 채점이 저녁 값을 읽는다(07:40 이 이른지 볼 것)", refreshed, corrected);
@@ -121,7 +121,7 @@ public class DailyBarRefreshService {
     }
 
     /**
-     * 지정 거래일의 봉을 가진 종목들을 재수집해 확정값으로 덮어쓴다. 반환 = 실제 재수집 시도한 종목 수.
+     * 지정 거래일의 봉을 가진 종목들을 재수집해 확정값으로 덮어쓴다. 반환 = KIS 가 봉을 돌려준 종목 수(실패는 한 번 더 시도한 뒤에도 실패한 것만 뺀다 — 11/19 전엔 시도한 수였다).
      * (관리 수동 트리거에서도 재사용 — 배치 시각을 놓친 날 복구용)
      */
     public int refreshBarsFor(LocalDate tradeDate) {
@@ -158,27 +158,59 @@ public class DailyBarRefreshService {
                     codes.size(), MAX_STOCKS_PER_RUN, limit, codes.size() - limit);
         }
 
-        int done = 0;
-        for (int i = 0; i < limit; i++) {
-            String code = picked.get(i);
-            try {
-                // collectPriceHistory 가 60봉을 재수집 → DailyBarUpsertRule 이 당일 봉을 확정값으로 덮어쓴다.
-                stockAnalysisService.collectPriceHistory(code);
-                done++;
-            } catch (Exception e) {
-                log.debug("[일봉갱신] {} 재수집 실패(스킵): {}", code, e.getMessage());
-            }
-            if (i < limit - 1) {
-                try {
-                    Thread.sleep(RATE_LIMIT_MS);   // KIS rate limit 보호 — 배치 풀이라 트레이딩 슬롯 무영향
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    log.warn("[일봉갱신] 중단됨 — {}/{}종목 처리 후 종료", done, limit);
-                    break;
-                }
-            }
+        List<String> failed = collectAll(picked);
+        int firstFailures = failed.size();
+        if (!failed.isEmpty() && !Thread.currentThread().isInterrupted()) {
+            // KIS 가 몇 분 동안 '호출 후처리(MCI전송) 오류'를 섞어 줄 때가 있다(11/19 아침 462종목 중 144). 실패한 종목만 한 번 더.
+            if (pause(retryPauseMs)) failed = collectAll(failed);
+        }
+        int done = limit - failed.size();
+        if (firstFailures > 0 && failed.isEmpty()) {
+            log.info("[일봉갱신] {} 봉 — {}종목 받음(처음 실패 {}종목은 다시 시도해 받음)", tradeDate, done, firstFailures);
+        } else if (!failed.isEmpty()) {
+            log.warn("[일봉갱신] {} 봉 — {}종목 중 {}종목은 KIS 조회 실패로 못 받았다(처음 실패 {} · 다시 시도해도 실패 {}). "
+                            + "그 종목의 봉은 이전 값 그대로다(저녁 값이면 KRX 종가가 아니다) — 예: {}",
+                    tradeDate, limit, failed.size(), firstFailures, failed.size(),
+                    failed.subList(0, Math.min(10, failed.size())));
         }
         return done;
+    }
+
+    /** 실패 뒤 다시 시도하기 전 쉬는 시간(ms) — KIS 쪽 일시 오류가 지나가길 기다린다. 테스트에서 줄인다. */
+    long retryPauseMs = 30_000L;
+
+    /** 차례로 받는다 — 반환 = 못 받은 종목(조회 실패·빈 응답). 중단되면 남은 종목도 못 받은 것으로 센다. */
+    private List<String> collectAll(List<String> codes) {
+        List<String> failed = new java.util.ArrayList<>();
+        for (int i = 0; i < codes.size(); i++) {
+            String code = codes.get(i);
+            boolean ok;
+            try {
+                // 60봉을 재수집 → DailyBarUpsertRule 이 당일 봉을 확정값으로 덮어쓴다.
+                ok = stockAnalysisService.tryCollectPriceHistory(code);
+            } catch (Exception e) {
+                log.debug("[일봉갱신] {} 재수집 실패: {}", code, e.getMessage());
+                ok = false;
+            }
+            if (!ok) failed.add(code);
+            if (i < codes.size() - 1 && !pause(RATE_LIMIT_MS)) {   // KIS rate limit 보호 — 배치 풀이라 트레이딩 슬롯 무영향
+                log.warn("[일봉갱신] 중단됨 — {}/{}종목 처리 후 종료", i + 1, codes.size());
+                failed.addAll(codes.subList(i + 1, codes.size()));
+                break;
+            }
+        }
+        return failed;
+    }
+
+    private static boolean pause(long ms) {
+        if (ms <= 0) return true;
+        try {
+            Thread.sleep(ms);
+            return true;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     /**

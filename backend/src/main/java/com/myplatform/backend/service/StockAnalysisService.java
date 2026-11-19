@@ -1095,16 +1095,29 @@ public class StockAnalysisService {
     }
 
     public void collectPriceHistory(String stockCode) {
+        tryCollectPriceHistory(stockCode);
+    }
+
+    /**
+     * {@link #collectPriceHistory} 와 같고, KIS 가 봉을 돌려줬는지를 알려준다(2026-11-19).
+     *
+     * <p>false = 조회 실패·빈 응답(예: KIS '호출 후처리(MCI전송) 오류'). 다른 스레드가 같은 종목을 받는 중이면 true(그쪽이 받는다).
+     * 일봉 보정 배치가 실패를 '재수집 완료'로 세던 것을 가리려고 만들었다 — 11/19 아침 462종목 중 144종목이 실패했는데 완료 로그는 462 였다.
+     */
+    public boolean tryCollectPriceHistory(String stockCode) {
         if (!collectingStocks.add(stockCode)) {
-            return; // 이미 수집 중
+            return true; // 이미 수집 중 — 그쪽이 받는다
         }
         try {
             List<KoreaInvestmentService.OhlcvData> ohlcv = koreaInvestmentService.getDailyOhlcv(stockCode, 60);
             if (ohlcv != null && !ohlcv.isEmpty()) {
                 savePriceHistoryToDb(stockCode, ohlcv);
+                return true;
             }
+            return false;
         } catch (Exception e) {
             log.debug("일봉 수집 실패 {}: {}", stockCode, e.getMessage());
+            return false;
         } finally {
             collectingStocks.remove(stockCode);
         }

@@ -38,6 +38,7 @@ class DailyBarMorningRefreshTest {
         var repo = mock(StockPriceHistoryRepository.class);
         when(repo.findStockCodesByTradeDate(LAST_CLOSED)).thenReturn(List.of("005930", "000660"));
         var analysis = mock(StockAnalysisService.class);
+        when(analysis.tryCollectPriceHistory(anyString())).thenReturn(true);
         var lock = mock(SchedulerLockService.class);
         when(lock.tryLock(anyString(), any())).thenReturn(true);
         var calendar = mock(MarketCalendarService.class);
@@ -61,8 +62,8 @@ class DailyBarMorningRefreshTest {
         g.svc().refreshBarsBeforeOpen();
 
         verify(g.repo()).findStockCodesByTradeDate(LAST_CLOSED);
-        verify(g.analysis()).collectPriceHistory("005930");
-        verify(g.analysis()).collectPriceHistory("000660");
+        verify(g.analysis()).tryCollectPriceHistory("005930");
+        verify(g.analysis()).tryCollectPriceHistory("000660");
     }
 
     @Test
@@ -72,7 +73,7 @@ class DailyBarMorningRefreshTest {
 
         g.svc().refreshBarsBeforeOpen();
 
-        verify(g.analysis(), never()).collectPriceHistory(anyString());
+        verify(g.analysis(), never()).tryCollectPriceHistory(anyString());
     }
 
     @Test
@@ -82,7 +83,7 @@ class DailyBarMorningRefreshTest {
 
         g.svc().refreshBarsBeforeOpen();
 
-        verify(g.analysis(), never()).collectPriceHistory(anyString());
+        verify(g.analysis(), never()).tryCollectPriceHistory(anyString());
     }
 
     @Test
