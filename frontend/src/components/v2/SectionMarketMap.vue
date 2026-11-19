@@ -2,7 +2,8 @@
   <div class="section-card">
     <div class="section-title-row">
       <h2><span class="section-icon">🗺️</span> 시장 지도</h2>
-      <router-link to="/stock-dashboard?tab=analysis" class="more-link">더 보기 →</router-link>
+      <!-- sub=board: 발굴 첫 화면이 목록이 된 뒤(2026-11-19)에도 종전대로 종합판단을 연다 — 화면 키가 없으면 저평가 목록이 열린다 -->
+      <router-link to="/stock-dashboard?tab=discover&sub=board" class="more-link">더 보기 →</router-link>
     </div>
 
     <SkeletonLoader v-if="loading" type="heatmap" />

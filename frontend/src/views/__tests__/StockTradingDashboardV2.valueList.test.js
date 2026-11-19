@@ -263,3 +263,134 @@ describe('발굴 목록은 발굴 탭을 볼 때만 읽는다', () => {
     expect(ctx.ensureDiscoverListLoaded).toHaveBeenCalledWith('value')
   })
 })
+
+/**
+ * 발굴로 가는 링크는 화면 키(?sub=)를 싣고, 허브가 이미 떠 있어도 그 키를 따른다(2026-11-19, 독립 검토 지적).
+ *
+ * <p>재현: 발굴 첫 화면이 목록이 되자, 화면 키 없이 발굴로 보내던 링크 두 곳 — 09:00 '상승 가속 N종목 포착' 알림과 시장 지도
+ * '더 보기' — 이 종합판단 대신 저평가 목록을 열었다(에러 없이). 게다가 둘 다 허브 안에서 눌리는데(알림 종은 머리줄, '더 보기'는 시장 탭)
+ * 허브는 sub 를 처음 열 때만 읽어, 링크에 sub 를 실어도 보고 있던 그룹이 그대로였다.
+ */
+describe('발굴 화면 키(?sub=)', () => {
+  const alertSrc = readFileSync(join(process.cwd(), '../backend/src/main/java/com/myplatform/backend/service/RecommendationService.java'), 'utf8')
+  const mapSrc = readFileSync(join(process.cwd(), 'src/components/v2/SectionMarketMap.vue'), 'utf8')
+  /** 그 주소로 허브를 처음 열면 어느 화면인가 — 허브의 판정 함수 그대로. */
+  const opens = (link) => {
+    const query = Object.fromEntries(new URLSearchParams(link.split('?')[1] || ''))
+    const route = { $route: { query } }
+    return {
+      tab: Comp.methods.resolveInitialTab.call({ ...route, mapLegacyTab: Comp.methods.mapLegacyTab }),
+      group: Comp.methods.resolveInitialDiscoverGroup.call(route),
+      sub: Comp.methods.resolveInitialSubTab.call(route)
+    }
+  }
+  /** 허브가 떠 있는 상태 — 감시가 쓰는 메서드만 실제 것으로. */
+  const hub = (over = {}) => ({
+    activeGnbTab: 'today', discoverGroup: 'list', discoverListTab: 'value', discoverSubTab: 'board',
+    selectDiscoverDeep: Comp.methods.selectDiscoverDeep, applyDiscoverSub: Comp.methods.applyDiscoverSub,
+    ensureDiscoverListLoaded: vi.fn(), ...over
+  })
+
+  it("재현: 09:00 '상승 가속' 알림 링크는 종합판단을 연다", () => {
+    const links = [...alertSrc.matchAll(/"(\/stock-dashboard\?[^"]*)"/g)].map(m => m[1])
+    expect(links).toHaveLength(1)
+    expect(opens(links[0])).toEqual({ tab: 'discover', group: 'deep', sub: 'board' })
+  })
+
+  it("재현: 시장 지도 '더 보기' 링크도 종합판단을 연다", () => {
+    const link = mapSrc.match(/<router-link to="(\/stock-dashboard[^"]*)"/)?.[1]
+    expect(link).toBeTruthy()
+    expect(opens(link)).toEqual({ tab: 'discover', group: 'deep', sub: 'board' })
+  })
+
+  it('재현: 허브가 떠 있을 때 주소의 sub 가 심화 키로 바뀌면 목록을 보고 있었어도 그 심화 화면으로 간다', () => {
+    expect(Comp.watch['$route.query.sub']).toBeTypeOf('function')
+    const ctx = hub({ discoverGroup: 'list', discoverSubTab: 'backtest' })
+    Comp.watch['$route.query.sub'].call(ctx, 'board')
+    expect(ctx.discoverGroup).toBe('deep')
+    expect(ctx.discoverSubTab).toBe('board')
+    expect(ctx.ensureDiscoverListLoaded).not.toHaveBeenCalled()
+  })
+
+  it('sub 가 목록 키(leaders·value)면 그 목록으로 — 발굴 탭을 보고 있을 때만 읽는다', () => {
+    const away = hub({ activeGnbTab: 'today', discoverGroup: 'deep' })
+    Comp.watch['$route.query.sub'].call(away, 'leaders')
+    expect(away.discoverGroup).toBe('list')
+    expect(away.discoverListTab).toBe('leaders')
+    expect(away.ensureDiscoverListLoaded).not.toHaveBeenCalled()      // 보는 화면만 읽는다 — 탭에 들어갈 때 loadTabData 가 읽는다
+
+    const onDiscover = hub({ activeGnbTab: 'discover', discoverGroup: 'deep', discoverListTab: 'leaders' })
+    Comp.watch['$route.query.sub'].call(onDiscover, 'value')
+    expect(onDiscover.discoverGroup).toBe('list')
+    expect(onDiscover.discoverListTab).toBe('value')
+    expect(onDiscover.ensureDiscoverListLoaded).toHaveBeenCalledWith('value')
+  })
+
+  it('sub 가 없거나 발굴의 화면 키가 아니면(시장 탭의 news·investor 등) 발굴 화면을 건드리지 않는다', () => {
+    for (const sub of [undefined, null, '', 'news', 'investor', 'zzz']) {
+      const ctx = hub({ discoverGroup: 'deep', discoverSubTab: 'backtest', discoverListTab: 'leaders' })
+      Comp.watch['$route.query.sub'].call(ctx, sub)
+      expect([ctx.discoverGroup, ctx.discoverSubTab, ctx.discoverListTab]).toEqual(['deep', 'backtest', 'leaders'])
+      expect(ctx.ensureDiscoverListLoaded).not.toHaveBeenCalled()
+    }
+  })
+})
+
+/**
+ * 위 감시를 실제 라우터로 돌려 본다(2026-11-19) — 허브 전체를 띄우는 대신 허브의 감시·메서드만 얹은 작은 컴포넌트로.
+ * 보는 것: 주소가 바뀌면 감시가 실제로 돌고, 탭 감시(loadTabData 를 부르는 자리)가 돌 때는 발굴 그룹이 이미 정해져 있다.
+ */
+describe('발굴 화면 키(?sub=) — 실제 라우터에서', () => {
+  const mountHub = async (startAt) => {
+    const { createRouter, createMemoryHistory } = await import('vue-router')
+    const { mount } = await import('@vue/test-utils')
+    const seen = []       // 탭 감시가 돌 때의 [탭, 그룹, 목록 트랙, 심화 화면]
+    const loaded = []     // 읽은 목록
+    const Harness = {
+      data: () => ({ activeGnbTab: 'today', discoverGroup: 'list', discoverListTab: 'value', discoverSubTab: 'board' }),
+      watch: {
+        '$route.query.tab': Comp.watch['$route.query.tab'],
+        '$route.query.sub': Comp.watch['$route.query.sub'],
+        activeGnbTab(tab) { seen.push([tab, this.discoverGroup, this.discoverListTab, this.discoverSubTab]) }
+      },
+      methods: {
+        mapLegacyTab: Comp.methods.mapLegacyTab,
+        applyDiscoverSub: Comp.methods.applyDiscoverSub,
+        selectDiscoverDeep: Comp.methods.selectDiscoverDeep,
+        ensureDiscoverListLoaded(key) { loaded.push(key) }
+      },
+      render: () => null
+    }
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/stock-dashboard', component: Harness }] })
+    await router.push(startAt)
+    await router.isReady()
+    const w = mount(Harness, { global: { plugins: [router] } })
+    return { w, router, seen, loaded }
+  }
+
+  it("재현: '오늘' 탭에서 알림 링크(?tab=discover&sub=board)를 누르면 종합판단이 열린다 — 목록이 아니라", async () => {
+    const { w, router, seen } = await mountHub('/stock-dashboard')
+    await router.push('/stock-dashboard?tab=discover&sub=board')
+    await w.vm.$nextTick()
+    expect([w.vm.activeGnbTab, w.vm.discoverGroup, w.vm.discoverSubTab]).toEqual(['discover', 'deep', 'board'])
+    // 탭 감시(목록을 읽을지 정하는 자리)가 돌 때 그룹은 이미 '심화' — 저평가 목록을 헛읽지 않는다
+    expect(seen).toEqual([['discover', 'deep', 'value', 'board']])
+  })
+
+  it("시장 탭에서 '더 보기'(같은 주소)도, 주도주 딥링크(?sub=leaders)도 따른다", async () => {
+    const { w, router, loaded } = await mountHub('/stock-dashboard?tab=market')
+    await router.push('/stock-dashboard?tab=discover&sub=board')
+    await w.vm.$nextTick()
+    expect([w.vm.discoverGroup, w.vm.discoverSubTab]).toEqual(['deep', 'board'])
+
+    await router.push('/stock-dashboard?tab=discover&sub=leaders')
+    await w.vm.$nextTick()
+    expect([w.vm.activeGnbTab, w.vm.discoverGroup, w.vm.discoverListTab]).toEqual(['discover', 'list', 'leaders'])
+    expect(loaded).toEqual(['leaders'])       // 발굴 탭을 보고 있으니 그 목록을 읽게 한다(주도주는 스스로 읽어 실제로는 아무 호출도 없다)
+
+    // 시장 탭의 sub(news)로 가도 발굴 화면은 그대로
+    await router.push('/stock-dashboard?tab=market&sub=news')
+    await w.vm.$nextTick()
+    expect([w.vm.activeGnbTab, w.vm.discoverGroup, w.vm.discoverListTab]).toEqual(['market', 'list', 'leaders'])
+  })
+})

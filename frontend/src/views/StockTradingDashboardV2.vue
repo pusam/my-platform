@@ -892,6 +892,11 @@ export default {
       const mapped = this.mapLegacyTab(tab)
       if (mapped !== this.activeGnbTab) this.activeGnbTab = mapped
     },
+    // 발굴 화면 키(?sub=)는 허브가 이미 떠 있을 때도 따른다(2026-11-19) — 알림 종·시장 지도 '더 보기'처럼 허브 안에서 눌리는 링크가
+    // 종합판단(?sub=board)을 가리켜도, 예전엔 sub 를 처음 열 때만 읽어 보고 있던 그룹(이제 기본이 목록)이 그대로였다.
+    '$route.query.sub'(sub) {
+      this.applyDiscoverSub(sub)
+    },
     phaseSignalCodes(codes) {
       this.loadPhaseQuotes(codes)
     },
@@ -1367,6 +1372,17 @@ export default {
     selectDiscoverDeep(key) {
       this.discoverGroup = 'deep'
       this.discoverSubTab = key
+    },
+    // 주소의 발굴 화면 키 적용 — 심화 키(board·backtest·…)면 그 심화 화면, 목록 키(value·leaders)면 그 목록.
+    // 그 밖(없음·시장 탭의 sub)은 건드리지 않는다. 목록은 발굴 탭을 보고 있을 때만 읽는다(아니면 탭에 들어갈 때 loadTabData 가 읽는다).
+    applyDiscoverSub(sub) {
+      if (DISCOVER_DEEP_SUBS.includes(sub)) {
+        this.selectDiscoverDeep(sub)
+      } else if (DISCOVER_LIST_SUBS.includes(sub)) {
+        this.discoverGroup = 'list'
+        this.discoverListTab = sub
+        if (this.activeGnbTab === 'discover') this.ensureDiscoverListLoaded(sub)
+      }
     },
     // 빈 보드 폴백에서 '목록에서 발굴' — 목록 그룹 기본 트랙으로 전환.
     goDiscoverListDefault() {

@@ -766,7 +766,9 @@ public class RecommendationService {
                             return String.format("%s(%d, Δ+%d)", d.getStockName(), d.getTotalScore(), delta);
                         })
                         .collect(Collectors.joining(", "));
-                String link = "/stock-dashboard?tab=premarket";
+                // sub=board — 발굴 첫 화면이 목록이 된 뒤(2026-11-19)에도 종전대로 종합판단을 연다(화면 키가 없으면 저평가 목록이 열린다).
+                // 프론트 StockTradingDashboardV2.valueList.test.js 가 이 주소를 허브의 판정 함수로 대조한다.
+                String link = "/stock-dashboard?tab=discover&sub=board";
                 for (User u : admins) {
                     notificationService.createNotificationForUser(u.getId(), "SUCCESS", title, body, link);
                 }

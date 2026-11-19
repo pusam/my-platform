@@ -108,3 +108,14 @@ describe('SectionMarketMap — 자금 흐름·히트맵 기준(2026-10-04)', () 
     expect(w.find('.heatmap-basis').text()).toContain('상위 5종목 평균')
   })
 })
+
+// 2026-11-19: 발굴 첫 화면이 목록(💎저평가·👑주도주)이 됐다 — '더 보기'는 종전대로 종합판단으로 가야 하므로 화면 키(sub)를 싣는다.
+// 템플릿 속성의 '&sub' 가 문자 참조로 풀리지 않고 그대로 가는지도 렌더 결과로 본다.
+describe("SectionMarketMap — '더 보기' 링크", () => {
+  it('재현: 화면 키 없이 발굴로 보내면 저평가 목록이 열린다 — 종합판단 화면 키를 싣는다', () => {
+    const w = mountMap()
+    const link = w.find('router-link-stub.more-link')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('to')).toBe('/stock-dashboard?tab=discover&sub=board')
+  })
+})
