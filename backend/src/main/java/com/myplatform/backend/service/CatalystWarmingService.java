@@ -86,7 +86,17 @@ public class CatalystWarmingService {
             log.debug("[재료워밍] union 락 미획득 — 스킵");
             return;
         }
+        long naverFailuresBefore = NaverSearchService.failureCount();
         warmUnionCatalysts();
+        // 네이버 뉴스 검색이 이 실행 중 실패했으면(키 거절 401·403, 한도 429, 연결 실패 등) 배치 모니터(batch_job_execution)에
+        // FAILED 로 남긴다 — 23:30 헬스체크가 사유와 함께 보여 준다. 실패한 종목은 재료를 저장하지 않았다(다음 기회 재분류).
+        // 일은 다 끝낸 뒤 던진다(다른 종목 분류는 그대로). 2026-11-19 NAVER API HUB 이전.
+        long naverFailures = NaverSearchService.failureCount() - naverFailuresBefore;
+        if (naverFailures > 0) {
+            throw new IllegalStateException(String.format(
+                    "[재료워밍] 네이버 뉴스 검색 실패 %d건 — %s (그 종목은 재료를 저장하지 않았다)",
+                    naverFailures, NaverSearchService.lastFailureSummary()));
+        }
     }
 
     /**

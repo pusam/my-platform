@@ -234,6 +234,50 @@ class StockCatalystServiceTest {
         verify(naver, never()).searchStockNews(anyString());          // 소스 다운이면 조회 자체 안 함
     }
 
+    /** 키는 있는데 호출이 실패(HUB 키 거절 401 등) — NaverSearchService 가 던진다(2026-11-19, 전엔 빈 목록 → NONE 하루 캐시). */
+    private static NaverSearchService.SearchFailedException refused() {
+        return new NaverSearchService.SearchFailedException(NaverSearchService.Route.HUB, 401,
+                "네이버 뉴스 검색 실패 — 경로 HUB · HTTP 401 · 인증 실패");
+    }
+
+    @Test
+    @DisplayName("§4c: 뉴스 검색 호출 실패(키 거절 401) → null, NONE 캐시 안 함·Gemini 안 부름(다음 기회 재분류)")
+    void searchFailure_doesNotCacheNone() {
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class)))
+                .thenReturn(Optional.empty());
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);
+        when(naver.searchStockNews("삼성전자")).thenThrow(refused());
+
+        StockCatalyst result = service().getCatalyst("005930", "삼성전자");
+
+        assertThat(result).isNull();
+        verify(repository, never()).save(any(StockCatalyst.class));
+        verifyNoInteractions(gemini);
+    }
+
+    @Test
+    @DisplayName("§4c: 배치 — 뉴스 검색이 실패한 종목은 NONE 으로 저장하지 않는다(진짜 0건 종목만 NONE)")
+    void classifyBatch_searchFailure_skipsWithoutNone() {
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
+        when(naver.searchStockNews("삼성전자")).thenThrow(refused());
+        when(naver.searchStockNews("뉴스없는종목")).thenReturn(List.of());
+        when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        int classified = service().classifyBatch(List.of(
+                new StockRef("005930", "삼성전자"), new StockRef("999999", "뉴스없는종목")));
+
+        assertThat(classified).isZero();
+        var captor = org.mockito.ArgumentCaptor.forClass(StockCatalyst.class);
+        verify(repository, times(1)).save(captor.capture());
+        assertThat(captor.getValue().getStockCode()).isEqualTo("999999");   // 실패한 005930 은 저장 없음
+        verifyNoInteractions(gemini);   // 뉴스 있는 종목이 없으니 Gemini 0콜
+    }
+
     @Test
     @DisplayName("알림: 캐시 히트(이미 오늘 분류됨) → Gemini/알림 모두 미호출")
     void alert_cacheHitNoAlert() {

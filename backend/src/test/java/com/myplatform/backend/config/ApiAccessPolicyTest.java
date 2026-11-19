@@ -84,6 +84,7 @@ class ApiAccessPolicyTest {
             // 운영자 점검(서버 안 curl). 밖에서는 관리자만.
             "GET /api/diagnostics/data", "GET /api/diagnostics/earnings-source", "GET /api/diagnostics/price-scaling",
             "GET /api/diagnostics/python-health", "GET /api/diagnostics/stale-feeds",
+            "GET /api/diagnostics/naver-search",   // NAVER API HUB 이전 확인(검색 1회, 키 값 없음 — 2026-11-19)
             // python 시장 국면·섹터 강도가 토큰 없이 부른다(app/utils/index_source.py)
             "GET /api/market/index/kospi-daily",
             // 운영자 curl 검증용으로 열어 두었던 측정 메타데이터 — 화면은 로그인한 채로 부른다
@@ -109,7 +110,9 @@ class ApiAccessPolicyTest {
             "POST /api/quant-ta/collect-history", "POST /api/quant-ta/backfill-names",
             // 외부 공개 수치 대조 수동 실행 — 외부 호출을 일으킨다(관제실 밖 /api/admin, 관제실은 읽기 전용)
             "POST /api/admin/crosscheck/run",
-            "GET /api/diagnostics/data", "GET /api/diagnostics/price-scaling");
+            "GET /api/diagnostics/data", "GET /api/diagnostics/price-scaling",
+            // 네이버 검색을 실제로 1회 부른다(밖에서는 관리자만, 서버 안 curl 은 INTERNAL)
+            "GET /api/diagnostics/naver-search");
 
     @RestController
     static class AnyPath {

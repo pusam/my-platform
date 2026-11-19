@@ -34,11 +34,12 @@
 | §4b.3 | `docs/rules/4b-catalyst-gemini.md` | 상한 5종목 |
 | §4b.4 | `CLAUDE.md` | 근거 기사 링크(V53, 2026-08-20) |
 | §4b.5 | `CLAUDE.md` | 최근 공시 목록(2026-08-20) |
-| §4b.6 | `CLAUDE.md` | ⚠ 뉴스 fetch 파이프라인 함정 3종(2026-07-01, 7일 연속 100% NONE 장애 — 세 원인… |
-| §4b.6-1 | `CLAUDE.md` | 네이버 키 배선 |
-| §4b.6-2 | `CLAUDE.md` | URL 인코딩 |
-| §4b.6-3 | `CLAUDE.md` | §4c 하드닝 |
+| §4b.6 | `docs/rules/4b-catalyst-gemini.md` | ⚠ 뉴스 fetch 파이프라인 함정 3종(2026-07-01, 7일 연속 100% NONE 장애 — 세 원인… |
+| §4b.6-1 | `docs/rules/4b-catalyst-gemini.md` | 네이버 키 배선 |
+| §4b.6-2 | `docs/rules/4b-catalyst-gemini.md` | URL 인코딩 |
+| §4b.6-3 | `docs/rules/4b-catalyst-gemini.md` | §4c 하드닝 |
 | §4b.7 | `docs/rules/4b-catalyst-gemini.md` | Gemini quota — 무료 티어 rate 제한(2026-07-01 해소) |
+| §4b.8 | `docs/rules/4b-catalyst-gemini.md` | 네이버 검색 API → NAVER API HUB 이전(2026-11-19) |
 | §4c.1 | `CLAUDE.md` | 체결강도 |
 | §4c.2 | `CLAUDE.md` | 시장 진단 condition 은 ADR(20일) 기반만 |
 | §4c.3 | `CLAUDE.md` | 섹터 거래대금은 실측만 |

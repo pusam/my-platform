@@ -38,6 +38,19 @@ public class DiagnosticsController {
     private final PriceScalingDiagnosticService priceScalingDiagnosticService;
     private final com.myplatform.backend.service.PythonBackendHealthTracker pythonBackendHealthTracker;
     private final com.myplatform.backend.service.EarningSurpriseService earningSurpriseService;
+    private final com.myplatform.backend.service.NaverSearchService naverSearchService;
+
+    @GetMapping("/naver-search")
+    @Operation(
+        summary = "네이버 뉴스 검색 한 번 호출 — NAVER API HUB 이전 확인 (읽기 전용)",
+        description = "실제 검색을 1번 부르고 경로(HUB/LEGACY/NONE)·HTTP 상태·기사 수를 돌려준다. 키 값은 싣지 않는다(있다/없다만). " +
+                     "개발자센터 키는 2027-06-30 부터 막힌다 — HUB 키를 넣은 뒤 route=HUB · httpStatus=200 을 확인한다. " +
+                     "실패 누계·배치 판정에는 넣지 않는다. 검색 API 하루 한도(25,000회) 중 1회를 쓴다."
+    )
+    public ResponseEntity<Map<String, Object>> naverSearch(
+            @RequestParam(defaultValue = "삼성전자") String query) {
+        return ResponseEntity.ok(naverSearchService.probeReport(query));
+    }
 
     @GetMapping("/python-health")
     @Operation(

@@ -288,11 +288,18 @@ financial:
   statement-carry:
     max-days: ${FINANCIAL_STATEMENT_CARRY_MAX_DAYS:30}
 
-# 12. Naver Search API 설정
+# 12. Naver Search API 설정 — 뉴스 검색(재료 분류·리스크 뉴스)
+# HUB 키 둘 다 있으면 NAVER API HUB 로만, 없으면 개발자센터 키로만 부른다(NaverSearchService.Route).
+# 개발자센터 키(api)는 2027-06-30 부터 검색 API 에서 막힌다 — HUB Application 에 '검색' API(뉴스)를 추가하고 hub 키를 넣을 것.
 naver:
   api:
     client-id: ${NAVER_CLIENT_ID:}
     client-secret: ${NAVER_CLIENT_SECRET:}
+  hub:
+    client-id: ${NAVER_HUB_CLIENT_ID:}
+    client-secret: ${NAVER_HUB_CLIENT_SECRET:}
+    # api.ncloud-docs.com 'NAVER API HUB > 검색 > 뉴스 검색 결과 조회' (GET /search/v1/news)
+    news-url: ${NAVER_HUB_NEWS_URL:https://naverapihub.apigw.ntruss.com/search/v1/news}
 
 # 13. Redis L2 캐시 설정 — 기본 ON.
 # MarketCacheWarmerService 가 시장 데이터(섹터, 스마트머니, 수급급증, AI전략)를

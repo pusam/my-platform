@@ -208,6 +208,50 @@ class CatalystWarmingServiceTest {
         assertThat(codesOf(refsCaptor.getValue())).containsExactly("005930", "000660");
     }
 
+    /** 08:00 크론 경로 — 플래그 켬·락 획득(평일). */
+    private void cronReady() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "unionWarmEnabled", true);
+        when(schedulerLockService.tryLock(org.mockito.ArgumentMatchers.anyString(), any())).thenReturn(true);
+        when(recommendationService.getValueTop10()).thenReturn(top5(dto("005930", "삼성전자")));
+    }
+
+    @Test
+    @DisplayName("08:00 크론 — 이 실행 중 네이버 뉴스 검색이 실패(HUB 키 거절 401)하면 일을 끝낸 뒤 던진다 → 배치 모니터 FAILED(사유 포함)")
+    void scheduledWarm_naverFailure_endsFailedForBatchMonitor() {
+        cronReady();
+        // 실제 NaverSearchService(HUB 키) + 가짜 서버가 401 — 분류 서비스는 실패를 삼키고 0 을 돌려준다(그 종목 미캐시)
+        org.springframework.web.client.RestTemplate rest = new org.springframework.web.client.RestTemplate();
+        org.springframework.test.web.client.MockRestServiceServer server =
+                org.springframework.test.web.client.MockRestServiceServer.bindTo(rest).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.anything())
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED));
+        NaverSearchService naver = new NaverSearchService(rest, "", "", "hub-id-xxxx", "hub-secret-yyyy", null);
+        when(stockCatalystService.classifyBatch(any())).thenAnswer(inv -> {
+            try { naver.searchStockNews("삼성전자"); } catch (RuntimeException ignored) { /* classifyOneBatch 와 같다 */ }
+            return 0;
+        });
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(service::scheduledWarmUnion)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("네이버 뉴스 검색 실패 1건")
+                .hasMessageContaining("HUB").hasMessageContaining("HTTP 401")
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("hub-id-xxxx").doesNotContain("hub-secret-yyyy"));
+        verify(stockCatalystService).classifyBatch(any());   // 분류는 끝까지 돌았다
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("08:00 크론 — 뉴스 검색 실패가 없으면 종전대로 정상 종료")
+    void scheduledWarm_noNaverFailure_returnsNormally() {
+        cronReady();
+        when(stockCatalystService.classifyBatch(any())).thenReturn(1);
+
+        service.scheduledWarmUnion();
+
+        verify(stockCatalystService).classifyBatch(any());
+    }
+
     @Test
     @DisplayName("warmUnionCatalysts — 대상 없음 → 0, classifyBatch 미호출")
     void warmUnionCatalysts_emptyNoBatch() {
