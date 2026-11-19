@@ -253,7 +253,10 @@ services:
       start_period: 15s
 
   nginx:
-    image: nginx:1.25-alpine
+    # 정확한 패치 버전으로 고정한다(2026-11-19 nginx 보안 권고로 1.25.5 → 1.30.7 stable).
+    # 예전 '1.25-alpine' 은 1.25 줄이 2024-05 에 끝나며 갱신이 멈춰, 2년 넘게 보안 수정 없이 돌았다(갈래 태그는 조용히 멈춘다).
+    # 올릴 때: nginx.org/en/security_advisories.html 확인 → 로컬 nginx -t → 배포 Copy 단계의 nginx -t 가 서버 인증서로 한 번 더 막는다.
+    image: nginx:1.30.7-alpine
     container_name: myplatform-nginx
     restart: unless-stopped
     logging: *default-logging
