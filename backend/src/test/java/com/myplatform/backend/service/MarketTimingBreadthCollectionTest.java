@@ -37,6 +37,13 @@ class MarketTimingBreadthCollectionTest {
 
     private static final ObjectMapper M = new ObjectMapper();
 
+    /**
+     * 어느 날에도 장 마감 뒤인 시각. 본체는 마감 시각을 <b>오늘 날짜</b>로 읽는다 — 수집 크론 시각(16:30:20)을 그대로 넣었더니 장이 늦게 닫는
+     * 날(2026-11-19 수능일, 마감 16:40)에 '마감 전'으로 거절돼 이 테스트 두 개가 그날만 실패했다(배포 게이트가 하루 막힌다).
+     * 늦게 닫는 날의 경계 자체는 {@code MarketCalendarShiftedSessionTest} 가 날짜를 고정해 본다.
+     */
+    private static final LocalTime AFTER_ANY_CLOSE = LocalTime.of(17, 0, 20);
+
     private final MarketDailyStatusRepository repo = mock(MarketDailyStatusRepository.class);
     private final KoreaInvestmentService kis = mock(KoreaInvestmentService.class);
     private final RedisCacheService redis = mock(RedisCacheService.class);
@@ -76,7 +83,7 @@ class MarketTimingBreadthCollectionTest {
         when(kis.getIndexPrice("0001")).thenReturn(null);                     // 코스피 실패
         when(kis.getIndexPrice("1001")).thenReturn(kisBreadth(700, 900, 80)); // 코스닥 정상
 
-        assertThatThrownBy(() -> service.collectMarketData(LocalTime.of(16, 30, 20)))
+        assertThatThrownBy(() -> service.collectMarketData(AFTER_ANY_CLOSE))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("KOSPI");
 
@@ -91,7 +98,7 @@ class MarketTimingBreadthCollectionTest {
     void savesSettledCounts() throws Exception {
         when(kis.getIndexPrice(anyString())).thenReturn(kisBreadth(528, 1302, 74));
 
-        service.collectMarketData(LocalTime.of(16, 30, 20));
+        service.collectMarketData(AFTER_ANY_CLOSE);
 
         ArgumentCaptor<MarketDailyStatus> saved = ArgumentCaptor.forClass(MarketDailyStatus.class);
         verify(repo, atLeastOnce()).save(saved.capture());
